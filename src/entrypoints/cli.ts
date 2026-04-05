@@ -398,10 +398,13 @@ async function runREPL(
 
   const askQuestion = (): Promise<string> => {
     return new Promise((resolve) => {
-      // Always show status bar + separators before prompt
-      renderer.printStatusBar(getStatusInfo());
+      // Top separator ─────── minimax-m2.7-shugu-runtime ──
+      renderer.printTopSeparator();
+      // Prompt > (user types between the two bars)
       renderer.promptIndicator();
       rl.once('line', (line) => {
+        // Bottom separator + status bar (after user hits enter)
+        renderer.printStatusBar(getStatusInfo());
         resolve(line.trim());
       });
     });

@@ -66,25 +66,34 @@ export class TerminalRenderer {
     console.log(renderBanner(info));
   }
 
-  // ─── Prompt Footer ──────────────────────────────────
+  // ─── Prompt Area ───────────────────────────────────
   //
-  //  ✻ Brewed for 2m 40s
-  //  ──────────────────────────────── minimax-m2.7-shugu-runtime ──
-  //  > [user types here]
-  //  ──────────────────────────────────────────────────────────────
-  //    M2.7-hs | Project_cc (main) | 52% (483k/1000k) | $$0.04
-  //    ⏵⏵ bypass permissions on
+  //  ──────────────────────── minimax-m2.7-shugu-runtime ──
+  //  > [user types here, BETWEEN the two bars]
+  //  ──────────────────────────────────────────────────────
+  //    M2.7-hs | Project_cc | 0% (0k/205k) | $$0.00
+  //    ⏵⏵ default permissions on (shift+tab to cycle)
   //
 
   /**
-   * Print the status bar block BETWEEN two separator lines.
-   * Called after each assistant response, before the next prompt.
-   *
-   * ──────────────────── minimax-m2.7-shugu-runtime ──
-   * > [prompt]
-   * ─────────────────────────────────────────────────
-   *   M2.7-hs | Project_cc | 52% (483k/205k) | $$0.04
-   *   ⏵⏵ bypass permissions on
+   * Print the top separator (before prompt).
+   */
+  printTopSeparator(): void {
+    const w = process.stdout.columns ?? 120;
+    const runtimeLabel = 'minimax-m2.7-shugu-runtime';
+    const dashLen = Math.max(10, w - runtimeLabel.length - 4);
+    console.log(`${GRAY}${'─'.repeat(dashLen)} ${runtimeLabel} ──${R}`);
+  }
+
+  /**
+   * Print prompt indicator (user types after this).
+   */
+  promptIndicator(): void {
+    process.stdout.write(`${B}${GREEN}> ${R}`);
+  }
+
+  /**
+   * Print the bottom separator + status bar (after user input).
    */
   printStatusBar(statusInfo: {
     model: string; project: string; branch?: string;
@@ -94,25 +103,18 @@ export class TerminalRenderer {
     const w = process.stdout.columns ?? 120;
     const modeColor = statusInfo.mode === 'bypass' ? RED : statusInfo.mode === 'fullAuto' ? YELLOW : GREEN;
 
-    // Separator 1 (top) with runtime label
-    const runtimeLabel = 'minimax-m2.7-shugu-runtime';
-    const dashLen = Math.max(10, w - runtimeLabel.length - 4);
-    console.log(`${GRAY}${'─'.repeat(dashLen)} ${runtimeLabel} ──${R}`);
-
-    // Status line + mode (between the bars)
-    console.log(renderStatusLine(statusInfo));
-    console.log(`  ${D}⏵⏵ ${modeColor}${statusInfo.mode}${R} ${D}permissions on (shift+tab to cycle)${R}`);
-
-    // Separator 2 (bottom)
+    // Bottom separator
     console.log(`${GRAY}${'─'.repeat(w)}${R}`);
+
+    // Status line
+    console.log(renderStatusLine(statusInfo));
+
+    // Mode line
+    console.log(`  ${D}⏵⏵ ${modeColor}${statusInfo.mode}${R} ${D}permissions on (shift+tab to cycle)${R}`);
   }
 
   promptSeparator(): void {
     console.log(renderSeparator());
-  }
-
-  promptIndicator(): void {
-    process.stdout.write(`${B}${GREEN}> ${R}`);
   }
 
   // ─── Streaming ──────────────────────────────────────
