@@ -108,7 +108,7 @@ export function renderBanner(info: BannerInfo): string {
   }
   lines.push('');
 
-  // ═══ PART 2: Simple frame — elf on top, info below ═══
+  // ═══ PART 2: Frame — elf on top (full width), info+sessions split below ═══
   const W = Math.min(process.stdout.columns ?? 120, 120);
   const innerW = W - 2;
   const title = ` Shugu v${info.version} `;
@@ -116,28 +116,50 @@ export function renderBanner(info: BannerInfo): string {
 
   lines.push(`${GRAY}╭───${R}${B}${title}${R}${GRAY}${'─'.repeat(Math.max(0, innerW - title.length - 3))}╮${R}`);
 
-  // Elf lines (centered-ish, each on its own line, orange gradient)
+  // Elf lines (full width, no split here)
   for (let i = 0; i < ELF.length; i++) {
     const elfColor = grad(i, ELF.length, OS, OE);
     const content = `    ${elfColor}${ELF[i]}${R}`;
     lines.push(`${GRAY}│${R}${padV(content, innerW)}${GRAY}│${R}`);
   }
 
-  // Blank line
-  lines.push(`${GRAY}│${R}${' '.repeat(innerW)}${GRAY}│${R}`);
+  // ── Split section: info left │ sessions right ──
+  const leftW = Math.floor(innerW * 0.48);
+  const rightW = innerW - leftW - 1;
 
-  // Info lines (simple, no side-by-side)
-  const infoRows = [
-    `   ${B}Provider${R}  ${GREEN}${info.provider}${R}`,
-    `   ${B}Model${R}     ${CYAN}${info.model}${R}`,
-    `   ${B}Vault${R}     ${vc}${info.vaultStatus}${R}`,
+  // Mid separator
+  lines.push(`${GRAY}│${R}${' '.repeat(leftW)}${GRAY}│${R}${' '.repeat(rightW)}${GRAY}│${R}`);
+
+  // Build left: info
+  const leftRows = [
+    `  ${B}Provider${R}  ${GREEN}${info.provider}${R}`,
+    `  ${B}Model${R}     ${CYAN}${info.model}${R}`,
+    `  ${B}Vault${R}     ${vc}${info.vaultStatus}${R}`,
     '',
-    `   ${GREEN}●${R} ${info.provider.toLowerCase()}  ${GREEN}Ready${R} — type ${B}/help${R} to begin`,
-    `              ${D}${info.cwd}${R}`,
+    `  ${GREEN}●${R} ${info.provider.toLowerCase()}  ${GREEN}Ready${R} — type ${B}/help${R} to begin`,
+    `            ${D}${truncP(info.cwd, leftW - 14)}${R}`,
   ];
 
-  for (const row of infoRows) {
-    lines.push(`${GRAY}│${R}${padV(row, innerW)}${GRAY}│${R}`);
+  // Build right: real sessions from persistence
+  const rightRows: string[] = [];
+  rightRows.push(`${B}Recent sessions${R}`);
+  if (info.recentActivity.length > 0) {
+    for (const s of info.recentActivity.slice(0, 4)) {
+      rightRows.push(`${GRAY}${truncP(s, rightW - 2)}${R}`);
+    }
+  } else {
+    rightRows.push(`${GRAY}No recent sessions${R}`);
+  }
+
+  // Pad to same height
+  const maxRows = Math.max(leftRows.length, rightRows.length);
+  while (leftRows.length < maxRows) leftRows.push('');
+  while (rightRows.length < maxRows) rightRows.push('');
+
+  for (let i = 0; i < maxRows; i++) {
+    const left = padV(leftRows[i]!, leftW);
+    const right = padV(rightRows[i]!, rightW);
+    lines.push(`${GRAY}│${R}${left}${GRAY}│${R}${right}${GRAY}│${R}`);
   }
 
   lines.push(`${GRAY}╰${'─'.repeat(innerW)}╯${R}`);
@@ -168,3 +190,4 @@ export function renderStatusLine(info: {
 
 function visL(s: string): number { return s.replace(/\x1b\[[0-9;]*m/g, '').length; }
 function padV(s: string, w: number): string { const v = visL(s); return v >= w ? s : s + ' '.repeat(w - v); }
+function truncP(s: string, m: number): string { return m > 0 && s.length > m ? s.slice(0, m - 1) + '…' : s; }

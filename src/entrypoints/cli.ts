@@ -230,6 +230,15 @@ async function main(): Promise<void> {
     // Render the rich banner with all info collected
     const toolNames = registry.getAll().map(t => t.definition.name);
     const cliNames = adapters.filter(a => a.installed).map(a => a.name);
+    // Load real recent sessions for the banner
+    const tempSessionMgr = new SessionManager();
+    const recentSessions = await tempSessionMgr.listRecent(5);
+    const recentActivity = recentSessions.map((s) => {
+      const ago = formatTimeAgo(s.updatedAt);
+      const proj = s.projectDir.split(/[\\/]/).pop() ?? '';
+      return `${ago}: ${proj} (${s.turnCount}t)`;
+    });
+
     renderer.richBanner({
       version: '1.0.0',
       provider: 'MiniMax',
@@ -242,7 +251,7 @@ async function main(): Promise<void> {
       vaultStatus: credentialProvider?.isAvailable ? 'unlocked' : 'locked',
       cwd,
       tips: [],
-      recentActivity: [],
+      recentActivity,
     });
 
     // Initialize status bar
@@ -660,6 +669,19 @@ function renderContentBlock(block: ContentBlock, renderer: TerminalRenderer): vo
   } else if (isToolUseBlock(block)) {
     // Handled via tool_executing event
   }
+}
+
+// ─── Helpers ────────────────────────────────────────────
+
+function formatTimeAgo(isoDate: string): string {
+  const ms = Date.now() - new Date(isoDate).getTime();
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
 }
 
 // ─── Entry ──────────────────────────────────────────────
