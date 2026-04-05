@@ -483,11 +483,19 @@ async function runREPL(
 
   const askQuestion = (): Promise<string> => {
     return new Promise((resolve) => {
-      // Top separator + prompt (in scroll region, normal flow)
       renderer.printTopSeparator();
       renderer.promptIndicator();
 
+      // Redraw status bar on destructive keys (backspace/delete erase it on some terminals)
+      const onKeypress = (_ch: string, key: { name?: string } | undefined) => {
+        if (key?.name === 'backspace' || key?.name === 'delete') {
+          drawFixedStatusBar();
+        }
+      };
+      process.stdin.on('keypress', onKeypress);
+
       rl.once('line', (line) => {
+        process.stdin.removeListener('keypress', onKeypress);
         resolve(line.trim());
       });
     });
