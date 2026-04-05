@@ -384,10 +384,22 @@ async function runREPL(
   const session = sessionMgr.createSession(toolContext.cwd, client.model);
   const commands = createDefaultCommands();
 
-  renderer.info('Type your message. Ctrl+C to exit.\n');
+  // Helper to build status info from current state
+  const getStatusInfo = () => ({
+    model: client.model,
+    project: toolContext.cwd.split(/[\\/]/).pop() ?? '',
+    contextPercent: tokenTracker.getStatus().percentUsed,
+    contextUsed: tokenTracker.getStatus().usedTokens,
+    contextTotal: tokenTracker.getStatus().totalTokens,
+    costSession: budget.getTotalCostUsd(),
+    costTotal: budget.getTotalCostUsd(),
+    mode: permResolver.getMode(),
+  });
 
   const askQuestion = (): Promise<string> => {
     return new Promise((resolve) => {
+      // Always show status bar + separators before prompt
+      renderer.printStatusBar(getStatusInfo());
       renderer.promptIndicator();
       rl.once('line', (line) => {
         resolve(line.trim());
@@ -539,20 +551,7 @@ async function runREPL(
     }
 
     renderer.endStream(lastOutputTokens);
-
-    // Print full footer: separator + buddy + status + mode
-    const ctxStatus = tokenTracker.getStatus();
-    const statusInfo = {
-      model: client.model,
-      project: toolContext.cwd.split(/[\\/]/).pop() ?? '',
-      contextPercent: ctxStatus.percentUsed,
-      contextUsed: ctxStatus.usedTokens,
-      contextTotal: ctxStatus.totalTokens,
-      costSession: budget.getTotalCostUsd(),
-      costTotal: budget.getTotalCostUsd(),
-      mode: permResolver.getMode(),
-    };
-    renderer.printStatusBar(statusInfo);
+    // Status bar will be shown by askQuestion() before next prompt
 
     process.removeListener('SIGINT', sigintHandler);
 
