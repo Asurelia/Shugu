@@ -469,8 +469,17 @@ async function runREPL(
     drawFixedStatusBar();
   });
 
-  // Redraw status bar periodically (cost/context updates)
-  const statusInterval = setInterval(() => drawFixedStatusBar(), 2000);
+  // Only redraw status bar when state actually changes (no flicker)
+  let lastStatusHash = '';
+  function updateStatusBarIfChanged(): void {
+    const si = getStatusInfo();
+    const hash = `${si.contextPercent}|${si.costSession}|${si.mode}`;
+    if (hash !== lastStatusHash) {
+      lastStatusHash = hash;
+      drawFixedStatusBar();
+    }
+  }
+  const statusInterval = setInterval(updateStatusBarIfChanged, 2000);
 
   const askQuestion = (): Promise<string> => {
     return new Promise((resolve) => {
