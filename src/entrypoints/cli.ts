@@ -411,11 +411,22 @@ async function runREPL(
 
   const askQuestion = (): Promise<string> => {
     return new Promise((resolve) => {
+      // Top separator ─── minimax-m2.7-shugu-runtime ──
       renderer.printTopSeparator();
       renderer.promptIndicator();
 
-      // Redraw status bar on backspace (can erase bottom line on some terminals)
-      const onKeypress = (_ch: string, key: { name?: string } | undefined) => {
+      const onKeypress = (_ch: string, key: { name?: string; shift?: boolean } | undefined) => {
+        // Shift+Tab = cycle permission mode
+        if (key?.name === 'tab' && key?.shift) {
+          const modes: Array<import('../protocol/tools.js').PermissionMode> = ['default', 'plan', 'acceptEdits', 'fullAuto', 'bypass'];
+          const currentIdx = modes.indexOf(permResolver.getMode());
+          const nextIdx = (currentIdx + 1) % modes.length;
+          permResolver.setMode(modes[nextIdx]!);
+          renderer.statusBar.update({ mode: modes[nextIdx]! });
+          renderer.info(`  ${modes[nextIdx]} permissions`);
+          return;
+        }
+        // Redraw status bar on backspace
         if (key?.name === 'backspace' || key?.name === 'delete') {
           renderer.statusBar.redraw();
         }
@@ -424,6 +435,8 @@ async function runREPL(
 
       rl.once('line', (line) => {
         process.stdin.removeListener('keypress', onKeypress);
+        // Print bottom separator after user input
+        renderer.promptSeparator();
         resolve(line.trim());
       });
     });
