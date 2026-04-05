@@ -372,6 +372,11 @@ async function runREPL(
   permResolver: PermissionResolver,
   systemPrompt: string,
 ): Promise<void> {
+  // Enable keypress events on stdin (needed for bottom block redraw)
+  if (!process.stdin.listenerCount('keypress')) {
+    readline.emitKeypressEvents(process.stdin);
+  }
+
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
@@ -397,25 +402,45 @@ async function runREPL(
     mode: permResolver.getMode(),
   });
 
+  // Helper: draw the 3 lines below the prompt (bottom bar + status + mode)
+  function drawBottomBlock(si: ReturnType<typeof getStatusInfo>, cursorCol: number): void {
+    const w = process.stdout.columns ?? 120;
+    const modeColor = si.mode === 'bypass' ? '\x1b[31m' : si.mode === 'fullAuto' ? '\x1b[33m' : '\x1b[32m';
+
+    // Save cursor position
+    process.stdout.write('\x1b7');
+    // Move to next line and draw 3 lines
+    process.stdout.write('\n');
+    process.stdout.write(`\x1b[2K\x1b[90m${'─'.repeat(w)}\x1b[0m\n`);
+    process.stdout.write(`\x1b[2K${renderStatusLine(si)}\n`);
+    process.stdout.write(`\x1b[2K  \x1b[2m⏵⏵ ${modeColor}${si.mode}\x1b[0m \x1b[2mpermissions on (shift+tab to cycle)\x1b[0m`);
+    // Restore cursor position (back to prompt line)
+    process.stdout.write('\x1b8');
+  }
+
   const askQuestion = (): Promise<string> => {
     return new Promise((resolve) => {
       const si = getStatusInfo();
-      const w = process.stdout.columns ?? 120;
 
-      // Print the full block: top bar, prompt placeholder, bottom bar, status
+      // Print top separator
       renderer.printTopSeparator();
-      console.log(`\x1b[1m\x1b[32m> \x1b[0m`);                       // placeholder prompt line
-      console.log(`\x1b[90m${'─'.repeat(w)}\x1b[0m`);                 // bottom bar
-      console.log(renderStatusLine(si));                               // status line
-      const modeColor = si.mode === 'bypass' ? '\x1b[31m' : si.mode === 'fullAuto' ? '\x1b[33m' : '\x1b[32m';
-      console.log(`  \x1b[2m⏵⏵ ${modeColor}${si.mode}\x1b[0m \x1b[2mpermissions on (shift+tab to cycle)\x1b[0m`);
+      // Print prompt
+      process.stdout.write(`\x1b[1m\x1b[32m> \x1b[0m`);
+      // Draw bottom block below prompt
+      drawBottomBlock(si, 3);
 
-      // Move cursor back UP to the prompt line (4 lines up) and position after "> "
-      process.stdout.write(`\x1b[4A\x1b[3G`);
+      // On each keypress, redraw bottom block to prevent erasure
+      const keypressHandler = () => {
+        // Small delay to let readline update the line first
+        setTimeout(() => drawBottomBlock(si, 0), 5);
+      };
+
+      process.stdin.on('keypress', keypressHandler);
 
       rl.once('line', (line) => {
-        // Move cursor down past the status block (3 lines down)
-        process.stdout.write(`\x1b[3B\n`);
+        process.stdin.removeListener('keypress', keypressHandler);
+        // Move cursor down past the bottom block (3 lines) + newline
+        process.stdout.write(`\n\x1b[3B\n`);
         resolve(line.trim());
       });
     });
