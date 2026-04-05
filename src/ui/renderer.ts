@@ -42,6 +42,20 @@ export class TerminalRenderer {
   constructor() {
     this.statusBar = new StatusBar();
     this.buddy = new Buddy(true);
+    // Sync buddy to status bar so it draws above it
+    this.syncBuddy();
+  }
+
+  /** Push current buddy frame to the status bar for drawing */
+  syncBuddy(): void {
+    const lines = this.buddy.render().split('\n').filter(l => l.length > 0);
+    this.statusBar.setBuddy(lines);
+  }
+
+  /** Update buddy state and sync to status bar */
+  buddyEvent(event: string): void {
+    this.buddyEvent(event);
+    this.syncBuddy();
   }
 
   // ─── Banner ─────────────────────────────────────────
@@ -127,7 +141,7 @@ export class TerminalRenderer {
     // Show hatching indicator
     process.stdout.write(`\n${MAGENTA}✻ Hatching...${R}\n`);
     process.stdout.write(`${B}${CYAN}assistant${R} ${D}→${R} `);
-    this.buddy.onEvent('thinking');
+    this.buddyEvent('thinking');
   }
 
   streamText(text: string): void {
@@ -151,21 +165,21 @@ export class TerminalRenderer {
       }
       this.isStreaming = false;
       this.statusBar.update({ isStreaming: false });
-      this.buddy.onEvent('done');
+      this.buddyEvent('done');
     }
   }
 
   // ─── Thinking ───────────────────────────────────────
 
   thinkingHeader(): void {
-    this.buddy.onEvent('thinking');
+    this.buddyEvent('thinking');
     process.stdout.write(`\n${D}${MAGENTA}thinking${R} ${D}→ ${R}`);
   }
 
   // ─── Tool Calls ─────────────────────────────────────
 
   toolCall(name: string, id: string): void {
-    this.buddy.onEvent(`tool_${name}`);
+    this.buddyEvent(`tool_${name}`);
 
     const shortId = id.length > 12 ? id.slice(-8) : id;
     const termWidth = process.stdout.columns ?? 120;
@@ -194,7 +208,7 @@ export class TerminalRenderer {
     console.log(indented);
     console.log(`${YELLOW}└${color}${icon}${R}${YELLOW}${'─'.repeat(headerWidth - 1)}${R}`);
 
-    if (isError) this.buddy.onEvent('error');
+    if (isError) this.buddyEvent('error');
   }
 
   // ─── Info / Error / Usage ───────────────────────────
@@ -204,7 +218,7 @@ export class TerminalRenderer {
   }
 
   error(message: string): void {
-    this.buddy.onEvent('error');
+    this.buddyEvent('error');
     console.error(`\n${RED}${B}error${R}${RED} → ${message}${R}`);
   }
 
@@ -223,7 +237,7 @@ export class TerminalRenderer {
     console.log('');
     this.separator();
     console.log(`${D}Session ended: ${reason} | Cost: $${totalCost.toFixed(4)}${R}`);
-    this.buddy.onEvent('idle');
+    this.buddyEvent('idle');
     this.statusBar.stop();
   }
 

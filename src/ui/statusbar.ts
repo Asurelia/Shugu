@@ -49,6 +49,13 @@ export class StatusBar {
   private lastRendered = '';
   private running = false;
   private resizeHandler: (() => void) | null = null;
+  private buddyLines: string[] = [];
+
+  /** Set buddy lines to draw above status bar (right-aligned) */
+  setBuddy(lines: string[]): void {
+    this.buddyLines = lines;
+    if (this.running) this.drawBuddy();
+  }
 
   constructor(initial: Partial<StatusBarState> = {}) {
     this.state = {
@@ -109,12 +116,31 @@ export class StatusBar {
 
   private draw(): void {
     const rendered = this.renderLine();
-    if (rendered === this.lastRendered) return; // no change, no flicker
+    if (rendered === this.lastRendered) return;
     this.lastRendered = rendered;
 
     const row = process.stdout.rows ?? 24;
-    // Save cursor → jump to last row → clear line → write → restore cursor
     process.stdout.write(`\x1b7\x1b[${row};1H\x1b[2K${rendered}\x1b8`);
+
+    // Also redraw buddy above
+    this.drawBuddy();
+  }
+
+  private drawBuddy(): void {
+    if (this.buddyLines.length === 0) return;
+    const row = process.stdout.rows ?? 24;
+    const w = process.stdout.columns ?? 120;
+    const buddyW = 14;
+    const col = w - buddyW;
+
+    process.stdout.write('\x1b7'); // save cursor
+    for (let i = 0; i < this.buddyLines.length; i++) {
+      const r = row - this.buddyLines.length + i;
+      if (r < 1) continue;
+      // Position at right side of that row
+      process.stdout.write(`\x1b[${r};${col}H${this.buddyLines[i]}`);
+    }
+    process.stdout.write('\x1b8'); // restore cursor
   }
 
   private clear(): void {
