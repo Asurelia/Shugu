@@ -338,11 +338,27 @@ async function runSingleQuery(
     maxTurns: 25,
   };
 
+  let lastUsage = { input_tokens: 0, output_tokens: 0 };
+  let totalCost = 0;
   for await (const event of runLoop(messages, config, interrupt)) {
     handleEvent(event, renderer);
+    if (event.type === 'turn_end') lastUsage = event.usage;
+    if (event.type === 'loop_end') totalCost = event.totalCost;
   }
 
-  renderer.endStream();
+  renderer.endStream(lastUsage.output_tokens);
+
+  // Status bar after single-shot
+  renderer.printStatusBar({
+    model: client.model,
+    project: toolContext.cwd.split(/[\\/]/).pop() ?? '',
+    contextPercent: Math.round((lastUsage.input_tokens / 204800) * 100),
+    contextUsed: lastUsage.input_tokens,
+    contextTotal: 204800,
+    costSession: totalCost,
+    costTotal: totalCost,
+    mode: toolContext.permissionMode,
+  });
 }
 
 // ─── Interactive REPL ────────────────────────────────���──
@@ -524,19 +540,19 @@ async function runREPL(
 
     renderer.endStream(lastOutputTokens);
 
-    // Print separator + status line between turns
-    renderer.promptSeparator();
+    // Print full footer: separator + buddy + status + mode
     const ctxStatus = tokenTracker.getStatus();
-    renderer.printStatusLine({
+    const statusInfo = {
       model: client.model,
-      project: process.cwd().split(/[\\/]/).pop() ?? '',
+      project: toolContext.cwd.split(/[\\/]/).pop() ?? '',
       contextPercent: ctxStatus.percentUsed,
       contextUsed: ctxStatus.usedTokens,
       contextTotal: ctxStatus.totalTokens,
       costSession: budget.getTotalCostUsd(),
       costTotal: budget.getTotalCostUsd(),
       mode: permResolver.getMode(),
-    });
+    };
+    renderer.printStatusBar(statusInfo);
 
     process.removeListener('SIGINT', sigintHandler);
 
@@ -587,7 +603,7 @@ function handleEvent(
 
     case 'loop_end':
       renderer.endStream();
-      renderer.usage(`${event.reason} | $${event.totalCost.toFixed(4)}`);
+      // Status info now shown in the footer status bar, not inline
       break;
 
     case 'error':
