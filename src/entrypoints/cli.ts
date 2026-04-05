@@ -409,53 +409,114 @@ async function runREPL(
   });
   renderer.statusBar.start();
 
-  // Draw the bottom 2 lines (bar + mode) below the prompt using save/restore
-  function drawPromptBottom(): void {
+  // Build the prompt block with buddy side-by-side (in the normal flow)
+  function printPromptBlock(): void {
     const w = process.stdout.columns ?? 120;
     const mode = permResolver.getMode();
     const mc = mode === 'bypass' ? '\x1b[31m' : mode === 'fullAuto' ? '\x1b[33m' : '\x1b[32m';
+    const buddyLines = renderer.buddy.render().split('\n').filter(l => l.length > 0);
 
-    process.stdout.write('\x1b7');  // save cursor
-    process.stdout.write('\n');     // move down to bottom bar line
-    process.stdout.write(`\x1b[2K\x1b[90m${'─'.repeat(w)}\x1b[0m`);
-    process.stdout.write('\n');     // move to mode line
-    process.stdout.write(`\x1b[2K  \x1b[2m⏵⏵ ${mc}${mode}\x1b[0m \x1b[2mpermissions on (shift+tab to cycle)\x1b[0m`);
-    process.stdout.write('\x1b8');  // restore cursor back to prompt
+    const runtimeLabel = 'minimax-m2.7-shugu-runtime';
+
+    // Build the left-side lines
+    const leftLines = [
+      '',  // blank line above top bar (buddy starts here)
+      `\x1b[90m${'─'.repeat(Math.max(10, w - runtimeLabel.length - 18))} ${runtimeLabel} ──\x1b[0m`,
+      // prompt line — will be printed separately with promptIndicator
+    ];
+
+    // Bottom lines (printed after Enter)
+    // These are stored for later use
+
+    // Print buddy + top separator combined
+    const buddyW = 14;
+    const buddyCol = Math.max(0, w - buddyW);
+
+    // Print combined lines: left content + buddy at right
+    for (let i = 0; i < Math.max(leftLines.length, buddyLines.length); i++) {
+      const left = leftLines[i] ?? '';
+      const bud = buddyLines[i] ?? '';
+
+      if (bud) {
+        // Print left content, then jump to buddy column and print buddy
+        const leftVis = left.replace(/\x1b\[[0-9;]*m/g, '').length;
+        const gap = Math.max(1, buddyCol - leftVis);
+        console.log(`${left}${' '.repeat(gap)}${bud}`);
+      } else {
+        console.log(left);
+      }
+    }
   }
 
   const askQuestion = (): Promise<string> => {
     return new Promise((resolve) => {
-      // Top separator
-      renderer.printTopSeparator();
-      // Prompt >
-      renderer.promptIndicator();
-      // Bottom bar + mode (always visible)
-      drawPromptBottom();
+      const w = process.stdout.columns ?? 120;
+      const mode = permResolver.getMode();
+      const mc = mode === 'bypass' ? '\x1b[31m' : mode === 'fullAuto' ? '\x1b[33m' : '\x1b[32m';
+      const buddyLines = renderer.buddy.render().split('\n').filter(l => l.length > 0);
+      const buddyW = 14;
+      const buddyCol = Math.max(0, w - buddyW);
+      const runtimeLabel = 'minimax-m2.7-shugu-runtime';
 
+      // Build all 6 lines: buddy right-aligned next to bars
+      // Line 0: (empty or buddy top)
+      // Line 1: top separator + buddy
+      // Line 2: > prompt + buddy     ← cursor here
+      // Line 3: bottom separator + buddy
+      // Line 4: mode + buddy
+      // Line 5: (buddy bottom)
+
+      const topBar = `\x1b[90m${'─'.repeat(Math.max(10, w - runtimeLabel.length - buddyW - 6))} ${runtimeLabel} ──\x1b[0m`;
+      const botBar = `\x1b[90m${'─'.repeat(w - buddyW - 4)}\x1b[0m`;
+      const modeLine = `  \x1b[2m⏵⏵ ${mc}${mode}\x1b[0m \x1b[2mpermissions on (shift+tab to cycle)\x1b[0m`;
+
+      const leftLines = ['', topBar, '', botBar, modeLine, ''];
+
+      for (let i = 0; i < Math.max(leftLines.length, buddyLines.length); i++) {
+        const left = leftLines[i] ?? '';
+        const bud = buddyLines[i] ?? '';
+
+        if (i === 2) continue; // Skip prompt line — we'll write it separately
+
+        if (bud) {
+          const lv = left.replace(/\x1b\[[0-9;]*m/g, '').length;
+          const gap = Math.max(1, buddyCol - lv);
+          console.log(`${left}${' '.repeat(gap)}${bud}`);
+        } else if (left) {
+          console.log(left);
+        }
+      }
+
+      // Now move cursor up to the prompt line (line index 2)
+      // We printed lines 0,1,3,4,5 = 5 lines. Prompt is after line 1 (top bar).
+      // We need to go up 4 lines (from after line 5 to line 2 position).
+      process.stdout.write(`\x1b[4A`);
+
+      // Print prompt line with buddy at right
+      const promptBuddy = buddyLines[2] ?? '';
+      if (promptBuddy) {
+        // Print prompt, then we need buddy at the right — but user types here
+        // Just print the prompt, buddy will be on the line already above
+      }
+      renderer.promptIndicator();
+
+      // Shift+Tab to cycle modes
       const onKeypress = (_ch: string, key: { name?: string; shift?: boolean } | undefined) => {
-        // Shift+Tab = cycle permission mode
         if (key?.name === 'tab' && key?.shift) {
           const modes: Array<import('../protocol/tools.js').PermissionMode> = ['default', 'plan', 'acceptEdits', 'fullAuto', 'bypass'];
           const currentIdx = modes.indexOf(permResolver.getMode());
           const nextIdx = (currentIdx + 1) % modes.length;
           permResolver.setMode(modes[nextIdx]!);
           renderer.statusBar.update({ mode: modes[nextIdx]! });
-          // Redraw bottom bar with new mode
-          drawPromptBottom();
           return;
-        }
-        // Redraw on destructive keys
-        if (key?.name === 'backspace' || key?.name === 'delete') {
-          drawPromptBottom();
-          renderer.statusBar.redraw();
         }
       };
       process.stdin.on('keypress', onKeypress);
 
       rl.once('line', (line) => {
         process.stdin.removeListener('keypress', onKeypress);
-        // Move past the bottom bar + mode lines (2 lines down)
-        process.stdout.write('\n\n');
+        // Move down past the remaining lines (bottom bar + mode + buddy bottom = 3 lines)
+        process.stdout.write(`\x1b[3B\n`);
         resolve(line.trim());
       });
     });
