@@ -38,6 +38,7 @@ import { AgentOrchestrator } from '../agents/orchestrator.js';
 import type { ToolRegistryImpl } from '../tools/registry.js';
 import { CredentialVault } from '../credentials/vault.js';
 import { CredentialProvider } from '../credentials/provider.js';
+import { renderStatusLine } from '../ui/banner.js';
 
 // ─── System Prompt ──────────────────────────────────────
 
@@ -398,13 +399,23 @@ async function runREPL(
 
   const askQuestion = (): Promise<string> => {
     return new Promise((resolve) => {
-      // Top separator ─────── minimax-m2.7-shugu-runtime ──
+      const si = getStatusInfo();
+      const w = process.stdout.columns ?? 120;
+
+      // Print the full block: top bar, prompt placeholder, bottom bar, status
       renderer.printTopSeparator();
-      // Prompt > (user types between the two bars)
-      renderer.promptIndicator();
+      console.log(`\x1b[1m\x1b[32m> \x1b[0m`);                       // placeholder prompt line
+      console.log(`\x1b[90m${'─'.repeat(w)}\x1b[0m`);                 // bottom bar
+      console.log(renderStatusLine(si));                               // status line
+      const modeColor = si.mode === 'bypass' ? '\x1b[31m' : si.mode === 'fullAuto' ? '\x1b[33m' : '\x1b[32m';
+      console.log(`  \x1b[2m⏵⏵ ${modeColor}${si.mode}\x1b[0m \x1b[2mpermissions on (shift+tab to cycle)\x1b[0m`);
+
+      // Move cursor back UP to the prompt line (4 lines up) and position after "> "
+      process.stdout.write(`\x1b[4A\x1b[3G`);
+
       rl.once('line', (line) => {
-        // Bottom separator + status bar (after user hits enter)
-        renderer.printStatusBar(getStatusInfo());
+        // Move cursor down past the status block (3 lines down)
+        process.stdout.write(`\x1b[3B\n`);
         resolve(line.trim());
       });
     });
