@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shugu Architecture Explorer</title>
+<style>
+  :root {
+    --bg: #0d1117; --bg2: #161b22; --bg3: #21262d; --bg4: #30363d;
+    --fg: #e6edf3; --fg2: #8b949e; --fg3: #484f58;
+    --cyan: #58a6ff; --green: #3fb950; --yellow: #d29922;
+    --red: #f85149; --magenta: #bc8cff; --orange: #f0883e;
+    --blue: #388bfd; --pink: #f778ba;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--fg); font-family: -apple-system, 'Segoe UI', sans-serif; overflow: hidden; height: 100vh; }
+  .app { display: grid; grid-template-columns: 260px 1fr 300px; grid-template-rows: auto 1fr auto; height: 100vh; }
+  .header { grid-column: 1/-1; background: var(--bg2); border-bottom: 1px solid var(--bg4); padding: 12px 20px; display: flex; align-items: center; gap: 16px; }
+  .sidebar { background: var(--bg2); border-right: 1px solid var(--bg4); overflow-y: auto; padding: 12px; }
+  .main { overflow-y: auto; padding: 24px; }
+  .details { background: var(--bg2); border-left: 1px solid var(--bg4); overflow-y: auto; padding: 16px; }
+  .footer { grid-column: 1/-1; background: var(--bg2); border-top: 1px solid var(--bg4); padding: 8px 20px; font-size: 12px; color: var(--fg2); display: flex; justify-content: space-between; }
+  .logo { font-size: 20px; font-weight: 700; color: var(--cyan); }
+  .logo span { color: var(--magenta); }
+  .header-stats { display: flex; gap: 20px; margin-left: auto; font-size: 13px; color: var(--fg2); }
+  .header-stats .val { color: var(--green); font-weight: 600; }
+  .tabs { display: flex; gap: 2px; margin-left: 24px; }
+  .tab { padding: 6px 14px; border-radius: 6px 6px 0 0; cursor: pointer; font-size: 13px; color: var(--fg2); transition: all 0.2s; }
+  .tab:hover { color: var(--fg); background: var(--bg3); }
+  .tab.active { color: var(--cyan); background: var(--bg); border-bottom: 2px solid var(--cyan); }
+  .tree-group { margin-bottom: 12px; }
+  .tree-label { font-size: 11px; text-transform: uppercase; color: var(--fg3); letter-spacing: 1px; margin-bottom: 6px; padding: 4px 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-radius: 4px; }
+  .tree-label:hover { background: var(--bg3); }
+  .tree-label .count { font-size: 10px; background: var(--bg4); padding: 1px 6px; border-radius: 8px; }
+  .tree-item { padding: 3px 8px 3px 20px; font-size: 12px; font-family: 'Cascadia Code', 'Fira Code', monospace; color: var(--fg2); cursor: pointer; border-radius: 4px; display: flex; justify-content: space-between; }
+  .tree-item:hover { background: var(--bg3); color: var(--fg); }
+  .view { display: none; }
+  .view.active { display: block; }
+  .graph-node { position: absolute; padding: 10px 16px; border-radius: 8px; border: 2px solid var(--bg4); cursor: pointer; transition: all 0.3s; font-size: 13px; font-weight: 600; text-align: center; min-width: 110px; }
+  .graph-node:hover { transform: scale(1.08); z-index: 10; }
+  .graph-node.selected { box-shadow: 0 0 20px rgba(88,166,255,0.3); }
+  .graph-node .sub { font-size: 10px; font-weight: 400; color: var(--fg2); margin-top: 2px; }
+  .tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+  .tool-card { background: var(--bg2); border: 1px solid var(--bg4); border-radius: 8px; padding: 14px; cursor: pointer; transition: all 0.2s; }
+  .tool-card:hover { border-color: var(--cyan); transform: translateY(-2px); }
+  .tool-card .name { font-weight: 600; color: var(--cyan); margin-bottom: 4px; }
+  .tool-card .desc { font-size: 12px; color: var(--fg2); line-height: 1.4; }
+  .tool-card .cat { font-size: 10px; padding: 2px 8px; border-radius: 10px; display: inline-block; margin-top: 8px; }
+  .flow { display: flex; flex-direction: column; gap: 2px; align-items: center; }
+  .flow-step { background: var(--bg2); border: 1px solid var(--bg4); border-radius: 8px; padding: 12px 20px; width: 80%; max-width: 500px; transition: all 0.3s; cursor: pointer; }
+  .flow-step:hover { border-color: var(--cyan); }
+  .flow-step.active { border-color: var(--green); background: rgba(63,185,80,0.1); }
+  .flow-step .step-title { font-weight: 600; color: var(--cyan); }
+  .flow-step .step-desc { font-size: 12px; color: var(--fg2); margin-top: 4px; }
+  .flow-step .step-file { font-size: 11px; font-family: monospace; color: var(--magenta); margin-top: 4px; }
+  .flow-arrow { color: var(--fg3); font-size: 18px; }
+  .detail-title { font-size: 16px; font-weight: 700; color: var(--cyan); margin-bottom: 12px; }
+  .detail-section { margin-bottom: 16px; }
+  .detail-label { font-size: 11px; text-transform: uppercase; color: var(--fg3); letter-spacing: 1px; margin-bottom: 4px; }
+  .detail-value { font-size: 13px; color: var(--fg); line-height: 1.5; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin: 2px; }
+  .badge-cyan { background: rgba(88,166,255,0.15); color: var(--cyan); }
+  .badge-green { background: rgba(63,185,80,0.15); color: var(--green); }
+  .badge-yellow { background: rgba(210,153,34,0.15); color: var(--yellow); }
+  .badge-magenta { background: rgba(188,140,255,0.15); color: var(--magenta); }
+  .badge-red { background: rgba(248,81,73,0.15); color: var(--red); }
+  .stat-box { background: var(--bg2); padding: 20px; border-radius: 8px; text-align: center; }
+  .stat-num { font-size: 32px; font-weight: 700; }
+  .stat-label { color: var(--fg2); }
+  .bar-row { margin-bottom: 8px; cursor: pointer; }
+  .bar-header { display: flex; justify-content: space-between; margin-bottom: 2px; }
+  .bar-name { font-weight: 600; }
+  .bar-info { color: var(--fg2); font-size: 12px; }
+  .bar-track { background: var(--bg3); border-radius: 4px; height: 6px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--bg4); border-radius: 3px; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  .fade-in { animation: fadeIn 0.3s ease-out; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <div class="logo">SHUGU<span> Explorer</span></div>
+    <div class="tabs" id="tabs"></div>
+    <div class="header-stats">
+      <span><span class="val">70</span> files</span>
+      <span><span class="val">9,707</span> lines</span>
+      <span><span class="val">14</span> layers</span>
+      <span><span class="val">14</span> tools</span>
+    </div>
+  </div>
+  <div class="sidebar" id="sidebar"></div>
+  <div class="main" id="main-content">
+    <div class="view active" id="view-graph"></div>
+    <div class="view" id="view-tools"></div>
+    <div class="view" id="view-flow"></div>
+    <div class="view" id="view-stats"></div>
+  </div>
+  <div class="details" id="details">
+    <div class="detail-title">Select a component</div>
+    <div class="detail-section"><div class="detail-value" style="color:var(--fg2)">Click any node, tool, or file.</div></div>
+  </div>
+  <div class="footer">
+    <span>Shugu v1.0.0 | MiniMax M2.7-highspeed | CLI-first, no MCP</span>
+    <span>Project CC Architecture Explorer</span>
+  </div>
+</div>
+<script>
+// All data is hardcoded (no external fetch, single-file playground)
+const layers=[{id:"protocol",name:"Protocol",layer:0,files:7,lines:571,color:"#58a6ff",deps:[],desc:"Pure types: messages, tools, events, thinking, sessions, actions. Zero runtime.",kf:["messages.ts","tools.ts","events.ts","thinking.ts","session.ts","actions.ts"]},{id:"transport",name:"Transport",layer:1,files:5,lines:652,color:"#3fb950",deps:["protocol"],desc:"MiniMax Anthropic-compat HTTP client, SSE stream parser, auth, retry/backoff.",kf:["client.ts","stream.ts","auth.ts","errors.ts"]},{id:"engine",name:"Engine",layer:2,files:5,lines:708,color:"#d29922",deps:["protocol","transport"],desc:"Agentic loop: stream -> tools -> continue. Turn mgmt, budget, interrupts.",kf:["loop.ts","turns.ts","budget.ts","interrupts.ts"]},{id:"tools",name:"Tools",layer:3,files:15,lines:1837,color:"#f0883e",deps:["protocol","engine"],desc:"14 tools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, REPL, Tasks, Sleep, Agent.",kf:["registry.ts","executor.ts","bash/BashTool.ts","files/FileReadTool.ts","web/WebFetchTool.ts","agents/AgentTool.ts"]},{id:"policy",name:"Policy",layer:4,files:5,lines:623,color:"#f85149",deps:["protocol","tools"],desc:"5 permission modes, rule engine, Bash risk classifier, built-in deny rules.",kf:["modes.ts","rules.ts","permissions.ts","classifier.ts"]},{id:"context",name:"Context",layer:5,files:9,lines:1480,color:"#bc8cff",deps:["protocol","engine"],desc:"Token budget, compaction, Obsidian vault, session persistence, workspace.",kf:["tokenBudget.ts","compactor.ts","memory/obsidian.ts","memory/store.ts","session/persistence.ts","workspace/git.ts"]},{id:"integrations",name:"Integrations",layer:6,files:3,lines:330,color:"#388bfd",deps:["protocol","tools"],desc:"CLI-first discovery. Auto-detects CLIs, injects hints. No MCP.",kf:["discovery.ts","adapter.ts"]},{id:"commands",name:"Commands",layer:7,files:3,lines:357,color:"#f778ba",deps:["protocol","engine","tools","context","integrations"],desc:"8 slash commands: /help, /quit, /commit, /review, /memory, /compact, /status.",kf:["registry.ts","builtins.ts"]},{id:"agents",name:"Agents",layer:8,files:4,lines:554,color:"#58a6ff",deps:["engine","tools","policy","context"],desc:"Multi-agent: 5 types, parallel delegation, chains, git worktree isolation.",kf:["orchestrator.ts","delegation.ts","worktree.ts"]},{id:"credentials",name:"Credentials",layer:"x",files:4,lines:544,color:"#d29922",deps:[],desc:"AES-256-GCM vault, PBKDF2, 12 service templates. Never in LLM context.",kf:["vault.ts","provider.ts","types.ts"]},{id:"remote",name:"Remote",layer:10,files:3,lines:433,color:"#3fb950",deps:["engine","context"],desc:"SSH exec on VPS, SCP, SOCKS5 proxy, WebSocket session gateway.",kf:["ssh.ts","gateway.ts"]},{id:"voice",name:"Voice",layer:12,files:2,lines:226,color:"#f0883e",deps:["engine"],desc:"Push-to-talk, Whisper API / local / MiniMax STT transcription.",kf:["capture.ts"]},{id:"ui",name:"UI",layer:11,files:4,lines:800,color:"#f778ba",deps:["protocol","engine"],desc:"Rich terminal: ASCII banner, status bar, buddy, brew timer, box-drawing.",kf:["banner.ts","statusbar.ts","buddy.ts","renderer.ts"]},{id:"entrypoints",name:"Entry",layer:"e",files:1,lines:592,color:"#f85149",deps:["transport","engine","tools","policy","context","integrations","commands","agents","credentials","ui"],desc:"CLI main: args, system prompt, REPL loop, event dispatch.",kf:["cli.ts"]}];
+const tools_data=[{name:"Bash",cat:"execute",desc:"Shell commands with timeout and streaming",file:"tools/bash/BashTool.ts",lines:174},{name:"Read",cat:"read",desc:"Read files with line numbers, offset/limit",file:"tools/files/FileReadTool.ts",lines:111},{name:"Write",cat:"write",desc:"Create/overwrite files, auto mkdir",file:"tools/files/FileWriteTool.ts",lines:69},{name:"Edit",cat:"write",desc:"Exact string replacements, replace_all",file:"tools/files/FileEditTool.ts",lines:125},{name:"Glob",cat:"read",desc:"File pattern matching (Node native glob)",file:"tools/search/GlobTool.ts",lines:149},{name:"Grep",cat:"read",desc:"Content search (ripgrep + fallback)",file:"tools/search/GrepTool.ts",lines:223},{name:"WebFetch",cat:"network",desc:"HTTP + HTML to Markdown + auto-credentials",file:"tools/web/WebFetchTool.ts",lines:184},{name:"WebSearch",cat:"network",desc:"MiniMax Search API + DuckDuckGo",file:"tools/web/WebSearchTool.ts",lines:173},{name:"REPL",cat:"execute",desc:"Node.js JavaScript eval (was ant-only)",file:"tools/repl/REPLTool.ts",lines:105},{name:"TaskCreate",cat:"system",desc:"Create tasks for tracking",file:"tools/tasks/TaskTools.ts",lines:40},{name:"TaskUpdate",cat:"system",desc:"Update task status",file:"tools/tasks/TaskTools.ts",lines:30},{name:"TaskList",cat:"system",desc:"List all tasks",file:"tools/tasks/TaskTools.ts",lines:25},{name:"Sleep",cat:"system",desc:"Wait N seconds (proactive mode)",file:"tools/utility/SleepTool.ts",lines:51},{name:"Agent",cat:"agent",desc:"Spawn sub-agents with isolated loops",file:"tools/agents/AgentTool.ts",lines:122}];
+const flowSteps=[{t:"1. User Input",d:"User types message or /command in terminal",f:"entrypoints/cli.ts",l:"entrypoints"},{t:"2. Command Dispatch",d:"If /command: registry dispatches. Otherwise: message added to conversation.",f:"commands/registry.ts",l:"commands"},{t:"3. System Prompt",d:"Inject workspace (git, project), CLI hints, Obsidian memories, instructions.",f:"entrypoints/cli.ts",l:"context"},{t:"4. Compaction Check",d:"TokenBudgetTracker: context > 75% of 204.8K? Trigger auto-compact.",f:"context/tokenBudget.ts",l:"context"},{t:"5. Stream Request",d:"POST api.minimax.io/anthropic/v1/messages (reasoning_split:true, temp:1.0)",f:"transport/client.ts",l:"transport"},{t:"6. SSE Parse",d:"message_start -> content_block_delta -> content_block_stop -> message_delta",f:"transport/stream.ts",l:"transport"},{t:"7. Thinking",d:"Reasoning blocks rendered dim magenta. Buddy: thinking state.",f:"ui/renderer.ts",l:"ui"},{t:"8. Tool Detection",d:"analyzeTurn(): stop_reason=tool_use? Extract ToolCall objects.",f:"engine/turns.ts",l:"engine"},{t:"9. Permission",d:"Resolver: builtin deny -> user rules -> risk classifier -> mode default.",f:"policy/permissions.ts",l:"policy"},{t:"10. Execute",d:"Executor: parallel if concurrencySafe, sequential otherwise.",f:"tools/executor.ts",l:"tools"},{t:"11. Render Result",d:"Box-drawing frames. Buddy reacts.",f:"ui/renderer.ts",l:"ui"},{t:"12. Loop",d:"Tool results as user message. Back to step 5 until end_turn.",f:"engine/loop.ts",l:"engine"},{t:"13. Response",d:"Final text + brew timer. Status bar updated.",f:"ui/renderer.ts",l:"ui"},{t:"14. Save",d:"Session to ~/.pcc/sessions/. Memories to Obsidian vault.",f:"context/session/persistence.ts",l:"context"}];
+const catColors={read:"cyan",write:"green",execute:"yellow",network:"magenta",system:"green",agent:"red"};
+const positions={protocol:[70,30],transport:[270,30],engine:[470,30],tools:[70,150],policy:[270,150],context:[470,150],integrations:[70,270],commands:[270,270],agents:[470,270],credentials:[670,150],remote:[670,270],voice:[670,30],ui:[370,380],entrypoints:[170,380]};
+const viewNames=["graph","tools","flow","stats"];
+
+function el(tag,attrs,children){const e=document.createElement(tag);if(attrs)for(const[k,v]of Object.entries(attrs)){if(k==="on"){for(const[ev,fn]of Object.entries(v))e.addEventListener(ev,fn);}else if(k==="style"&&typeof v==="object"){Object.assign(e.style,v);}else e.setAttribute(k,v);}if(children){if(typeof children==="string")e.textContent=children;else if(Array.isArray(children))children.forEach(c=>{if(c)e.appendChild(typeof c==="string"?document.createTextNode(c):c);});}return e;}
+
+function renderTabs(){const t=document.getElementById("tabs");viewNames.forEach((v,i)=>{const tab=el("div",{class:"tab"+(i===0?" active":""),on:{click:()=>switchView(v)}},v.charAt(0).toUpperCase()+v.slice(1));t.appendChild(tab);});}
+
+function renderSidebar(){const sb=document.getElementById("sidebar");layers.forEach(l=>{const g=el("div",{class:"tree-group"});const lbl=el("div",{class:"tree-label",on:{click:()=>selectLayer(l.id)}});lbl.appendChild(el("span",{},"L"+l.layer+" "+l.name));const cnt=el("span",{class:"count"},l.files+"f / "+l.lines+"L");lbl.appendChild(cnt);g.appendChild(lbl);l.kf.forEach(f=>{const item=el("div",{class:"tree-item",on:{click:()=>selectFile(l.id,f)}});item.appendChild(el("span",{},f));g.appendChild(item);});sb.appendChild(g);});}
+
+function renderGraph(){const c=document.getElementById("view-graph");c.style.position="relative";c.style.minHeight="500px";const svg=el("svg",{style:{position:"absolute",width:"100%",height:"100%",pointerEvents:"none"}});svg.id="graph-svg";c.appendChild(svg);layers.forEach(l=>{const[x,y]=positions[l.id]||[0,0];const node=el("div",{class:"graph-node fade-in",id:"node-"+l.id,style:{left:x+"px",top:y+"px",borderColor:l.color,background:l.color+"15"},on:{click:()=>selectLayer(l.id)}});const nm=el("div",{style:{color:l.color}},l.name);const sub=el("div",{class:"sub"},l.files+"f / "+l.lines+"L");node.appendChild(nm);node.appendChild(sub);c.appendChild(node);});requestAnimationFrame(drawEdges);}
+
+function drawEdges(){const svg=document.getElementById("graph-svg");if(!svg)return;while(svg.firstChild)svg.removeChild(svg.firstChild);layers.forEach(l=>{const from=document.getElementById("node-"+l.id);if(!from)return;const fx=from.offsetLeft+from.offsetWidth/2,fy=from.offsetTop+from.offsetHeight/2;l.deps.forEach(d=>{const to=document.getElementById("node-"+d);if(!to)return;const tx=to.offsetLeft+to.offsetWidth/2,ty=to.offsetTop+to.offsetHeight/2;const dep=layers.find(x=>x.id===d);const line=document.createElementNS("http://www.w3.org/2000/svg","line");line.setAttribute("x1",fx);line.setAttribute("y1",fy);line.setAttribute("x2",tx);line.setAttribute("y2",ty);line.setAttribute("stroke",dep?dep.color:"#30363d");line.setAttribute("stroke-width","1");line.setAttribute("stroke-opacity","0.3");line.setAttribute("stroke-dasharray","4,4");svg.appendChild(line);});});}
+
+function renderTools(){const c=document.getElementById("view-tools");c.appendChild(el("h2",{style:{color:"var(--cyan)",marginBottom:"16px"}},"14 Tools"));const grid=el("div",{class:"tool-grid"});tools_data.forEach(t=>{const cc=catColors[t.cat]||"cyan";const card=el("div",{class:"tool-card fade-in",on:{click:()=>selectTool(t.name)}});card.appendChild(el("div",{class:"name"},t.name));card.appendChild(el("div",{class:"desc"},t.desc));const badge=el("span",{class:"cat badge badge-"+cc},t.cat);card.appendChild(badge);grid.appendChild(card);});c.appendChild(grid);}
+
+function renderFlow(){const c=document.getElementById("view-flow");c.appendChild(el("h2",{style:{color:"var(--cyan)",marginBottom:"16px"}},"Request Data Flow"));const flow=el("div",{class:"flow"});flowSteps.forEach((s,i)=>{const layer=layers.find(l=>l.id===s.l);const step=el("div",{class:"flow-step fade-in",style:{animationDelay:i*0.05+"s"},on:{click:()=>selectFlowStep(i)}});step.appendChild(el("div",{class:"step-title"},s.t));step.appendChild(el("div",{class:"step-desc"},s.d));const fileEl=el("div",{class:"step-file"});fileEl.style.color=layer?layer.color:"var(--magenta)";fileEl.textContent=s.f;step.appendChild(fileEl);flow.appendChild(step);if(i<flowSteps.length-1)flow.appendChild(el("div",{class:"flow-arrow"},"\u25BC"));});c.appendChild(flow);}
+
+function renderStats(){const c=document.getElementById("view-stats");const tFiles=layers.reduce((s,l)=>s+l.files,0);const tLines=layers.reduce((s,l)=>s+l.lines,0);const sorted=[...layers].sort((a,b)=>b.lines-a.lines);
+c.appendChild(el("h2",{style:{color:"var(--cyan)",marginBottom:"16px"}},"Project Statistics"));
+const grid=el("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"16px",marginBottom:"24px"}});
+[[tFiles,"TypeScript files","var(--green)"],[tLines.toLocaleString(),"Lines of code","var(--cyan)"],[layers.length,"Layers","var(--yellow)"],[tools_data.length,"Tools","var(--magenta)"]].forEach(([v,l,col])=>{const box=el("div",{class:"stat-box"});box.appendChild(el("div",{class:"stat-num",style:{color:col}},String(v)));box.appendChild(el("div",{class:"stat-label"},l));grid.appendChild(box);});
+c.appendChild(grid);c.appendChild(el("h3",{style:{color:"var(--fg2)",marginBottom:"12px"}},"Lines by Layer"));
+sorted.forEach(l=>{const pct=Math.round(l.lines/tLines*100);const row=el("div",{class:"bar-row",on:{click:()=>selectLayer(l.id)}});const hdr=el("div",{class:"bar-header"});const nm=el("span",{class:"bar-name",style:{color:l.color}},l.name);const info=el("span",{class:"bar-info"},l.lines+" lines ("+pct+"%)");hdr.appendChild(nm);hdr.appendChild(info);row.appendChild(hdr);const track=el("div",{class:"bar-track"});const fill=el("div",{class:"bar-fill",style:{background:l.color,width:pct*3+"%"}});track.appendChild(fill);row.appendChild(track);c.appendChild(row);});}
+
+function selectLayer(id){const l=layers.find(x=>x.id===id);if(!l)return;document.querySelectorAll(".graph-node").forEach(n=>n.classList.remove("selected"));const node=document.getElementById("node-"+id);if(node)node.classList.add("selected");const dp=document.getElementById("details");dp.textContent="";dp.appendChild(el("div",{class:"detail-title",style:{color:l.color}},l.name));dp.appendChild(makeSection("Layer",String(l.layer)));dp.appendChild(makeSection("Description",l.desc));dp.appendChild(makeSection("Stats",l.files+" files, "+l.lines+" lines"));const depsDiv=el("div",{class:"detail-section"});depsDiv.appendChild(el("div",{class:"detail-label"},"Dependencies"));const dv=el("div",{class:"detail-value"});if(l.deps.length){l.deps.forEach(d=>dv.appendChild(el("span",{class:"badge badge-cyan"},d)));}else{dv.appendChild(el("span",{style:{color:"var(--fg3)"}},"None (root)"));}depsDiv.appendChild(dv);dp.appendChild(depsDiv);const filesDiv=el("div",{class:"detail-section"});filesDiv.appendChild(el("div",{class:"detail-label"},"Key Files"));const fv=el("div",{class:"detail-value"});l.kf.forEach(f=>fv.appendChild(el("div",{style:{fontFamily:"monospace",fontSize:"12px",color:"var(--fg2)",padding:"2px 0"}},"src/"+l.id+"/"+f)));filesDiv.appendChild(fv);dp.appendChild(filesDiv);}
+
+function selectTool(name){const t=tools_data.find(x=>x.name===name);if(!t)return;const cc=catColors[t.cat];const dp=document.getElementById("details");dp.textContent="";dp.appendChild(el("div",{class:"detail-title"},t.name));dp.appendChild(makeSection("Category",null));dp.lastChild.querySelector(".detail-value").appendChild(el("span",{class:"badge badge-"+cc},t.cat));dp.appendChild(makeSection("Description",t.desc));dp.appendChild(makeSection("Source","src/"+t.file+" ("+t.lines+" lines)"));}
+
+function selectFlowStep(i){const s=flowSteps[i];document.querySelectorAll(".flow-step").forEach((el,j)=>el.classList.toggle("active",j===i));const layer=layers.find(l=>l.id===s.l);const dp=document.getElementById("details");dp.textContent="";dp.appendChild(el("div",{class:"detail-title"},s.t));dp.appendChild(makeSection("Description",s.d));const fileSection=makeSection("File","src/"+s.f);if(layer)fileSection.querySelector(".detail-value").style.color=layer.color;dp.appendChild(fileSection);dp.appendChild(makeSection("Layer",s.l));}
+
+function selectFile(layerId,file){const l=layers.find(x=>x.id===layerId);const dp=document.getElementById("details");dp.textContent="";dp.appendChild(el("div",{class:"detail-title",style:{fontFamily:"monospace",fontSize:"14px"}},file));if(l){const sec=makeSection("Layer",null);sec.querySelector(".detail-value").appendChild(el("span",{class:"badge",style:{background:l.color+"20",color:l.color}},l.name));dp.appendChild(sec);}dp.appendChild(makeSection("Path","src/"+layerId+"/"+file));}
+
+function makeSection(label,value){const s=el("div",{class:"detail-section"});s.appendChild(el("div",{class:"detail-label"},label));const v=el("div",{class:"detail-value"},value||"");s.appendChild(v);return s;}
+
+function switchView(view){document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));const idx=viewNames.indexOf(view);document.querySelectorAll(".tab")[idx].classList.add("active");document.getElementById("view-"+view).classList.add("active");}
+
+renderTabs();renderSidebar();renderGraph();renderTools();renderFlow();renderStats();
+window.addEventListener("resize",drawEdges);
+</script>
+</body>
+</html>

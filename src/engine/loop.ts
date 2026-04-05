@@ -1,0 +1,271 @@
+/**
+ * Layer 2 — Engine: Agentic loop
+ *
+ * The core while(true) loop that powers the agent:
+ * 1. Stream model response
+ * 2. Check stop reason
+ * 3. If tool_use → execute tools → append results → continue
+ * 4. If end_turn → done
+ *
+ * This is an AsyncGenerator that yields events at each step,
+ * allowing the UI layer to observe without coupling.
+ *
+ * In the original (src/query.ts:219-550), this logic is buried in 1400 lines
+ * with 14 feature-gated codepaths. The actual loop is ~60 lines.
+ */
+
+import type {
+  Message,
+  AssistantMessage,
+  UserMessage,
+  SystemPrompt,
+  Usage,
+  ContentBlock,
+} from '../protocol/messages.js';
+import type { ToolDefinition, Tool, ToolCall, ToolResult, ToolContext } from '../protocol/tools.js';
+import type { StreamEvent, ContentDelta } from '../protocol/events.js';
+import { MiniMaxClient, type StreamOptions } from '../transport/client.js';
+import { accumulateStream } from '../transport/stream.js';
+import { analyzeTurn, buildToolResultMessage, ensureToolResultPairing, shouldContinue, DEFAULT_MAX_TURNS } from './turns.js';
+import { BudgetTracker } from './budget.js';
+import { InterruptController, isAbortError } from './interrupts.js';
+
+// ─── Loop Configuration ─────────────────────────────────
+
+export interface LoopConfig {
+  client: MiniMaxClient;
+  systemPrompt?: SystemPrompt;
+  tools?: Map<string, Tool>;
+  toolDefinitions?: ToolDefinition[];
+  maxTurns?: number;
+  maxBudgetUsd?: number;
+  toolContext?: ToolContext;
+}
+
+// ─── Loop Events ────────────────────────────────────────
+
+export type LoopEvent =
+  | { type: 'turn_start'; turnIndex: number }
+  | { type: 'stream_delta'; delta: ContentDelta; blockIndex: number }
+  | { type: 'stream_text'; text: string }
+  | { type: 'stream_thinking'; thinking: string }
+  | { type: 'stream_tool_start'; toolName: string; toolId: string }
+  | { type: 'assistant_message'; message: AssistantMessage }
+  | { type: 'tool_executing'; call: ToolCall }
+  | { type: 'tool_result'; result: ToolResult }
+  | { type: 'turn_end'; turnIndex: number; usage: Usage }
+  | { type: 'loop_end'; reason: string; totalUsage: Usage; totalCost: number }
+  | { type: 'error'; error: Error };
+
+// ─── Agentic Loop ───────────────────────────────────────
+
+/**
+ * Run the agentic loop.
+ *
+ * Takes initial messages and yields events as the loop progresses.
+ * The caller collects events for UI rendering.
+ *
+ * @param initialMessages - The conversation history so far (at minimum, the user's message)
+ * @param config - Loop configuration
+ * @param interrupt - Interrupt controller for abort/pause/resume
+ */
+export async function* runLoop(
+  initialMessages: Message[],
+  config: LoopConfig,
+  interrupt: InterruptController = new InterruptController(),
+): AsyncGenerator<LoopEvent> {
+  const {
+    client,
+    systemPrompt,
+    tools,
+    toolDefinitions,
+    maxTurns = DEFAULT_MAX_TURNS,
+    maxBudgetUsd,
+  } = config;
+
+  const budget = new BudgetTracker(client.model, maxBudgetUsd);
+  const messages: Message[] = [...initialMessages];
+  let turnIndex = 0;
+
+  try {
+    while (true) {
+      await interrupt.checkpoint();
+
+      yield { type: 'turn_start', turnIndex };
+
+      // ── 1. Stream model response ──────────────────
+
+      const streamOptions: StreamOptions = {
+        systemPrompt,
+        tools: toolDefinitions,
+        abortSignal: interrupt.signal,
+      };
+
+      let assistantMessage: AssistantMessage | null = null;
+      let stopReason: string | null = null;
+      let turnUsage: Usage = { input_tokens: 0, output_tokens: 0 };
+
+      const eventStream = client.stream(
+        ensureToolResultPairing(messages),
+        streamOptions,
+      );
+
+      const accumulated = await accumulateStream(eventStream, {
+        onDelta(index, delta) {
+          // Forward deltas to the UI
+          if (delta.type === 'text_delta') {
+            // We can't yield from a callback, so we buffer these.
+            // The accumulated result will have the full text.
+          }
+        },
+        onContentBlockStart(index, type) {
+          // Tracked by accumulator
+        },
+        onContentBlockComplete(index, block) {
+          // Tracked by accumulator
+        },
+      });
+
+      assistantMessage = accumulated.message;
+      stopReason = accumulated.stopReason;
+      turnUsage = accumulated.usage;
+
+      // Yield the complete assistant message
+      yield { type: 'assistant_message', message: assistantMessage };
+
+      // Add assistant message to history
+      // CRITICAL: preserve FULL response including reasoning for MiniMax multi-turn
+      messages.push(assistantMessage);
+
+      // ── 2. Analyze the turn ───────────────────────
+
+      const turnResult = analyzeTurn(assistantMessage, stopReason, turnUsage);
+      budget.addTurnUsage(turnUsage);
+
+      yield { type: 'turn_end', turnIndex, usage: turnUsage };
+
+      // ── 3. Check if we should continue ────────────
+
+      // Budget check
+      if (budget.isOverBudget()) {
+        yield {
+          type: 'loop_end',
+          reason: 'budget_exceeded',
+          totalUsage: budget.getTotalUsage(),
+          totalCost: budget.getTotalCostUsd(),
+        };
+        return;
+      }
+
+      const decision = shouldContinue(turnResult, turnIndex, maxTurns);
+      if (!decision.continue) {
+        yield {
+          type: 'loop_end',
+          reason: decision.reason ?? 'end_turn',
+          totalUsage: budget.getTotalUsage(),
+          totalCost: budget.getTotalCostUsd(),
+        };
+        return;
+      }
+
+      // ── 4. Execute tools ──────────────────────────
+
+      if (turnResult.needsToolExecution && tools) {
+        await interrupt.checkpoint();
+
+        const toolResults: ToolResult[] = [];
+
+        for (const call of turnResult.toolCalls) {
+          yield { type: 'tool_executing', call };
+
+          const tool = tools.get(call.name);
+          if (!tool) {
+            const result: ToolResult = {
+              tool_use_id: call.id,
+              content: `Error: Unknown tool "${call.name}"`,
+              is_error: true,
+            };
+            toolResults.push(result);
+            yield { type: 'tool_result', result };
+            continue;
+          }
+
+          try {
+            // Validate input
+            if (tool.validateInput) {
+              const error = tool.validateInput(call.input);
+              if (error) {
+                const result: ToolResult = {
+                  tool_use_id: call.id,
+                  content: `Validation error: ${error}`,
+                  is_error: true,
+                };
+                toolResults.push(result);
+                yield { type: 'tool_result', result };
+                continue;
+              }
+            }
+
+            // Execute
+            const result = await tool.execute(call, config.toolContext!);
+            toolResults.push(result);
+            yield { type: 'tool_result', result };
+          } catch (error) {
+            if (isAbortError(error)) throw error;
+
+            const result: ToolResult = {
+              tool_use_id: call.id,
+              content: `Tool execution error: ${error instanceof Error ? error.message : String(error)}`,
+              is_error: true,
+            };
+            toolResults.push(result);
+            yield { type: 'tool_result', result };
+          }
+        }
+
+        // Append tool results as user message
+        const toolResultMessage = buildToolResultMessage(toolResults);
+        messages.push(toolResultMessage);
+      }
+
+      turnIndex++;
+    }
+  } catch (error) {
+    if (isAbortError(error)) {
+      yield {
+        type: 'loop_end',
+        reason: 'aborted',
+        totalUsage: budget.getTotalUsage(),
+        totalCost: budget.getTotalCostUsd(),
+      };
+      return;
+    }
+
+    yield { type: 'error', error: error as Error };
+    yield {
+      type: 'loop_end',
+      reason: 'error',
+      totalUsage: budget.getTotalUsage(),
+      totalCost: budget.getTotalCostUsd(),
+    };
+  }
+}
+
+// ─── Simple query (no tool loop) ────────────────────────
+
+/**
+ * Single-turn query without tool execution.
+ * Useful for simple prompts and testing.
+ */
+export async function query(
+  prompt: string,
+  config: Omit<LoopConfig, 'tools' | 'toolDefinitions'>,
+): Promise<AssistantMessage> {
+  const messages: Message[] = [{ role: 'user', content: prompt }];
+
+  const result = await config.client.complete(messages, {
+    systemPrompt: config.systemPrompt,
+  });
+
+  return result.message;
+}

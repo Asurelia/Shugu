@@ -1,0 +1,125 @@
+/**
+ * Layer 3 — Tools: FileEditTool
+ *
+ * Performs exact string replacements in files.
+ * The old_string must be unique in the file (unless replace_all is true).
+ */
+
+import { readFile, writeFile } from 'node:fs/promises';
+import { resolve, isAbsolute } from 'node:path';
+import type { Tool, ToolCall, ToolResult, ToolContext, ToolDefinition } from '../../protocol/tools.js';
+
+export const FileEditToolDefinition: ToolDefinition = {
+  name: 'Edit',
+  description: `Performs exact string replacements in files. The old_string must match exactly (including whitespace/indentation). The old_string must be unique in the file unless replace_all is true. Use replace_all for renaming variables across a file.`,
+  inputSchema: {
+    type: 'object',
+    properties: {
+      file_path: {
+        type: 'string',
+        description: 'Absolute path to the file to modify',
+      },
+      old_string: {
+        type: 'string',
+        description: 'The exact text to replace',
+      },
+      new_string: {
+        type: 'string',
+        description: 'The replacement text (must differ from old_string)',
+      },
+      replace_all: {
+        type: 'boolean',
+        description: 'Replace all occurrences (default: false)',
+      },
+    },
+    required: ['file_path', 'old_string', 'new_string'],
+  },
+  concurrencySafe: false,
+};
+
+export class FileEditTool implements Tool {
+  definition = FileEditToolDefinition;
+
+  validateInput(input: Record<string, unknown>): string | null {
+    if (typeof input['file_path'] !== 'string' || !input['file_path']) {
+      return 'file_path must be a non-empty string';
+    }
+    if (typeof input['old_string'] !== 'string') {
+      return 'old_string must be a string';
+    }
+    if (typeof input['new_string'] !== 'string') {
+      return 'new_string must be a string';
+    }
+    if (input['old_string'] === input['new_string']) {
+      return 'new_string must be different from old_string';
+    }
+    return null;
+  }
+
+  async execute(call: ToolCall, context: ToolContext): Promise<ToolResult> {
+    const filePath = call.input['file_path'] as string;
+    const oldString = call.input['old_string'] as string;
+    const newString = call.input['new_string'] as string;
+    const replaceAll = (call.input['replace_all'] as boolean) ?? false;
+
+    const absPath = isAbsolute(filePath) ? filePath : resolve(context.cwd, filePath);
+
+    try {
+      const content = await readFile(absPath, 'utf-8');
+
+      // Check that old_string exists
+      if (!content.includes(oldString)) {
+        return {
+          tool_use_id: call.id,
+          content: `Error: old_string not found in ${absPath}. Make sure the string matches exactly (including whitespace and indentation).`,
+          is_error: true,
+        };
+      }
+
+      // Check uniqueness (unless replace_all)
+      if (!replaceAll) {
+        const occurrences = content.split(oldString).length - 1;
+        if (occurrences > 1) {
+          return {
+            tool_use_id: call.id,
+            content: `Error: old_string appears ${occurrences} times in ${absPath}. Use replace_all: true to replace all, or provide more context to make the match unique.`,
+            is_error: true,
+          };
+        }
+      }
+
+      // Perform replacement
+      let newContent: string;
+      if (replaceAll) {
+        newContent = content.split(oldString).join(newString);
+      } else {
+        newContent = content.replace(oldString, newString);
+      }
+
+      await writeFile(absPath, newContent, 'utf-8');
+
+      const replacements = replaceAll
+        ? content.split(oldString).length - 1
+        : 1;
+
+      return {
+        tool_use_id: call.id,
+        content: `File edited successfully: ${absPath} (${replacements} replacement${replacements > 1 ? 's' : ''})`,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('ENOENT')) {
+        return {
+          tool_use_id: call.id,
+          content: `Error: File not found: ${absPath}`,
+          is_error: true,
+        };
+      }
+      return {
+        tool_use_id: call.id,
+        content: `Error editing file: ${message}`,
+        is_error: true,
+      };
+    }
+  }
+}

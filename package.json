@@ -1,0 +1,31 @@
+{
+  "name": "project-cc",
+  "version": "0.1.0",
+  "description": "Claude Code reimagined — MiniMax M2.7 first, mono-provider, all capabilities unlocked",
+  "type": "module",
+  "bin": {
+    "pcc": "./bin/pcc.mjs"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/entrypoints/cli.ts",
+    "start": "node dist/entrypoints/cli.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "yaml": "^2.8.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.81.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "license": "MIT"
+}
