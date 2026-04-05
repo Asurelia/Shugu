@@ -411,45 +411,74 @@ async function runREPL(
     mode: permResolver.getMode(),
   });
 
-  // Helper: draw the 3 lines below the prompt (bottom bar + status + mode)
-  function drawBottomBlock(si: ReturnType<typeof getStatusInfo>, cursorCol: number): void {
+  // ── Fixed status bar at terminal bottom (like Claude Code) ──
+  // Uses ANSI scroll region: reserve last 3 rows for status bar.
+  // Content scrolls in the region above. Status never moves.
+
+  const STATUS_LINES = 3; // separator + status + mode
+
+  function setupScrollRegion(): void {
+    const rows = process.stdout.rows ?? 24;
+    // Set scroll region to rows 1..(rows - STATUS_LINES)
+    process.stdout.write(`\x1b[1;${rows - STATUS_LINES}r`);
+    // Move cursor to the scroll region
+    process.stdout.write(`\x1b[${rows - STATUS_LINES};1H`);
+  }
+
+  function drawFixedStatusBar(): void {
+    const si = getStatusInfo();
+    const rows = process.stdout.rows ?? 24;
     const w = process.stdout.columns ?? 120;
     const modeColor = si.mode === 'bypass' ? '\x1b[31m' : si.mode === 'fullAuto' ? '\x1b[33m' : '\x1b[32m';
 
-    // Save cursor position
+    // Save cursor
     process.stdout.write('\x1b7');
-    // Move to next line and draw 3 lines
-    process.stdout.write('\n');
-    process.stdout.write(`\x1b[2K\x1b[90m${'─'.repeat(w)}\x1b[0m\n`);
-    process.stdout.write(`\x1b[2K${renderStatusLine(si)}\n`);
-    process.stdout.write(`\x1b[2K  \x1b[2m⏵⏵ ${modeColor}${si.mode}\x1b[0m \x1b[2mpermissions on (shift+tab to cycle)\x1b[0m`);
-    // Restore cursor position (back to prompt line)
+
+    // Draw at fixed bottom rows (outside scroll region)
+    const barRow = rows - STATUS_LINES + 1;
+
+    // Line 1: separator
+    process.stdout.write(`\x1b[${barRow};1H\x1b[2K`);
+    process.stdout.write(`\x1b[90m${'─'.repeat(w)}\x1b[0m`);
+
+    // Line 2: status
+    process.stdout.write(`\x1b[${barRow + 1};1H\x1b[2K`);
+    process.stdout.write(renderStatusLine(si));
+
+    // Line 3: mode
+    process.stdout.write(`\x1b[${barRow + 2};1H\x1b[2K`);
+    process.stdout.write(`  \x1b[2m\x1b[90m⏵⏵ ${modeColor}${si.mode}\x1b[0m \x1b[2mpermissions on (shift+tab to cycle)\x1b[0m`);
+
+    // Restore cursor
     process.stdout.write('\x1b8');
   }
 
+  function cleanupScrollRegion(): void {
+    const rows = process.stdout.rows ?? 24;
+    // Reset scroll region to full terminal
+    process.stdout.write(`\x1b[1;${rows}r`);
+  }
+
+  // Set up fixed status bar
+  setupScrollRegion();
+  drawFixedStatusBar();
+
+  // Redraw on terminal resize
+  process.stdout.on('resize', () => {
+    setupScrollRegion();
+    drawFixedStatusBar();
+  });
+
+  // Redraw status bar periodically (cost/context updates)
+  const statusInterval = setInterval(() => drawFixedStatusBar(), 2000);
+
   const askQuestion = (): Promise<string> => {
     return new Promise((resolve) => {
-      const si = getStatusInfo();
-
-      // Print top separator
+      // Top separator + prompt (in scroll region, normal flow)
       renderer.printTopSeparator();
-      // Print prompt
-      process.stdout.write(`\x1b[1m\x1b[32m> \x1b[0m`);
-      // Draw bottom block below prompt
-      drawBottomBlock(si, 3);
-
-      // On each keypress, redraw bottom block to prevent erasure
-      const keypressHandler = () => {
-        // Small delay to let readline update the line first
-        setTimeout(() => drawBottomBlock(si, 0), 5);
-      };
-
-      process.stdin.on('keypress', keypressHandler);
+      renderer.promptIndicator();
 
       rl.once('line', (line) => {
-        process.stdin.removeListener('keypress', keypressHandler);
-        // Move cursor down past the bottom block (3 lines) + newline
-        process.stdout.write(`\n\x1b[3B\n`);
         resolve(line.trim());
       });
     });
@@ -463,6 +492,8 @@ async function runREPL(
   };
 
   rl.on('close', async () => {
+    clearInterval(statusInterval);
+    cleanupScrollRegion();
     await saveSession();
     renderer.loopEnd('user_exit', budget.getTotalCostUsd());
     process.exit(0);
@@ -528,6 +559,8 @@ async function runREPL(
             conversationMessages.length = 0;
             continue;
           case 'exit':
+            clearInterval(statusInterval);
+            cleanupScrollRegion();
             await saveSession();
             renderer.loopEnd(cmdResult.reason, budget.getTotalCostUsd());
             rl.close();
