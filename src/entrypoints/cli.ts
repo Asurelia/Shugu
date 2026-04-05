@@ -409,11 +409,28 @@ async function runREPL(
   });
   renderer.statusBar.start();
 
+  // Draw the bottom 2 lines (bar + mode) below the prompt using save/restore
+  function drawPromptBottom(): void {
+    const w = process.stdout.columns ?? 120;
+    const mode = permResolver.getMode();
+    const mc = mode === 'bypass' ? '\x1b[31m' : mode === 'fullAuto' ? '\x1b[33m' : '\x1b[32m';
+
+    process.stdout.write('\x1b7');  // save cursor
+    process.stdout.write('\n');     // move down to bottom bar line
+    process.stdout.write(`\x1b[2K\x1b[90m${'─'.repeat(w)}\x1b[0m`);
+    process.stdout.write('\n');     // move to mode line
+    process.stdout.write(`\x1b[2K  \x1b[2m⏵⏵ ${mc}${mode}\x1b[0m \x1b[2mpermissions on (shift+tab to cycle)\x1b[0m`);
+    process.stdout.write('\x1b8');  // restore cursor back to prompt
+  }
+
   const askQuestion = (): Promise<string> => {
     return new Promise((resolve) => {
-      // Top separator ─── minimax-m2.7-shugu-runtime ──
+      // Top separator
       renderer.printTopSeparator();
+      // Prompt >
       renderer.promptIndicator();
+      // Bottom bar + mode (always visible)
+      drawPromptBottom();
 
       const onKeypress = (_ch: string, key: { name?: string; shift?: boolean } | undefined) => {
         // Shift+Tab = cycle permission mode
@@ -423,11 +440,13 @@ async function runREPL(
           const nextIdx = (currentIdx + 1) % modes.length;
           permResolver.setMode(modes[nextIdx]!);
           renderer.statusBar.update({ mode: modes[nextIdx]! });
-          renderer.info(`  ${modes[nextIdx]} permissions`);
+          // Redraw bottom bar with new mode
+          drawPromptBottom();
           return;
         }
-        // Redraw status bar on backspace
+        // Redraw on destructive keys
         if (key?.name === 'backspace' || key?.name === 'delete') {
+          drawPromptBottom();
           renderer.statusBar.redraw();
         }
       };
@@ -435,8 +454,8 @@ async function runREPL(
 
       rl.once('line', (line) => {
         process.stdin.removeListener('keypress', onKeypress);
-        // Print bottom separator after user input
-        renderer.promptSeparator();
+        // Move past the bottom bar + mode lines (2 lines down)
+        process.stdout.write('\n\n');
         resolve(line.trim());
       });
     });
