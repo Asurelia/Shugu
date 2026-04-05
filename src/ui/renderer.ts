@@ -69,57 +69,22 @@ export class TerminalRenderer {
   // ─── Prompt Footer ──────────────────────────────────
   //
   //  ✻ Brewed for 2m 40s
-  //                                                                           (___)
-  //  ──────────────────────────────── minimax-m2.7-shugu-runtime ──          /\_/\
-  //  >                                                                      ( @   @)
-  //  ──────────────────────────────────────────────────────────────────    (  ω  )
-  //    M2.7-hs | Project_cc (main) | 52% (483k/1000k) | $$0.04            (")_(")
-  //    ⏵⏵ bypass permissions on                                             Shugu
+  //  ──────────────────────────────── minimax-m2.7-shugu-runtime ──
+  //  > [user types here]
+  //  ──────────────────────────────────────────────────────────────
+  //    M2.7-hs | Project_cc (main) | 52% (483k/1000k) | $$0.04
+  //    ⏵⏵ bypass permissions on
   //
 
   /**
-   * Print the full footer block: separator + buddy + prompt + status.
-   */
-  printFooter(statusInfo: {
-    model: string; project: string; branch?: string;
-    contextPercent: number; contextUsed: number; contextTotal: number;
-    costSession: number; costTotal: number; mode: string;
-  }): void {
-    const w = process.stdout.columns ?? 120;
-    const buddyLines = this.buddy.render().split('\n').filter(l => l.length > 0);
-    const buddyW = 12;
-    const buddyCol = w - buddyW - 2;
-
-    // Buddy frame (rendered to the right)
-    const buddyPadded = buddyLines.map(l => {
-      const pad = Math.max(0, buddyCol - 2);
-      return ' '.repeat(pad) + l;
-    });
-
-    // Runtime label for separator
-    const runtimeLabel = 'minimax-m2.7-shugu-runtime';
-    const dashLen = Math.max(10, w - runtimeLabel.length - buddyW - 8);
-
-    // Line 0: buddy top (if exists)
-    if (buddyPadded.length > 0) console.log(buddyPadded[0] ?? '');
-
-    // Line 1: separator with runtime name + buddy line 1
-    const sep1 = `${GRAY}${'─'.repeat(dashLen)} ${runtimeLabel} ──${R}`;
-    const bud1 = buddyPadded[1] ?? '';
-    console.log(sep1 + (bud1 ? `  ${bud1.trimStart()}` : ''));
-
-    // Line 2: prompt + buddy line 2
-    const promptLine = `${B}${GREEN}> ${R}`;
-    const bud2 = buddyPadded[2] ?? '';
-    process.stdout.write(promptLine);
-    // Don't print buddy on prompt line — user types here
-
-    // We need to show remaining buddy lines AFTER the second separator
-    // But since this is before user input, we just print the prompt
-  }
-
-  /**
-   * Print the bottom status + second separator (called AFTER user input, before loop).
+   * Print the status bar block BETWEEN two separator lines.
+   * Called after each assistant response, before the next prompt.
+   *
+   * ──────────────────── minimax-m2.7-shugu-runtime ──
+   * > [prompt]
+   * ─────────────────────────────────────────────────
+   *   M2.7-hs | Project_cc | 52% (483k/205k) | $$0.04
+   *   ⏵⏵ bypass permissions on
    */
   printStatusBar(statusInfo: {
     model: string; project: string; branch?: string;
@@ -127,29 +92,23 @@ export class TerminalRenderer {
     costSession: number; costTotal: number; mode: string;
   }): void {
     const w = process.stdout.columns ?? 120;
-
-    // Second separator
-    console.log(`${GRAY}${'─'.repeat(w)}${R}`);
-
-    // Status line
-    console.log(renderStatusLine(statusInfo));
-
-    // Mode line
     const modeColor = statusInfo.mode === 'bypass' ? RED : statusInfo.mode === 'fullAuto' ? YELLOW : GREEN;
-    console.log(`  ${D}⏵⏵ ${modeColor}${statusInfo.mode}${R} ${D}permissions on${R}`);
+
+    // Separator 1 (top) with runtime label
+    const runtimeLabel = 'minimax-m2.7-shugu-runtime';
+    const dashLen = Math.max(10, w - runtimeLabel.length - 4);
+    console.log(`${GRAY}${'─'.repeat(dashLen)} ${runtimeLabel} ──${R}`);
+
+    // Status line + mode (between the bars)
+    console.log(renderStatusLine(statusInfo));
+    console.log(`  ${D}⏵⏵ ${modeColor}${statusInfo.mode}${R} ${D}permissions on (shift+tab to cycle)${R}`);
+
+    // Separator 2 (bottom)
+    console.log(`${GRAY}${'─'.repeat(w)}${R}`);
   }
 
-  // Keep old methods for compatibility
   promptSeparator(): void {
     console.log(renderSeparator());
-  }
-
-  printStatusLine(info: {
-    model: string; project: string; branch?: string;
-    contextPercent: number; contextUsed: number; contextTotal: number;
-    costSession: number; costTotal: number; mode: string;
-  }): void {
-    console.log(renderStatusLine(info));
   }
 
   promptIndicator(): void {

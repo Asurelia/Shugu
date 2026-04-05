@@ -4,7 +4,8 @@
   "description": "Claude Code reimagined — MiniMax M2.7 first, mono-provider, all capabilities unlocked",
   "type": "module",
   "bin": {
-    "pcc": "./bin/pcc.mjs"
+    "pcc": "./bin/pcc.mjs",
+    "shugu": "./bin/pcc.mjs"
   },
   "scripts": {
     "build": "tsc",

@@ -218,11 +218,7 @@ export function renderStatusLine(info: {
   const cc = info.contextPercent > 85 ? '\x1b[31m' : info.contextPercent > 60 ? '\x1b[33m' : '\x1b[32m';
   const br = info.branch ? ` (${info.branch})` : '';
   const mc = info.mode === 'bypass' ? '\x1b[31m' : info.mode === 'fullAuto' ? '\x1b[33m' : '\x1b[32m';
-  const left = `  ${D}M2.7-hs${R} ${GRAY}|${R} ${CYAN}${info.project}${br}${R} ${GRAY}|${R} ${cc}${info.contextPercent}%${R} ${D}(${uK}k/${tK}k)${R} ${GRAY}|${R} ${D}$$${info.costSession.toFixed(2)} / $$${info.costTotal.toFixed(2)}${R}`;
-  const right = `${D}⏵⏵ ${mc}${info.mode}${R} ${D}permissions on${R}`;
-  const w = process.stdout.columns ?? 120;
-  const g = Math.max(1, w - visL(left) - visL(right));
-  return `${left}${' '.repeat(g)}${right}`;
+  return `  ${D}M2.7-hs${R} ${GRAY}|${R} ${CYAN}${info.project}${br}${R} ${GRAY}|${R} ${cc}${info.contextPercent}%${R} ${D}(${uK}k/${tK}k)${R} ${GRAY}|${R} ${D}$$${info.costSession.toFixed(2)} / $$${info.costTotal.toFixed(2)}${R}`;
 }
 
 // ─── Helpers ────────────────────────────────────────────
