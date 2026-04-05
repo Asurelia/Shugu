@@ -1,19 +1,8 @@
 /**
  * Layer 11 — UI: Startup banner
  *
- * Layout:
- *   [braille face gradient]  [SHUGU ASCII gradient]    ← FREE, no frame
- *
- *   ╭─── Shugu v1.0.0 ───────────────────────────────────────────────────────╮
- *   │                                    │ Tips for getting started           │
- *   │   [cute elf]   Provider  MiniMax   │ Run /init to create a CLAUDE.md   │
- *   │                Model     M2.7-hs   │ ────────────────────────────────  │
- *   │                Endpoint  ...       │ Recent activity                    │
- *   │                ...                 │ No recent activity                 │
- *   │                                    │                                    │
- *   │   ● minimax  Ready                │                                    │
- *   │              F:\Dev\Project\...    │                                    │
- *   ╰────────────────────────────────────────────────────────────────────────╯
+ * PART 1: Free braille face + SHUGU ASCII (no frame, gradient colors)
+ * PART 2: Claude Code-style ╭╯ frame with elf + info | tips
  */
 
 // ─── ANSI ───────────────────────────────────────────────
@@ -41,12 +30,10 @@ const MAGENTA = '\x1b[35m';
 const WHITE = '\x1b[37m';
 const GRAY = '\x1b[90m';
 
-// Braille: dark orange → light orange
 const OS = [160, 64, 0], OE = [255, 180, 64];
-// SHUGU: deep purple → lavender
 const PS = [64, 0, 64], PE = [200, 150, 255];
 
-// ─── Full braille face (13 lines, 65 col fixed) ────────
+// ─── Art Data ───────────────────────────────────────────
 
 const FACE = [
   '⣿⠛⠛⠛⠛⠻⡆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀',
@@ -77,18 +64,19 @@ const SHUGU = [
   ':: : :     :   : :    : :  :    :: :: :      : :  : ',
 ];
 
-// ─── Cute elf for inside the frame ──────────────────────
-
-const ELF = [
-  `${D}   ⠀⠀⠀⣀⣀⣀⣀⡀⠀⠀⠀${R}`,
-  `${D}  ⢀⡤⠤⡤⠞⠁⠀⡀⠀⠨⡙⠦⡠⠤${R}`,
-  `${CYAN}  ⡛⢐⠉⡠⠂⠀⡰⠣⣀⠀⠑⠄⠈⡄⢃${R}`,
-  `${CYAN}  ⡇⡸⠀⡄⣀⡾⠀⠀⢠⣽⢄⢀⠢⠸⠸${R}`,
-  `${MAGENTA}  ⠲⣒⢞⢺⡁⢸⠊⣠⡄⠀⢠⣄⠈⡇⠰${R}`,
-  `${MAGENTA}  ⢑⡶⣙⣦⢣⠀⠀⡀⡀⡀⠀⠀⣅⢤⣜${R}`,
-  `${YELLOW}  ⡇⠃⢺⠞⠛⢧⣀⣉⣉⢀⣀⠭⠿⢬⣄${R}`,
-  `${YELLOW}  ⢸⠁⢀⢻⠀⠀⡎⠀⠐⠒⠓⡄⠀⠹⠀${R}`,
+// Elf — each line is exactly the PLAIN TEXT (no ANSI), color applied separately
+const ELF_PLAIN = [
+  '   ⠀⠀⠀⣀⣀⣀⣀⡀⠀⠀⠀',
+  '  ⢀⡤⠤⡤⠞⠁⠀⡀⠀⠨⡙⠦⡠⠤',
+  '  ⡛⢐⠉⡠⠂⠀⡰⠣⣀⠀⠑⠄⠈⡄⢃',
+  '  ⡇⡸⠀⡄⣀⡾⠀⠀⢠⣽⢄⢀⠢⠸⠸',
+  '  ⠲⣒⢞⢺⡁⢸⠊⣠⡄⠀⢠⣄⠈⡇⠰',
+  '  ⢑⡶⣙⣦⢣⠀⠀⡀⡀⡀⠀⠀⣅⢤⣜',
+  '  ⡇⠃⢺⠞⠛⢧⣀⣉⣉⢀⣀⠭⠿⢬⣄',
+  '  ⢸⠁⢀⢻⠀⠀⡎⠀⠐⠒⠓⡄⠀⠹⠀',
 ];
+
+const ELF_COLORS = [D, D, CYAN, CYAN, MAGENTA, MAGENTA, YELLOW, YELLOW];
 
 // ─── Banner Info ────────────────────────────────────────
 
@@ -113,97 +101,107 @@ export function renderBanner(info: BannerInfo): string {
   const lines: string[] = [];
   const faceN = FACE.length;
   const shuguN = SHUGU.length;
-  const faceW = 65;
 
-  // ═══ PART 1: Free braille + SHUGU (no frame) ═══
+  // ═══ PART 1: Free braille + SHUGU above the frame ═══
   lines.push('');
   for (let i = 0; i < faceN; i++) {
-    let line = '';
     const fc = grad(i, faceN, OS, OE);
     const fs = FACE[i]!;
-    const pad = Math.max(0, faceW - [...fs].length);
-    line += `${fc}${fs}${' '.repeat(pad)}${R}`;
+    let line = `${fc}${fs}${R}`;
 
     if (i >= 1 && i - 1 < shuguN) {
       const si = i - 1;
       const sc = grad(si, shuguN, PS, PE);
-      line += `${sc}${SHUGU[si]}${R}`;
+      line += `  ${sc}${SHUGU[si]}${R}`;
     }
     lines.push(line);
   }
   lines.push('');
 
-  // ═══ PART 2: Claude Code-style frame with elf + info ═══
-  const W = process.stdout.columns ?? 120;
-  const innerW = W - 2;
-  const splitPos = Math.floor(innerW * 0.48);
-  const rightW = innerW - splitPos - 1;
+  // ═══ PART 2: Frame with elf + info | tips ═══
+  const W = Math.min(process.stdout.columns ?? 120, 140);
+  const innerW = W - 2; // inside │...│
+  const leftW = Math.floor(innerW * 0.5);
+  const rightW = innerW - leftW - 1; // -1 for middle │
   const bdr = GRAY;
   const title = ` Shugu v${info.version} `;
 
-  // Top border
-  lines.push(`${bdr}╭───${R}${B}${title}${R}${bdr}${'─'.repeat(Math.max(0, innerW - title.length - 3))}╮${R}`);
+  // ── Top border ──
+  lines.push(`${bdr}╭───${R}${B}${title}${R}${bdr}${'─'.repeat(Math.max(0, innerW - visL(`───${title}`)))}╮${R}`);
 
-  // Build left content: elf + info side by side
-  const elfW = 18;
+  // ── Build left rows: elf + info ──
   const toolStr = info.tools.slice(0, 6).join(', ') + (info.tools.length > 6 ? ` +${info.tools.length - 6}` : '');
-  const cliStr = info.clis.join(', ') || 'none detected';
+  const cliStr = truncPlain(info.clis.join(', ') || 'none', leftW - 28);
   const vc = info.vaultStatus === 'unlocked' ? GREEN : YELLOW;
 
-  const infoLines = [
-    `${B}Provider${R}  ${GREEN}${info.provider}${R}`,
-    `${B}Model${R}     ${CYAN}${info.model}${R}`,
-    `${B}Endpoint${R}  ${D}${info.endpoint}${R}`,
-    `${B}Tools${R}     ${toolStr}`,
-    `${B}CLIs${R}      ${cliStr}`,
-    `${B}Vault${R}     ${vc}${info.vaultStatus}${R}`,
-    `${B}Mode${R}      ${info.mode}`,
-    '',
+  // Pre-build info strings (plain text + colored version)
+  const infoEntries = [
+    { label: 'Provider', value: info.provider, color: GREEN },
+    { label: 'Model   ', value: info.model, color: CYAN },
+    { label: 'Endpoint', value: truncPlain(info.endpoint, leftW - 28), color: D },
+    { label: 'Tools   ', value: truncPlain(toolStr, leftW - 28), color: '' },
+    { label: 'CLIs    ', value: truncPlain(cliStr, leftW - 28), color: '' },
+    { label: 'Vault   ', value: info.vaultStatus, color: vc },
+    { label: 'Mode    ', value: info.mode, color: '' },
   ];
 
-  const leftRows: string[] = [];
-  const maxRows = Math.max(ELF.length, infoLines.length + 2);
-  for (let i = 0; i < maxRows; i++) {
-    const elf = ELF[i] ?? '';
-    const inf = infoLines[i] ?? '';
-    if (elf) {
-      leftRows.push(` ${elf}  ${inf}`);
-    } else if (i === maxRows - 2) {
-      leftRows.push(`  ${GREEN}●${R} ${info.provider.toLowerCase()}  ${GREEN}Ready${R} — type ${B}/help${R} to begin`);
-    } else if (i === maxRows - 1) {
-      leftRows.push(`           ${D}${info.cwd}${R}`);
+  const leftLines: string[] = [];
+  for (let i = 0; i < Math.max(ELF_PLAIN.length, infoEntries.length + 3); i++) {
+    const elfStr = ELF_PLAIN[i] ?? '';
+    const elfColor = ELF_COLORS[i] ?? '';
+    const elfPad = 16; // fixed column for elf
+
+    let row = '';
+    if (elfStr) {
+      row = ` ${elfColor}${elfStr}${R}`;
+      // pad elf to fixed width
+      const elfVisW = visL(row);
+      row += ' '.repeat(Math.max(1, elfPad - elfVisW));
     } else {
-      leftRows.push(`${''.padEnd(elfW)} ${inf}`);
+      row = ' '.repeat(elfPad + 1);
     }
+
+    if (i < infoEntries.length) {
+      const e = infoEntries[i]!;
+      row += `${B}${e.label}${R}  ${e.color}${e.value}${R}`;
+    } else if (i === infoEntries.length + 1) {
+      row = `  ${GREEN}●${R} ${info.provider.toLowerCase()}  ${GREEN}Ready${R} — type ${B}/help${R} to begin`;
+    } else if (i === infoEntries.length + 2) {
+      row = `           ${D}${truncPlain(info.cwd, leftW - 12)}${R}`;
+    }
+
+    leftLines.push(row);
   }
 
-  // Build right content: tips + activity
-  const rightRows: string[] = [];
-  rightRows.push(`${B}${WHITE}Tips for getting started${R}`);
-  rightRows.push(`Run ${B}/init${R} to create a CLAUDE.md with instructions`);
-  rightRows.push(`${GRAY}${'─'.repeat(rightW - 1)}${R}`);
-  rightRows.push(`${B}${WHITE}Recent activity${R}`);
+  // ── Build right rows: tips + activity ──
+  const rightLines: string[] = [];
+  rightLines.push(`${B}${WHITE}Tips for getting started${R}`);
+  rightLines.push(`Run ${B}/init${R} to create a CLAUDE.md with instructions`);
+  rightLines.push(`${GRAY}${'─'.repeat(Math.max(10, rightW - 2))}${R}`);
+  rightLines.push(`${B}${WHITE}Recent activity${R}`);
   if (info.recentActivity.length > 0) {
-    for (const a of info.recentActivity.slice(0, 4)) rightRows.push(`${GRAY}${a}${R}`);
+    for (const a of info.recentActivity.slice(0, 4)) {
+      rightLines.push(`${GRAY}${truncPlain(a, rightW - 2)}${R}`);
+    }
   } else {
-    rightRows.push(`${GRAY}No recent activity${R}`);
+    rightLines.push(`${GRAY}No recent activity${R}`);
   }
-  while (rightRows.length < leftRows.length) rightRows.push('');
+  while (rightLines.length < leftLines.length) rightLines.push('');
 
-  // Combine
-  for (let i = 0; i < leftRows.length; i++) {
-    const left = padV(leftRows[i]!, splitPos);
-    const right = padV(rightRows[i] ?? '', rightW);
-    lines.push(`${bdr}│${R}${left}${bdr}│${R} ${right}${bdr}│${R}`);
+  // ── Combine left | right ──
+  for (let i = 0; i < leftLines.length; i++) {
+    const left = padV(leftLines[i]!, leftW);
+    const right = padV(rightLines[i] ?? '', rightW);
+    lines.push(`${bdr}│${R}${left}${bdr}│${R}${right}${bdr}│${R}`);
   }
 
-  // Bottom border
+  // ── Bottom border ──
   lines.push(`${bdr}╰${'─'.repeat(innerW)}╯${R}`);
 
   return lines.join('\n');
 }
 
-// ─── Separator & Status ─────────────────────────────────
+// ─── Separator & Status exports ─────────────────────────
 
 export function renderSeparator(): string {
   const w = process.stdout.columns ?? 120;
@@ -220,16 +218,24 @@ export function renderStatusLine(info: {
   const cc = info.contextPercent > 85 ? '\x1b[31m' : info.contextPercent > 60 ? '\x1b[33m' : '\x1b[32m';
   const br = info.branch ? ` (${info.branch})` : '';
   const mc = info.mode === 'bypass' ? '\x1b[31m' : info.mode === 'fullAuto' ? '\x1b[33m' : '\x1b[32m';
-
-  const left = `  ${D}${shortM(info.model)}${R} ${GRAY}|${R} ${CYAN}${info.project}${br}${R} ${GRAY}|${R} ${cc}${info.contextPercent}%${R} ${D}(${uK}k/${tK}k)${R} ${GRAY}|${R} ${D}$$${info.costSession.toFixed(2)} / $$${info.costTotal.toFixed(2)}${R}`;
+  const left = `  ${D}M2.7-hs${R} ${GRAY}|${R} ${CYAN}${info.project}${br}${R} ${GRAY}|${R} ${cc}${info.contextPercent}%${R} ${D}(${uK}k/${tK}k)${R} ${GRAY}|${R} ${D}$$${info.costSession.toFixed(2)} / $$${info.costTotal.toFixed(2)}${R}`;
   const right = `${D}⏵⏵ ${mc}${info.mode}${R} ${D}permissions on${R}`;
   const w = process.stdout.columns ?? 120;
   const g = Math.max(1, w - visL(left) - visL(right));
   return `${left}${' '.repeat(g)}${right}`;
 }
 
-function shortM(m: string): string {
-  return m.includes('M2.7-highspeed') ? 'M2.7-hs' : m.includes('M2.7') ? 'M2.7' : m.slice(0, 10);
-}
+// ─── Helpers ────────────────────────────────────────────
+
 function visL(s: string): number { return s.replace(/\x1b\[[0-9;]*m/g, '').length; }
-function padV(s: string, w: number): string { const v = visL(s); return v >= w ? s : s + ' '.repeat(w - v); }
+
+function padV(s: string, w: number): string {
+  const v = visL(s);
+  if (v >= w) return s;
+  return s + ' '.repeat(w - v);
+}
+
+function truncPlain(s: string, maxLen: number): string {
+  if (maxLen <= 0) return s;
+  return s.length > maxLen ? s.slice(0, maxLen - 1) + '…' : s;
+}
