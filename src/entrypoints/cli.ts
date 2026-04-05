@@ -236,9 +236,10 @@ async function main(): Promise<void> {
       endpoint: client.baseUrl,
       tools: toolNames,
       clis: cliNames,
-      mode: `${cliArgs.mode} — ${MODE_DESCRIPTIONS[cliArgs.mode]}`,
-      projectName: process.cwd().split(/[\\/]/).pop() ?? 'unknown',
+      mode: `${cliArgs.mode}`,
+      projectName: cwd.split(/[\\/]/).pop() ?? 'unknown',
       vaultStatus: credentialProvider?.isAvailable ? 'unlocked' : 'locked',
+      cwd,
       tips: [],
       recentActivity: [],
     });
