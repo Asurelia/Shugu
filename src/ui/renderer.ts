@@ -38,7 +38,6 @@ export class TerminalRenderer {
   private brewStartTime: number | null = null;
   public statusBar: StatusBar;
   public buddy: Buddy;
-  private statusInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     this.statusBar = new StatusBar();
@@ -123,7 +122,7 @@ export class TerminalRenderer {
     if (this.isStreaming) return;
     this.isStreaming = true;
     this.brewStartTime = Date.now();
-    this.statusBar.update({ isStreaming: true, brewStartTime: this.brewStartTime });
+    this.statusBar.update({ isStreaming: true });
 
     // Show hatching indicator
     process.stdout.write(`\n${MAGENTA}✻ Hatching...${R}\n`);
@@ -151,7 +150,7 @@ export class TerminalRenderer {
         console.log('');
       }
       this.isStreaming = false;
-      this.statusBar.update({ isStreaming: false, brewStartTime: undefined });
+      this.statusBar.update({ isStreaming: false });
       this.buddy.onEvent('done');
     }
   }
@@ -225,7 +224,7 @@ export class TerminalRenderer {
     this.separator();
     console.log(`${D}Session ended: ${reason} | Cost: $${totalCost.toFixed(4)}${R}`);
     this.buddy.onEvent('idle');
-    this.stopStatusBar();
+    this.statusBar.stop();
   }
 
   // ─── Permission Prompts ─────────────────────────────
@@ -252,21 +251,6 @@ export class TerminalRenderer {
     });
   }
 
-  // ─── Status Bar Control ─────────────────────────────
-
-  startStatusBar(): void {
-    this.statusInterval = setInterval(() => {
-      this.statusBar.draw();
-    }, 1000);
-  }
-
-  stopStatusBar(): void {
-    if (this.statusInterval) {
-      clearInterval(this.statusInterval);
-      this.statusInterval = null;
-    }
-    this.statusBar.clear();
-  }
 }
 
 // ─── Helpers ────────────────────────────────────────────

@@ -38,7 +38,7 @@ import { AgentOrchestrator } from '../agents/orchestrator.js';
 import type { ToolRegistryImpl } from '../tools/registry.js';
 import { CredentialVault } from '../credentials/vault.js';
 import { CredentialProvider } from '../credentials/provider.js';
-import { renderStatusLine } from '../ui/banner.js';
+// renderStatusLine now handled by StatusBar component
 
 // ─── System Prompt ──────────────────────────────────────
 
@@ -399,61 +399,25 @@ async function runREPL(
   const session = sessionMgr.createSession(toolContext.cwd, client.model);
   const commands = createDefaultCommands();
 
-  // Helper to build status info from current state
-  const getStatusInfo = () => ({
+  // ── Status bar: autonomous component ──
+  renderer.statusBar.update({
     model: client.model,
     project: toolContext.cwd.split(/[\\/]/).pop() ?? '',
-    contextPercent: tokenTracker.getStatus().percentUsed,
-    contextUsed: tokenTracker.getStatus().usedTokens,
     contextTotal: tokenTracker.getStatus().totalTokens,
-    costSession: budget.getTotalCostUsd(),
-    costTotal: budget.getTotalCostUsd(),
+    sessionStartTime: Date.now(),
     mode: permResolver.getMode(),
   });
-
-  // ── Status bar drawn at fixed bottom position ──
-  // No scroll region (breaks readline on Windows).
-  // Instead: save cursor, jump to bottom, draw, restore cursor.
-
-  function drawFixedStatusBar(): void {
-    const si = getStatusInfo();
-    const rows = process.stdout.rows ?? 24;
-    const w = process.stdout.columns ?? 120;
-    const modeColor = si.mode === 'bypass' ? '\x1b[31m' : si.mode === 'fullAuto' ? '\x1b[33m' : '\x1b[32m';
-
-    process.stdout.write('\x1b7'); // save cursor
-    process.stdout.write(`\x1b[${rows - 2};1H\x1b[2K\x1b[90m${'─'.repeat(w)}\x1b[0m`);
-    process.stdout.write(`\x1b[${rows - 1};1H\x1b[2K${renderStatusLine(si)}`);
-    process.stdout.write(`\x1b[${rows};1H\x1b[2K  \x1b[2m⏵⏵ ${modeColor}${si.mode}\x1b[0m \x1b[2mpermissions on (shift+tab to cycle)\x1b[0m`);
-    process.stdout.write('\x1b8'); // restore cursor
-  }
-
-  // Draw once at startup
-  drawFixedStatusBar();
-
-  // Redraw on resize
-  process.stdout.on('resize', drawFixedStatusBar);
-
-  // Redraw only when state changes
-  let lastStatusHash = '';
-  const statusInterval = setInterval(() => {
-    const si = getStatusInfo();
-    const hash = `${si.contextPercent}|${si.costSession}|${si.mode}`;
-    if (hash !== lastStatusHash) {
-      lastStatusHash = hash;
-      drawFixedStatusBar();
-    }
-  }, 2000);
+  renderer.statusBar.start();
 
   const askQuestion = (): Promise<string> => {
     return new Promise((resolve) => {
       renderer.printTopSeparator();
       renderer.promptIndicator();
 
-      // Redraw status bar on backspace (can erase bottom lines)
+      // Redraw status bar on backspace (can erase bottom line on some terminals)
       const onKeypress = (_ch: string, key: { name?: string } | undefined) => {
         if (key?.name === 'backspace' || key?.name === 'delete') {
-          drawFixedStatusBar();
+          renderer.statusBar.redraw();
         }
       };
       process.stdin.on('keypress', onKeypress);
@@ -473,8 +437,7 @@ async function runREPL(
   };
 
   rl.on('close', async () => {
-    clearInterval(statusInterval);
-    clearInterval(statusInterval);
+    renderer.statusBar.stop();
     await saveSession();
     renderer.loopEnd('user_exit', budget.getTotalCostUsd());
     process.exit(0);
@@ -491,8 +454,7 @@ async function runREPL(
   while (true) {
     const input = await askQuestion();
     if (!input) {
-      // Empty Enter — don't leave blank line, just redraw prompt
-      drawFixedStatusBar();
+      renderer.statusBar.redraw();
       continue;
     }
 
@@ -544,7 +506,7 @@ async function runREPL(
             conversationMessages.length = 0;
             continue;
           case 'exit':
-            clearInterval(statusInterval);
+            renderer.statusBar.stop();
             await saveSession();
             renderer.loopEnd(cmdResult.reason, budget.getTotalCostUsd());
             rl.close();

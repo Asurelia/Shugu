@@ -1,11 +1,17 @@
 /**
- * Layer 11 — UI: Status bar
+ * Layer 11 — UI: Status bar (autonomous component)
  *
- * Persistent bottom status bar with live info.
- * Updates in real-time during streaming.
+ * Self-contained status bar pinned to the terminal bottom.
+ * Completely independent from readline and the REPL loop.
  *
- * Format:
- *   Model | Project | Context% (used/total) | $cost / $budget | uptime | mode
+ * Usage:
+ *   const bar = new StatusBar({ model: '...', project: '...' });
+ *   bar.start();               // begin drawing at terminal bottom
+ *   bar.update({ costUsd: 0.05 }); // update state → auto-redraws
+ *   bar.stop();                // cleanup on exit
+ *
+ * Draws itself at absolute position (last row) using save/restore cursor.
+ * Only redraws when state actually changes (no flicker).
  */
 
 const R = '\x1b[0m';
@@ -16,16 +22,16 @@ const GREEN = '\x1b[32m';
 const YELLOW = '\x1b[33m';
 const RED = '\x1b[31m';
 const MAGENTA = '\x1b[35m';
-const WHITE = '\x1b[37m';
 const GRAY = '\x1b[90m';
-const BG_STATUS = '\x1b[48;5;236m';
-const FG_STATUS = '\x1b[38;5;252m';
+const BG = '\x1b[48;5;236m';
+const FG = '\x1b[38;5;252m';
 
-// ─── Status Bar State ───────────────────────────────────
+// ─── State ──────────────────────────────────────────────
 
 export interface StatusBarState {
   model: string;
   project: string;
+  branch?: string;
   contextPercent: number;
   contextUsed: number;
   contextTotal: number;
@@ -34,19 +40,20 @@ export interface StatusBarState {
   sessionStartTime: number;
   mode: string;
   isStreaming: boolean;
-  brewStartTime?: number;
 }
 
-// ─── Rendering ──────────────────────────────────────────
+// ─── Component ──────────────────────────────────────────
 
 export class StatusBar {
   private state: StatusBarState;
-  private lastRender = '';
+  private lastRendered = '';
+  private running = false;
+  private resizeHandler: (() => void) | null = null;
 
-  constructor(initialState: Partial<StatusBarState> = {}) {
+  constructor(initial: Partial<StatusBarState> = {}) {
     this.state = {
       model: 'MiniMax-M2.7-highspeed',
-      project: 'Project_cc',
+      project: '',
       contextPercent: 0,
       contextUsed: 0,
       contextTotal: 204800,
@@ -54,118 +61,115 @@ export class StatusBar {
       sessionStartTime: Date.now(),
       mode: 'default',
       isStreaming: false,
-      ...initialState,
+      ...initial,
     };
   }
 
+  /**
+   * Start the status bar — draw it and listen for resize.
+   */
+  start(): void {
+    if (this.running) return;
+    this.running = true;
+    this.draw();
+    this.resizeHandler = () => this.draw();
+    process.stdout.on('resize', this.resizeHandler);
+  }
+
+  /**
+   * Stop the status bar — clear it and remove listeners.
+   */
+  stop(): void {
+    if (!this.running) return;
+    this.running = false;
+    if (this.resizeHandler) {
+      process.stdout.removeListener('resize', this.resizeHandler);
+      this.resizeHandler = null;
+    }
+    this.clear();
+  }
+
+  /**
+   * Update state and redraw if changed.
+   */
   update(partial: Partial<StatusBarState>): void {
     Object.assign(this.state, partial);
+    if (this.running) this.draw();
   }
 
   /**
-   * Render the status bar string (without positioning).
-   * Caller is responsible for placing it at the bottom.
+   * Force redraw (e.g., after backspace erases bottom).
    */
-  render(): string {
+  redraw(): void {
+    this.lastRendered = ''; // force
+    this.draw();
+  }
+
+  // ─── Rendering ────────────────────────────────────────
+
+  private draw(): void {
+    const rendered = this.renderLine();
+    if (rendered === this.lastRendered) return; // no change, no flicker
+    this.lastRendered = rendered;
+
+    const row = process.stdout.rows ?? 24;
+    // Save cursor → jump to last row → clear line → write → restore cursor
+    process.stdout.write(`\x1b7\x1b[${row};1H\x1b[2K${rendered}\x1b8`);
+  }
+
+  private clear(): void {
+    const row = process.stdout.rows ?? 24;
+    const w = process.stdout.columns ?? 120;
+    process.stdout.write(`\x1b7\x1b[${row};1H\x1b[2K${' '.repeat(w)}\x1b8`);
+    this.lastRendered = '';
+  }
+
+  private renderLine(): string {
     const s = this.state;
-    const termWidth = process.stdout.columns ?? 120;
+    const w = process.stdout.columns ?? 120;
 
-    // Context gauge
+    // Left side: model | project | context | cost | uptime
     const ctxColor = s.contextPercent > 85 ? RED : s.contextPercent > 60 ? YELLOW : GREEN;
-    const ctxUsedK = Math.round(s.contextUsed / 1000);
-    const ctxTotalK = Math.round(s.contextTotal / 1000);
-    const contextStr = `${ctxColor}${s.contextPercent}%${R}${BG_STATUS} (${ctxUsedK}k/${ctxTotalK}k)`;
+    const uK = Math.round(s.contextUsed / 1000);
+    const tK = Math.round(s.contextTotal / 1000);
+    const uptime = fmtUptime(Date.now() - s.sessionStartTime);
+    const cost = s.budgetUsd
+      ? `$$${s.costUsd.toFixed(2)} / $$${s.budgetUsd.toFixed(2)}`
+      : `$$${s.costUsd.toFixed(4)}`;
 
-    // Cost
-    const costStr = s.budgetUsd
-      ? `$${s.costUsd.toFixed(2)} / $${s.budgetUsd.toFixed(2)}`
-      : `$${s.costUsd.toFixed(4)}`;
+    const left = `${BG}${FG}  ${shortModel(s.model)} ${GRAY}│${FG} ${CYAN}${s.project}${s.branch ? ` (${s.branch})` : ''}${FG} ${GRAY}│${FG} ${ctxColor}${s.contextPercent}%${FG} (${uK}k/${tK}k) ${GRAY}│${FG} ${cost} ${GRAY}│${FG} ${uptime}${R}`;
 
-    // Uptime
-    const uptimeStr = formatUptime(Date.now() - s.sessionStartTime);
-
-    // Brew timer
-    const brewStr = s.brewStartTime
-      ? ` ${MAGENTA}✻ ${formatBrewTime(Date.now() - s.brewStartTime)}${R}${BG_STATUS}`
-      : '';
-
-    // Mode with color
+    // Right side: mode
     const modeColor = s.mode === 'bypass' ? RED : s.mode === 'fullAuto' ? YELLOW : GREEN;
-    const modeStr = `${modeColor}${s.mode}${R}${BG_STATUS}`;
+    const stream = s.isStreaming ? `${CYAN}⏵⏵${R}${BG} ` : '  ';
+    const right = `${BG}${stream}${modeColor}${s.mode}${FG} permissions on${R}`;
 
-    // Streaming indicator
-    const streamIndicator = s.isStreaming ? `${CYAN}⏵⏵${R}${BG_STATUS} ` : '  ';
+    // Pad middle
+    const leftVis = visLen(left);
+    const rightVis = visLen(right);
+    const gap = Math.max(1, w - leftVis - rightVis);
 
-    // Compose
-    const parts = [
-      `${B}${WHITE}${shortModel(s.model)}${R}${BG_STATUS}`,
-      `${CYAN}${s.project}${R}${BG_STATUS}`,
-      contextStr,
-      `${FG_STATUS}${costStr}`,
-      `${GRAY}${uptimeStr}${R}${BG_STATUS}`,
-    ];
-
-    const mainContent = `${BG_STATUS}${FG_STATUS}  ${parts.join(`${GRAY} │ ${R}${BG_STATUS}`)}${brewStr}${R}`;
-    const rightPart = `${BG_STATUS}${streamIndicator}${modeStr} permissions${R}`;
-
-    // Pad to terminal width
-    const mainVisible = visibleLength(mainContent);
-    const rightVisible = visibleLength(rightPart);
-    const gap = Math.max(1, termWidth - mainVisible - rightVisible);
-
-    return `${mainContent}${BG_STATUS}${' '.repeat(gap)}${rightPart}${R}`;
-  }
-
-  /**
-   * Write the status bar to the terminal bottom.
-   */
-  draw(): void {
-    const rendered = this.render();
-    if (rendered === this.lastRender) return;
-    this.lastRender = rendered;
-
-    const rows = process.stdout.rows ?? 24;
-    // Save cursor, move to bottom, write, restore cursor
-    process.stdout.write(`\x1b7\x1b[${rows};1H${rendered}\x1b8`);
-  }
-
-  /**
-   * Clear the status bar.
-   */
-  clear(): void {
-    const rows = process.stdout.rows ?? 24;
-    const cols = process.stdout.columns ?? 120;
-    process.stdout.write(`\x1b7\x1b[${rows};1H${' '.repeat(cols)}\x1b8`);
-    this.lastRender = '';
+    return `${left}${BG}${' '.repeat(gap)}${right}`;
   }
 }
 
 // ─── Helpers ────────────────────────────────────────────
 
-function shortModel(model: string): string {
-  if (model.includes('M2.7-highspeed')) return 'M2.7-hs';
-  if (model.includes('M2.7')) return 'M2.7';
-  if (model.includes('M2.5')) return 'M2.5';
-  return model.slice(0, 10);
+function shortModel(m: string): string {
+  if (m.includes('M2.7-highspeed')) return 'M2.7-hs';
+  if (m.includes('M2.7')) return 'M2.7';
+  return m.slice(0, 10);
 }
 
-function formatUptime(ms: number): string {
-  const seconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-
-  if (hours > 0) return `${hours}h${minutes % 60}m`;
-  if (minutes > 0) return `${minutes}m${seconds % 60}s`;
-  return `${seconds}s`;
+function fmtUptime(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const h = Math.floor(m / 60);
+  if (h > 0) return `${h}h${m % 60}m`;
+  if (m > 0) return `${m}m${s % 60}s`;
+  return `${s}s`;
 }
 
-function formatBrewTime(ms: number): string {
-  const seconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(seconds / 60);
-  if (minutes > 0) return `Brewed for ${minutes}m ${seconds % 60}s`;
-  return `Brewed for ${seconds}s`;
-}
-
-function visibleLength(str: string): number {
-  return str.replace(/\x1b\[[0-9;]*m/g, '').length;
+function visLen(s: string): number {
+  return s.replace(/\x1b\[[0-9;]*m/g, '').length;
 }
