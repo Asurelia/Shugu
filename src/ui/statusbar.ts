@@ -1,10 +1,9 @@
 /**
  * Layer 11 — UI: Status bar
  *
- * ONE line pinned to the very last row of the terminal.
- * Nothing else — no buddy, no mode line. Just the status.
- *
- *   M2.7-hs │ Project │ 0% (0k/205k) │ $$0.00 │ 5s
+ * Simple state container + renderer. NOT positioned absolutely.
+ * Just provides a render() method that returns a formatted string.
+ * The CLI prints it in the normal flow where needed.
  */
 
 const R = '\x1b[0m';
@@ -33,9 +32,6 @@ export interface StatusBarState {
 
 export class StatusBar {
   private state: StatusBarState;
-  private lastHash = '';
-  private running = false;
-  private resizeHandler: (() => void) | null = null;
 
   constructor(initial: Partial<StatusBarState> = {}) {
     this.state = {
@@ -52,52 +48,20 @@ export class StatusBar {
     };
   }
 
-  // Keep for compatibility but no-op now
+  // No-ops for compatibility
   setBuddy(_lines: string[]): void {}
-
-  start(): void {
-    if (this.running) return;
-    this.running = true;
-    this.draw();
-    this.resizeHandler = () => { this.lastHash = ''; this.draw(); };
-    process.stdout.on('resize', this.resizeHandler);
-  }
-
-  stop(): void {
-    if (!this.running) return;
-    this.running = false;
-    if (this.resizeHandler) {
-      process.stdout.removeListener('resize', this.resizeHandler);
-      this.resizeHandler = null;
-    }
-  }
+  start(): void {}
+  stop(): void {}
+  redraw(): void {}
 
   update(partial: Partial<StatusBarState>): void {
     Object.assign(this.state, partial);
-    if (this.running) this.draw();
   }
 
-  redraw(): void {
-    this.lastHash = '';
-    this.draw();
-  }
-
-  private draw(): void {
+  /** Render the status line as a string (caller prints it) */
+  render(): string {
     const s = this.state;
-    const hash = `${s.contextPercent}|${s.costUsd}|${s.mode}|${s.isStreaming}`;
-    if (hash === this.lastHash) return;
-    this.lastHash = hash;
-
-    const row = process.stdout.rows ?? 24;
     const w = process.stdout.columns ?? 120;
-    const line = this.renderLine(w);
-
-    // Save cursor, jump to last row, write, restore
-    process.stdout.write(`\x1b7\x1b[${row};1H\x1b[2K${line}\x1b8`);
-  }
-
-  private renderLine(w: number): string {
-    const s = this.state;
     const cc = s.contextPercent > 85 ? RED : s.contextPercent > 60 ? YELLOW : GREEN;
     const uK = Math.round(s.contextUsed / 1000);
     const tK = Math.round(s.contextTotal / 1000);

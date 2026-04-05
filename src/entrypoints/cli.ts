@@ -436,9 +436,10 @@ async function runREPL(
 
       rl.once('line', (line) => {
         process.stdin.removeListener('keypress', onKeypress);
-        // 3. Bottom separator + mode (after Enter)
+        // Bottom bar + mode + status — all in the flow
         console.log(`\x1b[90m${'─'.repeat(w)}\x1b[0m`);
         console.log(`  \x1b[2m⏵⏵ ${mc}${mode}\x1b[0m \x1b[2mpermissions on (shift+tab to cycle)\x1b[0m`);
+        console.log(renderer.statusBar.render());
         resolve(line.trim());
       });
     });
