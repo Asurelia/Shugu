@@ -526,7 +526,11 @@ async function runREPL(
 
   while (true) {
     const input = await askQuestion();
-    if (!input) continue;
+    if (!input) {
+      // Empty Enter — don't leave blank line, just redraw prompt
+      drawFixedStatusBar();
+      continue;
+    }
 
     // ── Local-state commands (need direct access to REPL state) ──
     if (input === '/cost') { renderer.usage(budget.getSummary()); continue; }
