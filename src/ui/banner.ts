@@ -64,19 +64,17 @@ const SHUGU = [
   ':: : :     :   : :    : :  :    :: :: :      : :  : ',
 ];
 
-// Elf — each line is exactly the PLAIN TEXT (no ANSI), color applied separately
+// Elf — same braille chars as the PS script, same orange gradient as big face
 const ELF_PLAIN = [
-  '   ⠀⠀⠀⣀⣀⣀⣀⡀⠀⠀⠀',
-  '  ⢀⡤⠤⡤⠞⠁⠀⡀⠀⠨⡙⠦⡠⠤',
-  '  ⡛⢐⠉⡠⠂⠀⡰⠣⣀⠀⠑⠄⠈⡄⢃',
-  '  ⡇⡸⠀⡄⣀⡾⠀⠀⢠⣽⢄⢀⠢⠸⠸',
-  '  ⠲⣒⢞⢺⡁⢸⠊⣠⡄⠀⢠⣄⠈⡇⠰',
-  '  ⢑⡶⣙⣦⢣⠀⠀⡀⡀⡀⠀⠀⣅⢤⣜',
-  '  ⡇⠃⢺⠞⠛⢧⣀⣉⣉⢀⣀⠭⠿⢬⣄',
-  '  ⢸⠁⢀⢻⠀⠀⡎⠀⠐⠒⠓⡄⠀⠹⠀',
+  '⠀⠀⠀⠀⣀⣀⣀⣀⡀⠀⠀⠀⠀',
+  '⠀⢀⡤⠤⡤⠞⠁⠀⡀⠀⠨⡙⠦⡠⠤',
+  '⠀⡛⢐⠉⡠⠂⠀⡰⠣⣀⠀⠑⠄⠈⡄⢃',
+  '⠀⡇⡸⠀⡄⣀⡾⠀⠀⢠⣽⢄⢀⠢⠸⠸⡀',
+  '⠲⣒⢞⢺⡁⢸⠊⣠⡄⠀⠀⢠⣄⠈⡇⠰⣾⠚⢖',
+  '⠀⢑⡶⣙⣦⢣⠀⠀⡀⡀⡀⠀⠀⣅⢤⣜⠕',
+  '⠀⡇⠃⢺⠞⠛⢧⣀⣉⣉⢀⣀⠭⠿⢬⣄⢘',
+  '⢸⠁⢀⢻⠀⠀⡎⠀⠐⠒⠓⡄⠀⠹⠀⢸⢟⠿',
 ];
-
-const ELF_COLORS = [D, D, CYAN, CYAN, MAGENTA, MAGENTA, YELLOW, YELLOW];
 
 // ─── Banner Info ────────────────────────────────────────
 
@@ -148,13 +146,13 @@ export function renderBanner(info: BannerInfo): string {
   const leftLines: string[] = [];
   for (let i = 0; i < Math.max(ELF_PLAIN.length, infoEntries.length + 3); i++) {
     const elfStr = ELF_PLAIN[i] ?? '';
-    const elfColor = ELF_COLORS[i] ?? '';
-    const elfPad = 16; // fixed column for elf
+    // Same orange gradient as the big braille face
+    const elfColor = elfStr ? grad(i, ELF_PLAIN.length, OS, OE) : '';
+    const elfPad = 20; // fixed column for elf
 
     let row = '';
     if (elfStr) {
       row = ` ${elfColor}${elfStr}${R}`;
-      // pad elf to fixed width
       const elfVisW = visL(row);
       row += ' '.repeat(Math.max(1, elfPad - elfVisW));
     } else {
