@@ -13,7 +13,7 @@
  */
 
 import * as readline from 'node:readline';
-import { renderBanner, type BannerInfo } from './banner.js';
+import { renderBanner, renderSeparator, renderStatusLine, type BannerInfo } from './banner.js';
 import { StatusBar, type StatusBarState } from './statusbar.js';
 import { Buddy } from './buddy.js';
 
@@ -68,8 +68,26 @@ export class TerminalRenderer {
 
   // ─── Prompt ─────────────────────────────────────────
 
+  /**
+   * Print the separator + status + prompt.
+   */
+  promptSeparator(): void {
+    console.log(renderSeparator());
+  }
+
+  /**
+   * Print the bottom status line (model | project | context | cost | mode).
+   */
+  printStatusLine(info: {
+    model: string; project: string; branch?: string;
+    contextPercent: number; contextUsed: number; contextTotal: number;
+    costSession: number; costTotal: number; mode: string;
+  }): void {
+    console.log(renderStatusLine(info));
+  }
+
   promptIndicator(): void {
-    process.stdout.write(`\n${B}${GREEN}❯ ${R}`);
+    process.stdout.write(`${B}${GREEN}❯ ${R}`);
   }
 
   // ─── Streaming ──────────────────────────────────────
@@ -79,7 +97,10 @@ export class TerminalRenderer {
     this.isStreaming = true;
     this.brewStartTime = Date.now();
     this.statusBar.update({ isStreaming: true, brewStartTime: this.brewStartTime });
-    process.stdout.write(`\n${B}${CYAN}assistant${R} ${D}→${R} `);
+
+    // Show hatching indicator
+    process.stdout.write(`\n${MAGENTA}✻ Hatching...${R}\n`);
+    process.stdout.write(`${B}${CYAN}assistant${R} ${D}→${R} `);
     this.buddy.onEvent('thinking');
   }
 
@@ -91,13 +112,13 @@ export class TerminalRenderer {
     process.stdout.write(`${D}${text}${R}`);
   }
 
-  endStream(): void {
+  endStream(outputTokens?: number): void {
     if (this.isStreaming) {
-      // Show brew time
       if (this.brewStartTime) {
         const brewMs = Date.now() - this.brewStartTime;
         const brewStr = formatBrewTime(brewMs);
-        console.log(`\n${D}${MAGENTA}✻ ${brewStr}${R}`);
+        const tokStr = outputTokens ? ` · ↓ ${outputTokens} tokens` : '';
+        console.log(`\n${D}${MAGENTA}✻ ${brewStr}${tokStr}${R}`);
         this.brewStartTime = null;
       } else {
         console.log('');

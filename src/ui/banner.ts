@@ -1,11 +1,26 @@
 /**
  * Layer 11 — UI: Startup banner
  *
- * Full-width ASCII art banner with live info panels.
- * Box-drawing characters, color-coded status, tips panel.
+ * Faithful port of the PowerShell banner with:
+ * - Full 13-line braille face art (left) with orange gradient
+ * - SHUGU ASCII logo (right) with purple gradient
+ * - Info box with provider/model/endpoint
+ * - Separator lines + prompt
  */
 
-// ─── ANSI ───────────────────────────────────────────────
+// ─── ANSI RGB Helper ────────────────────────────────────
+
+function rgb(r: number, g: number, b: number): string {
+  return `\x1b[38;2;${r};${g};${b}m`;
+}
+
+function gradient(index: number, steps: number, start: number[], end: number[]): string {
+  const ratio = steps > 1 ? index / (steps - 1) : 0;
+  const r = Math.round((end[0]! - start[0]!) * ratio + start[0]!);
+  const g = Math.round((end[1]! - start[1]!) * ratio + start[1]!);
+  const b = Math.round((end[2]! - start[2]!) * ratio + start[2]!);
+  return rgb(r, g, b);
+}
 
 const R = '\x1b[0m';
 const B = '\x1b[1m';
@@ -13,36 +28,52 @@ const D = '\x1b[2m';
 const CYAN = '\x1b[36m';
 const GREEN = '\x1b[32m';
 const YELLOW = '\x1b[33m';
-const RED = '\x1b[31m';
 const MAGENTA = '\x1b[35m';
-const BLUE = '\x1b[34m';
 const WHITE = '\x1b[37m';
 const GRAY = '\x1b[90m';
-const BG_DARK = '\x1b[48;5;235m';
 
-// ─── ASCII Art ──────────────────────────────────────────
+// ─── Gradient Colors ────────────────────────────────────
 
-const SHUGU_ART = [
-  `${CYAN}          ⣿⠛⠛⠛⠛⠻⡆${R}`,
-  `${CYAN}          ⠛⢛⣿⠋⢀⡾⠃${R}`,
-  `${CYAN}          ⢠⡟⠁⣴⣿⢤⡄${R}`,
-  `${CYAN}          ⠸⢷⣴⣤⡤⠾⠇${R}`,
+// Braille face: dark orange → light orange
+const ORANGE_START = [160, 64, 0];
+const ORANGE_END = [255, 180, 64];
+
+// SHUGU text: deep purple → lavender
+const PURPLE_START = [64, 0, 64];
+const PURPLE_END = [200, 150, 255];
+
+// ─── Art Data ───────────────────────────────────────────
+
+const FACE_ROWS = [
+  '⣿⠛⠛⠛⠛⠻⡆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀',
+  '⠛⢛⣿⠋⢀⡾⠃⠀⠀⠀⠀⢀⣤⣤⠤⠤⣤⣤⣀⣀⣀⣠⠶⡶⣤⣀⣠⠾⡷⣦⣀⣤⣤⡤⠤⠦⢤⣤⣄⡀⠀⢠⡶⢶⡄⠀⠀',
+  '⢠⡟⠁⣴⣿⢤⡄⣴⢶⠶⡆⠈⢷⡀⠀⠀⠀⠀⢀⣭⣫⠵⠥⠽⣄⣝⠵⢍⣘⣄⠳⣤⣀⠀⠀⢀⡤⠊⣽⠁⠀⠸⣇⠀⢿⠀⠀',
+  '⠸⢷⣴⣤⡤⠾⠇⣽⠋⠼⣷⠀⠈⢷⡄⢀⣤⡶⠋⠀⣀⡄⠤⠀⡲⡆⠀⠀⠈⠙⡄⠘⢮⢳⡴⠯⣀⢠⡏⠀⠀⠀⢻⠀⢸⠇⠀',
+  '⠀⠀⠀⠀⠀⠀⠀⠙⠛⠋⠉⢀⣴⠟⠉⢯⡞⡠⢲⠉⣼⠀⠀⡰⠁⡇⢀⢷⠀⣄⢵⠀⠈⡟⢄⠀⠀⠙⢷⣤⣤⣤⡿⢢⡿⠀⠀',
+  '⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⠟⠑⠊⠁⡼⣌⢠⢿⢸⢸⡀⢰⠁⡸⡇⡸⣸⢰⢈⠘⡄⠀⢸⠀⢣⡀⠀⠈⢮⢢⣏⣤⡾⠃⠀⠀',
+  '⠀⠀⠀⠀⠀⠀⠀⠀⠀⢰⣯⣴⠞⡠⣼⠁⡘⣾⠏⣿⢇⣳⣸⣞⣀⢱⣧⣋⣞⡜⢳⡇⠀⢸⠀⢆⢧⠀⠰⣄⢏⢧⣾⠁⠀⠀⠀',
+  '⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⢹⡏⢰⠁⡻⠀⡟⡏⠉⠀⣀⠀⠀⠀⠀⣀⠁⠀⠉⠛⢽⠇⠀⣼⡆⠈⡆⠃⠀⡏⠻⣾⣽⣇⡀⠀⠀',
+  '⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⠁⡇⠀⡇⡄⣿⠷⠿⠿⠛⠀⠀⠀⠀⠛⠻⠿⠿⠿⡜⢀⡴⡟⢸⣸⡼⠀⠀⡇⠀⡞⡆⢻⠙⢦⠀',
+  '⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⡶⢀⣼⣿⣬⣽⠧⠬⠇⠀⠀⠀⠀⠀⠀⢞⣯⣭⢺⣔⣪⣾⣤⠺⡇⢳⠀⢠⣧⡾⠛⠛⠻⠶⠞⠁',
+  '⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠘⠷⢿⠟⠉⡀⠈⢦⡀⠀⠀⣠⠖⠒⠒⢤⡀⠀⢀⡼⠿⢇⡣⢬⣶⠷⢿⣤⡾⠁⠀⠀⠀⠀⠀⠀⠀',
+  '⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠘⠷⠾⠷⠖⠛⠛⠲⠶⠿⠤⣤⠤⠤⢷⣶⠋⠀⠀⠀⣱⠞⠁⠀⠈⠉⠀⠀⠀⠀⠀⠀⠀⠀⠀',
+  '⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠛⠓⠒⠚⠋⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀',
 ];
 
-const LOGO_TEXT = [
-  `${B}${CYAN}   @@@@@@   @@@  @@@   @@@  @@@    @@@@@@@@   @@@  @@@${R}`,
-  `${B}${CYAN}  @@@@@@@   @@@  @@@   @@@  @@@   @@@@@@@@@   @@@  @@@${R}`,
-  `${CYAN}  !@@       @@!  @@@   @@!  @@@   !@@         @@!  @@@${R}`,
-  `${CYAN}  !@!       !@!  @!@   !@!  @!@   !@!         !@!  @!@${R}`,
-  `${B}${MAGENTA}  !!@@!!    @!@!@!@!   @!@  !@!   !@! @!@!@   @!@  !@!${R}`,
-  `${B}${MAGENTA}   !!@!!!   !!!@!!!!   !@!  !!!   !!! !!@!!   !@!  !!!${R}`,
-  `${YELLOW}       !:!  !!:  !!!   !!:  !!!   :!!   !!:   !!:  !!!${R}`,
-  `${YELLOW}      !:!   :!:  !:!   :!:  !:!   :!:   !::   :!:  !:!${R}`,
-  `${RED}  :::: ::   ::   :::   ::::: ::   ::: ::::    ::::: ::${R}`,
-  `${RED}  :: : :     :   : :    : :  :    :: :: :      : :  :${R}`,
+const SHUGU_ROWS = [
+  ' @@@@@@   @@@  @@@   @@@  @@@    @@@@@@@@   @@@  @@@',
+  '@@@@@@@   @@@  @@@   @@@  @@@   @@@@@@@@@   @@@  @@@',
+  '!@@       @@!  @@@   @@!  @@@   !@@         @@!  @@@',
+  '!@!       !@!  @!@   !@!  @!@   !@!         !@!  @!@',
+  '!!@@!!    @!@!@!@!   @!@  !@!   !@! @!@!@   @!@  !@!',
+  ' !!@!!!   !!!@!!!!   !@!  !!!   !!! !!@!!   !@!  !!!',
+  '     !:!  !!:  !!!   !!:  !!!   :!!   !!:   !!:  !!!',
+  '   !:!    :!:  !:!   :!:  !:!   :!:   !::   :!:  !:!',
+  ':::: ::   ::   :::   ::::: ::   ::: ::::    ::::: ::',
+  ':: : :     :   : :    : :  :    :: :: :      : :  : ',
 ];
 
-// ─── Banner Builder ─────────────────────────────────────
+// ─── Banner Info ────────────────────────────────────────
 
 export interface BannerInfo {
   version: string;
@@ -58,83 +89,113 @@ export interface BannerInfo {
   recentActivity: string[];
 }
 
+// ─── Render ─────────────────────────────────────────────
+
 export function renderBanner(info: BannerInfo): string {
-  const termWidth = process.stdout.columns ?? 120;
-  const midPoint = Math.floor(termWidth * 0.55);
-  const rightWidth = termWidth - midPoint - 3;
   const lines: string[] = [];
+  const faceSteps = FACE_ROWS.length;
+  const shuguSteps = SHUGU_ROWS.length;
+  const faceColWidth = 65;
 
-  // Top border
-  lines.push(`${GRAY}╔${'═'.repeat(midPoint)}╦${'═'.repeat(rightWidth)}╗${R}`);
+  // ═══ BRAILLE FACE + SHUGU LOGO ═══
+  lines.push('');
+  for (let i = 0; i < faceSteps; i++) {
+    let line = '';
 
-  // Logo + right panel header
-  const rightHeader = `${B}${WHITE}Tips for getting started${R}`;
-  for (let i = 0; i < LOGO_TEXT.length; i++) {
-    const left = padVisible(LOGO_TEXT[i] ?? '', midPoint);
-    let right = '';
-    if (i === 0) {
-      right = rightHeader;
-    } else if (i === 1) {
-      right = `${CYAN}Run /help to see all commands${R}`;
-    } else if (i === 2) {
-      right = `${GRAY}${'─'.repeat(rightWidth - 2)}${R}`;
-    } else if (i === 3) {
-      right = `${B}${WHITE}Recent activity${R}`;
-    } else if (i >= 4 && i - 4 < info.recentActivity.length) {
-      right = `${GRAY}${info.recentActivity[i - 4]!.slice(0, rightWidth - 2)}${R}`;
-    } else if (i >= 4 && info.recentActivity.length === 0 && i === 4) {
-      right = `${GRAY}No recent activity${R}`;
+    // Braille face with orange gradient
+    const faceColor = gradient(i, faceSteps, ORANGE_START, ORANGE_END);
+    const faceStr = FACE_ROWS[i]!;
+    const padLen = Math.max(0, faceColWidth - [...faceStr].length);
+    line += `${faceColor}${faceStr}${' '.repeat(padLen)}${R}`;
+
+    // SHUGU text with purple gradient (starts at face row 1, spans 10 rows)
+    if (i >= 1 && i < 1 + shuguSteps) {
+      const shuguIdx = i - 1;
+      const shuguColor = gradient(shuguIdx, shuguSteps, PURPLE_START, PURPLE_END);
+      line += `${shuguColor}${SHUGU_ROWS[shuguIdx]}${R}`;
     }
-    right = padVisible(right, rightWidth);
-    lines.push(`${GRAY}║${R}${left}${GRAY}║${R}${right}${GRAY}║${R}`);
+
+    lines.push(line);
   }
 
-  // Info section
-  const infoLines = [
-    `${B} Provider${R}  ${GREEN}${info.provider}${R}`,
-    `${B} Model${R}     ${CYAN}${info.model}${R}`,
-    `${B} Endpoint${R}  ${GRAY}${info.endpoint}${R}`,
-    `${B} Tools${R}     ${info.tools.slice(0, 8).join(', ')}${info.tools.length > 8 ? ` +${info.tools.length - 8}` : ''}`,
-    `${B} CLIs${R}      ${info.clis.join(', ') || 'none detected'}`,
-    `${B} Vault${R}     ${info.vaultStatus}`,
-    '',
-    `  ${GREEN}●${R} ${info.provider.toLowerCase()}  ${GREEN}Ready${R} — type ${B}/help${R} to begin`,
-  ];
+  // ═══ TAGLINE ═══
+  lines.push('');
+  lines.push(`  ${MAGENTA}✦ Any model. Every tool. Zero limits. ✦${R}`);
 
-  // Tips for right panel
-  const tipLines = info.tips.length > 0 ? info.tips : [
-    '/commit — auto-generate commit message',
-    '/memory — search Obsidian vault',
-    '/compact — compress conversation',
-    '/mode auto — enable auto-approve mode',
-    '/context — check token usage',
-  ];
+  // ═══ INFO BOX ═══
+  const boxWidth = 60;
+  const toolStr = info.tools.slice(0, 6).join(', ') + (info.tools.length > 6 ? ` +${info.tools.length - 6}` : '');
+  const cliStr = info.clis.join(', ') || 'none detected';
+  const vaultColor = info.vaultStatus === 'unlocked' ? GREEN : YELLOW;
 
-  for (let i = 0; i < Math.max(infoLines.length, tipLines.length + 2); i++) {
-    const left = padVisible(infoLines[i] ?? '', midPoint);
-    let right = '';
-    if (i < tipLines.length) {
-      right = `${GRAY}${tipLines[i]!.slice(0, rightWidth - 2)}${R}`;
-    }
-    right = padVisible(right, rightWidth);
-    lines.push(`${GRAY}║${R}${left}${GRAY}║${R}${right}${GRAY}║${R}`);
-  }
-
-  // Bottom border
-  lines.push(`${GRAY}╚${'═'.repeat(midPoint)}╩${'═'.repeat(rightWidth)}╝${R}`);
+  lines.push(`${CYAN}╔${'═'.repeat(boxWidth)}╗${R}`);
+  lines.push(`${CYAN}║${R} ${B}Provider${R}  ${GREEN}${pad(info.provider, boxWidth - 12)}${R}${CYAN}║${R}`);
+  lines.push(`${CYAN}║${R} ${B}Model${R}     ${pad(info.model, boxWidth - 12)}${CYAN}║${R}`);
+  lines.push(`${CYAN}║${R} ${B}Endpoint${R}  ${GRAY}${pad(info.endpoint, boxWidth - 12)}${R}${CYAN}║${R}`);
+  lines.push(`${CYAN}║${R} ${B}Tools${R}     ${pad(toolStr, boxWidth - 12)}${CYAN}║${R}`);
+  lines.push(`${CYAN}║${R} ${B}CLIs${R}      ${pad(cliStr, boxWidth - 12)}${CYAN}║${R}`);
+  lines.push(`${CYAN}║${R} ${B}Vault${R}     ${vaultColor}${pad(info.vaultStatus, boxWidth - 12)}${R}${CYAN}║${R}`);
+  lines.push(`${CYAN}╠${'═'.repeat(boxWidth)}╣${R}`);
+  lines.push(`${CYAN}║${R} ${GREEN}●${R} ${info.provider.toLowerCase()}  ${GREEN}Ready${R} — type ${B}/help${R} to begin${' '.repeat(Math.max(0, boxWidth - 42))}${CYAN}║${R}`);
+  lines.push(`${CYAN}╚${'═'.repeat(boxWidth)}╝${R}`);
+  lines.push(`${GRAY}  shugu v${info.version}${R}`);
+  lines.push('');
 
   return lines.join('\n');
 }
 
-// ─── Visible Length Calculation ──────────────────────────
-
-function visibleLength(str: string): number {
-  // Strip ANSI escape codes for length calculation
-  return str.replace(/\x1b\[[0-9;]*m/g, '').length;
+/**
+ * Render the separator line between interactions.
+ */
+export function renderSeparator(): string {
+  const w = process.stdout.columns ?? 120;
+  return `${GRAY}${'─'.repeat(w)}${R}`;
 }
 
-function padVisible(str: string, width: number): string {
-  const visible = visibleLength(str);
-  if (visible >= width) return str;
-  return str + ' '.repeat(width - visible);
+/**
+ * Render the bottom status line.
+ */
+export function renderStatusLine(info: {
+  model: string;
+  project: string;
+  branch?: string;
+  contextPercent: number;
+  contextUsed: number;
+  contextTotal: number;
+  costSession: number;
+  costTotal: number;
+  mode: string;
+}): string {
+  const usedK = Math.round(info.contextUsed / 1000);
+  const totalK = Math.round(info.contextTotal / 1000);
+  const ctxColor = info.contextPercent > 85 ? '\x1b[31m' : info.contextPercent > 60 ? '\x1b[33m' : '\x1b[32m';
+  const branchStr = info.branch ? ` (${info.branch})` : '';
+
+  const parts = [
+    `${D}${info.model}${R}`,
+    `${CYAN}${info.project}${branchStr}${R}`,
+    `${ctxColor}${info.contextPercent}%${R} ${D}(${usedK}k/${totalK}k)${R}`,
+    `${D}$$${info.costSession.toFixed(2)} / $$${info.costTotal.toFixed(2)}${R}`,
+  ];
+
+  const left = `  ${parts.join(` ${GRAY}|${R} `)}`;
+
+  const modeColor = info.mode === 'bypass' ? '\x1b[31m' : info.mode === 'fullAuto' ? '\x1b[33m' : '\x1b[32m';
+  const right = `${D}⏵⏵ ${modeColor}${info.mode}${R} ${D}permissions on${R}`;
+
+  const w = process.stdout.columns ?? 120;
+  const gap = Math.max(1, w - visibleLen(left) - visibleLen(right));
+
+  return `${left}${' '.repeat(gap)}${right}`;
+}
+
+// ─── Helpers ────────────────────────────────────────────
+
+function pad(str: string, width: number): string {
+  if (str.length >= width) return str.slice(0, width);
+  return str + ' '.repeat(width - str.length);
+}
+
+function visibleLen(str: string): number {
+  return str.replace(/\x1b\[[0-9;]*m/g, '').length;
 }

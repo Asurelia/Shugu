@@ -502,18 +502,41 @@ async function runREPL(
       maxTurns: 25,
     };
 
+    let lastOutputTokens = 0;
     for await (const event of runLoop(conversationMessages, config, interrupt)) {
       handleEvent(event, renderer, budget);
       if (event.type === 'assistant_message') {
         conversationMessages.push(event.message);
       }
-      // Track actual token usage from API
       if (event.type === 'turn_end') {
         tokenTracker.updateFromUsage(event.usage);
+        lastOutputTokens = event.usage.output_tokens;
+        // Update status bar
+        const status = tokenTracker.getStatus();
+        renderer.statusBar.update({
+          contextPercent: status.percentUsed,
+          contextUsed: status.usedTokens,
+          costUsd: budget.getTotalCostUsd(),
+        });
       }
     }
 
-    renderer.endStream();
+    renderer.endStream(lastOutputTokens);
+
+    // Print separator + status line between turns
+    renderer.promptSeparator();
+    const ctxStatus = tokenTracker.getStatus();
+    renderer.printStatusLine({
+      model: client.model,
+      project: process.cwd().split(/[\\/]/).pop() ?? '',
+      contextPercent: ctxStatus.percentUsed,
+      contextUsed: ctxStatus.usedTokens,
+      contextTotal: ctxStatus.totalTokens,
+      costSession: budget.getTotalCostUsd(),
+      costTotal: budget.getTotalCostUsd(),
+      mode: permResolver.getMode(),
+    });
+
     process.removeListener('SIGINT', sigintHandler);
 
     // Save session periodically
