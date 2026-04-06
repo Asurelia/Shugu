@@ -159,22 +159,58 @@ export function registerBehaviorHooks(hookRegistry: HookRegistry): void {
         }
       }
 
-      // Normalize Bash: strip redundant cd prefix if it matches cwd
+      // Normalize Bash commands
       if (payload.tool === 'Bash') {
-        const cmd = (payload.call.input['command'] as string) ?? '';
-        // Remove "cd /current/dir && " prefix — cwd is already set
+        let cmd = (payload.call.input['command'] as string) ?? '';
+        let modified = false;
+
+        // Strip redundant "cd /cwd && " prefix
         const cdMatch = cmd.match(/^cd\s+["']?([^"'&]+)["']?\s*&&\s*(.+)$/);
         if (cdMatch) {
-          const normalized = cdMatch[2]!.trim();
-          if (normalized) {
-            return {
-              proceed: true,
-              modifiedCall: {
-                ...payload.call,
-                input: { ...payload.call.input, command: normalized },
+          cmd = cdMatch[2]!.trim();
+          modified = true;
+        }
+
+        // Fix \\; to \; in find -exec commands
+        if (cmd.includes('\\\\;')) {
+          cmd = cmd.replace(/\\\\;/g, '\\;');
+          modified = true;
+        }
+
+        // Fix Windows backslash paths in bash
+        if (process.platform === 'win32' && cmd.includes('\\') && !cmd.includes('\\n') && !cmd.includes('\\t')) {
+          cmd = cmd.replace(/\\/g, '/');
+          modified = true;
+        }
+
+        if (modified) {
+          return {
+            proceed: true,
+            modifiedCall: {
+              ...payload.call,
+              input: { ...payload.call.input, command: cmd },
+            },
+          };
+        }
+      }
+
+      // Normalize Write: strip trailing whitespace except for markdown (2 spaces = line break)
+      if (payload.tool === 'Write') {
+        const content = (payload.call.input['content'] as string) ?? '';
+        const filePath = (payload.call.input['file_path'] as string) ?? '';
+        const isMarkdown = filePath.endsWith('.md') || filePath.endsWith('.mdx');
+
+        if (!isMarkdown && content.includes(' \n')) {
+          return {
+            proceed: true,
+            modifiedCall: {
+              ...payload.call,
+              input: {
+                ...payload.call.input,
+                content: content.split('\n').map(line => line.trimEnd()).join('\n'),
               },
-            };
-          }
+            },
+          };
         }
       }
 
