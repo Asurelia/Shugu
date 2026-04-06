@@ -393,12 +393,11 @@ export interface ExternalState {
   streamStartTime?: number;
   streamTokens?: number;
   sessionTitle?: string;
-  /** Companion instance for persistent sprite display */
   companion?: Companion;
-  /** Current companion reaction text (speech bubble) */
   companionReaction?: string;
-  /** Whether companion was just petted */
   companionPetted?: boolean;
+  /** When true, thinking blocks render fully expanded */
+  expandThinking?: boolean;
 }
 
 const MODES = ['default', 'plan', 'acceptEdits', 'fullAuto', 'bypass'] as const;
@@ -488,76 +487,15 @@ function FullApp({ initialMode, initialStatus, stateRef, onSubmit, onModeChange 
 
   const modeColor = liveState.mode === 'bypass' ? 'red' : liveState.mode === 'fullAuto' ? 'yellow' : 'green';
 
-  // Toggle states for expand/collapse
-  const [expandThinking, setExpandThinking] = useState(false);
+  // Expand thinking state from ExternalState (toggled via /thinking command)
+  const expandThinking = stateRef.current.expandThinking ?? false;
 
-  useInput((input, key) => {
+  useInput((_input, key) => {
     // Shift+Tab: cycle modes
     if (key.tab && key.shift && liveState.showInput) {
       const idx = MODES.indexOf(liveState.mode as typeof MODES[number]);
       const next = MODES[(idx + 1) % MODES.length]!;
       onModeChange(next);
-    }
-
-    // Ctrl+O: dump full transcript (everything expanded)
-    if (input === '\x0F') { // ctrl+o
-      const allMsgs = stateRef.current.messages;
-      const transcriptLines: string[] = [
-        '',
-        '═══ Full Transcript (expanded) ═══',
-        '',
-      ];
-      for (const msg of allMsgs) {
-        switch (msg.type) {
-          case 'user':
-            transcriptLines.push(`> ${msg.text}`);
-            transcriptLines.push('');
-            break;
-          case 'assistant_header':
-            transcriptLines.push('assistant →');
-            break;
-          case 'assistant_text':
-            transcriptLines.push(msg.text);
-            transcriptLines.push('');
-            break;
-          case 'thinking':
-            transcriptLines.push(`  ∴ [THINKING] ${msg.text}`);
-            transcriptLines.push('');
-            break;
-          case 'tool_call':
-            transcriptLines.push(`  ╭── ${msg.name}${msg.detail ? ' ' + msg.detail : ''}`);
-            break;
-          case 'tool_result':
-            transcriptLines.push(`  ╰${msg.isError ? '✗' : '✓'}─ ${msg.content}`);
-            transcriptLines.push('');
-            break;
-          case 'error':
-            transcriptLines.push(`  ERROR: ${msg.text}`);
-            break;
-          case 'info':
-            transcriptLines.push(msg.text);
-            break;
-        }
-      }
-      transcriptLines.push('', '═══ End Transcript ═══', '');
-      for (const line of transcriptLines) {
-        stateRef.current.messages.push({ type: 'info', text: line });
-      }
-      syncMessages();
-    }
-
-    // Ctrl+R: toggle thinking expand mode
-    if (input === '\x12') { // ctrl+r
-      setExpandThinking(prev => {
-        const next = !prev;
-        // Push a notification about the toggle
-        stateRef.current.messages.push({
-          type: 'info',
-          text: next ? '  ∴ Thinking: EXPANDED (ctrl+r to collapse)' : '  ∴ Thinking: COLLAPSED (ctrl+r to expand)',
-        });
-        syncMessages();
-        return next;
-      });
     }
   });
 
@@ -691,6 +629,8 @@ export interface AppHandle {
   setCompanion: (companion: Companion) => void;
   setCompanionReaction: (text: string) => void;
   setCompanionPetted: (petted: boolean) => void;
+  setExpandThinking: (expand: boolean) => void;
+  dumpTranscript: () => void;
   startStreaming: () => void;
   stopStreaming: () => void;
   unmount: () => void;
@@ -789,6 +729,31 @@ export function launchFullApp(
       if (petted) {
         setTimeout(() => updateState({ companionPetted: false }), 3000);
       }
+    },
+    setExpandThinking(expand: boolean) {
+      updateState({ expandThinking: expand });
+    },
+    dumpTranscript() {
+      const allMsgs = stateRef.current.messages;
+      const lines: string[] = ['', '═══ Full Transcript (expanded) ═══', ''];
+      for (const msg of allMsgs) {
+        switch (msg.type) {
+          case 'user': lines.push(`> ${msg.text}`, ''); break;
+          case 'assistant_header': lines.push('assistant →'); break;
+          case 'assistant_text': lines.push(msg.text, ''); break;
+          case 'thinking': lines.push(`  ∴ [THINKING] ${msg.text}`, ''); break;
+          case 'tool_call': lines.push(`  ╭── ${msg.name}${msg.detail ? ' ' + msg.detail : ''}`); break;
+          case 'tool_result': lines.push(`  ╰${msg.isError ? '✗' : '✓'}─ ${msg.content}`, ''); break;
+          case 'error': lines.push(`  ERROR: ${msg.text}`); break;
+          case 'info': lines.push(msg.text); break;
+        }
+      }
+      lines.push('', '═══ End Transcript ═══', '');
+      for (const line of lines) {
+        stateRef.current.messages.push({ type: 'info', text: line });
+      }
+      const flush = (stateRef.current as ExternalState & { _flush?: () => void })._flush;
+      if (flush) flush();
     },
     startStreaming() {
       updateState({

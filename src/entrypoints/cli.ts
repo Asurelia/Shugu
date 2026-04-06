@@ -604,6 +604,7 @@ async function runREPL(
   const kairos = new Kairos();
   let correctionCount = 0;
   let turnCount = 0;
+  let _thinkingExpanded = false;
 
   // Vault refresh tracking (for mid-conversation context updates)
   let lastVaultRefresh = Date.now();
@@ -863,6 +864,16 @@ async function runREPL(
       continue;
     }
     if (input === '/cost') { renderer.usage(budget.getSummary()); continue; }
+    if (input === '/expand' || input === '/transcript') {
+      app.dumpTranscript();
+      continue;
+    }
+    if (input === '/thinking' || input === '/think') {
+      _thinkingExpanded = !_thinkingExpanded;
+      app.setExpandThinking(_thinkingExpanded);
+      app.pushMessage({ type: 'info', text: _thinkingExpanded ? '  ∴ Thinking: EXPANDED — full reasoning visible' : '  ∴ Thinking: COLLAPSED — single line preview' });
+      continue;
+    }
     if (input === '/context') {
       const status = tokenTracker.getStatus();
       renderer.info(`Context: ${status.usedTokens.toLocaleString()} / ${status.totalTokens.toLocaleString()} tokens (${status.percentUsed}%)`);
@@ -1032,6 +1043,7 @@ async function runREPL(
 
     // Mode behavior injection — affects model behavior, not just permissions
     const currentMode = permResolver.getMode();
+    tracer.log('strategy', { mode: currentMode, event: 'mode_injection' });
     if (currentMode === 'plan') {
       volatileParts.push(`[MODE: PLAN] You are in PLAN mode. Do NOT make any changes yet.
 - Analyze the request and propose a step-by-step plan
