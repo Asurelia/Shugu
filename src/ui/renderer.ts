@@ -54,7 +54,7 @@ export class TerminalRenderer {
 
   /** Update buddy state and sync to status bar */
   buddyEvent(event: string): void {
-    this.buddyEvent(event);
+    this.buddy.onEvent(event);
     this.syncBuddy();
   }
 
