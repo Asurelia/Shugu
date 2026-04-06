@@ -689,6 +689,7 @@ function handleEventForApp(
       break;
 
     case 'assistant_message': {
+      app.pushMessage({ type: 'assistant_header' });
       for (const block of event.message.content) {
         if (isThinkingBlock(block)) {
           app.pushMessage({ type: 'thinking', text: block.thinking });

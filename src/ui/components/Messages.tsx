@@ -15,6 +15,7 @@ import { Spinner, BrewTimer } from './Spinner.js';
 
 export type UIMessage =
   | { type: 'user'; text: string }
+  | { type: 'assistant_header' }
   | { type: 'assistant_text'; text: string }
   | { type: 'thinking'; text: string }
   | { type: 'tool_call'; name: string; id: string }
@@ -49,22 +50,33 @@ export function Messages({ messages, isStreaming, streamStartTime, streamTokens 
   );
 }
 
-function MessageRow({ message }: { message: UIMessage }) {
+function MessageRow({ message, isFirst }: { message: UIMessage; isFirst?: boolean }) {
   switch (message.type) {
     case 'user':
       return (
+        <Box flexDirection="column" marginTop={1}>
+          <Text bold color="green">{'> '}<Text bold color="white">{message.text}</Text></Text>
+        </Box>
+      );
+
+    case 'assistant_header':
+      return (
         <Box marginTop={1}>
-          <Text bold color="green">{'> '}</Text>
-          <Text bold>{message.text}</Text>
+          <Text bold color="cyan">assistant</Text>
+          <Text dimColor> →</Text>
         </Box>
       );
 
     case 'thinking':
-      return <ThinkingBlock thinking={message.text} />;
+      return (
+        <Box marginLeft={2}>
+          <ThinkingBlock thinking={message.text} />
+        </Box>
+      );
 
     case 'assistant_text':
       return (
-        <Box flexDirection="column">
+        <Box flexDirection="column" marginTop={1} marginLeft={2}>
           {message.text.split('\n').map((line, i) => (
             <Text key={i}>{line}</Text>
           ))}
@@ -72,14 +84,18 @@ function MessageRow({ message }: { message: UIMessage }) {
       );
 
     case 'tool_call':
-      return <ToolCallHeader name={message.name} id={message.id} />;
+      return (
+        <Box marginTop={1}>
+          <ToolCallHeader name={message.name} id={message.id} />
+        </Box>
+      );
 
     case 'tool_result':
       return <ToolResultBlock content={message.content} isError={message.isError} />;
 
     case 'error':
       return (
-        <Box>
+        <Box marginTop={1}>
           <Text color="red" bold>error</Text>
           <Text color="red"> → {message.text}</Text>
         </Box>
