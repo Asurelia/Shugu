@@ -409,14 +409,7 @@ async function runREPL(
     },
   );
 
-  // Override renderer to push output to Ink instead of console.log
-  const origLog = console.log;
-  const origWrite = process.stdout.write.bind(process.stdout);
-  // Redirect console.log to Ink output
-  console.log = (...args: unknown[]) => {
-    const line = args.map(a => String(a)).join(' ');
-    app.addLine(line);
-  };
+  // No console.log redirection — we push to app.addLine() directly in handleEventInk
 
   const askQuestion = async (): Promise<string> => {
     app.setStatus(renderer.statusBar.render());
@@ -433,7 +426,6 @@ async function runREPL(
   };
 
   process.on('SIGINT', async () => {
-    console.log = origLog;
     app.unmount();
     await saveSession();
     process.exit(0);
@@ -518,7 +510,8 @@ async function runREPL(
       }
       if (cmdResult?.type !== 'prompt') continue;
     } else {
-      // Regular user message
+      // Regular user message — show in scrollable area
+      app.addLine(`\x1b[1m\x1b[32m> ${input}\x1b[0m`);
       conversationMessages.push({ role: 'user', content: input });
     }
 
@@ -556,8 +549,11 @@ async function runREPL(
 
     let lastOutputTokens = 0;
     app.setStreaming(true);
+    app.addLine('');
+    app.addLine('\x1b[35m✻ Hatching...\x1b[0m');
     for await (const event of runLoop(conversationMessages, config, interrupt)) {
-      handleEvent(event, renderer, budget);
+      // Handle events directly into Ink app (not renderer)
+      handleEventInk(event, app, budget);
       if (event.type === 'assistant_message') {
         conversationMessages.push(event.message);
       }
@@ -574,7 +570,10 @@ async function runREPL(
       }
     }
 
-    renderer.endStream(lastOutputTokens);
+    // Brew timer
+    if (lastOutputTokens > 0) {
+      app.addLine(`\x1b[2m\x1b[35m✻ Brewed (↓ ${lastOutputTokens} tokens)\x1b[0m`);
+    }
     app.setStreaming(false);
     app.setStatus(renderer.statusBar.render());
 
@@ -645,6 +644,66 @@ function renderContentBlock(block: ContentBlock, renderer: TerminalRenderer): vo
     renderer.streamText(block.text);
   } else if (isToolUseBlock(block)) {
     // Handled via tool_executing event
+  }
+}
+
+// ─── Ink Event Handler (pushes lines to App) ───────────
+
+function handleEventInk(
+  event: LoopEvent,
+  app: import('../ui/App.js').AppHandle,
+  budget?: BudgetTracker,
+): void {
+  switch (event.type) {
+    case 'turn_start':
+      break;
+
+    case 'assistant_message': {
+      for (const block of event.message.content) {
+        if (isThinkingBlock(block)) {
+          app.addLine(`\x1b[2m\x1b[35mthinking\x1b[0m \x1b[2m→ ${block.thinking}\x1b[0m`);
+        } else if (isTextBlock(block)) {
+          // Split multi-line text into separate lines for Ink
+          for (const line of block.text.split('\n')) {
+            app.addLine(line);
+          }
+        }
+      }
+      break;
+    }
+
+    case 'tool_executing':
+      app.addLine('');
+      app.addLine(`\x1b[33m┌──────────────────────────────────────────\x1b[0m`);
+      app.addLine(`\x1b[33m│\x1b[0m \x1b[1m${event.call.name}\x1b[0m \x1b[2m${event.call.id.slice(-8)}\x1b[0m`);
+      break;
+
+    case 'tool_result': {
+      const content = typeof event.result.content === 'string'
+        ? event.result.content
+        : JSON.stringify(event.result.content);
+      const isError = event.result.is_error ?? false;
+      const color = isError ? '\x1b[31m' : '\x1b[32m';
+      const icon = isError ? '✗' : '✓';
+      // Truncate and indent
+      const truncated = content.length > 500 ? content.slice(0, 500) + '...' : content;
+      for (const line of truncated.split('\n')) {
+        app.addLine(`\x1b[33m│\x1b[0m ${line}`);
+      }
+      app.addLine(`\x1b[33m└${color}${icon}\x1b[0m\x1b[33m─────────────────────────────────────────\x1b[0m`);
+      break;
+    }
+
+    case 'turn_end':
+      budget?.addTurnUsage(event.usage);
+      break;
+
+    case 'loop_end':
+      break;
+
+    case 'error':
+      app.addLine(`\x1b[31m\x1b[1merror\x1b[0m\x1b[31m → ${event.error.message}\x1b[0m`);
+      break;
   }
 }
 
