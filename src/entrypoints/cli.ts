@@ -381,17 +381,6 @@ async function runREPL(
   permResolver: PermissionResolver,
   systemPrompt: string,
 ): Promise<void> {
-  // Enable keypress events on stdin (needed for bottom block redraw)
-  if (!process.stdin.listenerCount('keypress')) {
-    readline.emitKeypressEvents(process.stdin);
-  }
-
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    prompt: '',
-  });
-
   const conversationMessages: Message[] = [];
   const budget = new BudgetTracker(client.model);
   const tokenTracker = new TokenBudgetTracker({ model: client.model });
@@ -399,7 +388,6 @@ async function runREPL(
   const session = sessionMgr.createSession(toolContext.cwd, client.model);
   const commands = createDefaultCommands();
 
-  // ── Status bar: autonomous component ──
   renderer.statusBar.update({
     model: client.model,
     project: toolContext.cwd.split(/[\\/]/).pop() ?? '',
@@ -407,39 +395,21 @@ async function runREPL(
     sessionStartTime: Date.now(),
     mode: permResolver.getMode(),
   });
-  renderer.statusBar.start();
 
-  const askQuestion = (): Promise<string> => {
-    return new Promise((resolve) => {
-      const w = process.stdout.columns ?? 120;
+  // ── Ink prompt area ──
+  const { launchInkPrompt } = await import('../ui/PromptArea.js');
+  const inkPrompt = launchInkPrompt(
+    permResolver.getMode(),
+    renderer.statusBar.render(),
+  );
 
-      // Just top bar + prompt. Simple.
-      console.log(`\x1b[90m${'─'.repeat(w)}\x1b[0m`);
-      renderer.promptIndicator();
-
-      const onKeypress = (_ch: string, key: { name?: string; shift?: boolean } | undefined) => {
-        if (key?.name === 'tab' && key?.shift) {
-          const modes: Array<import('../protocol/tools.js').PermissionMode> = ['default', 'plan', 'acceptEdits', 'fullAuto', 'bypass'];
-          const currentIdx = modes.indexOf(permResolver.getMode());
-          const nextIdx = (currentIdx + 1) % modes.length;
-          permResolver.setMode(modes[nextIdx]!);
-          renderer.statusBar.update({ mode: modes[nextIdx]! });
-          return;
-        }
-      };
-      process.stdin.on('keypress', onKeypress);
-
-      rl.once('line', (line) => {
-        process.stdin.removeListener('keypress', onKeypress);
-        // After Enter: bottom bar + mode + status
-        const mode = permResolver.getMode();
-        const mc = mode === 'bypass' ? '\x1b[31m' : mode === 'fullAuto' ? '\x1b[33m' : '\x1b[32m';
-        console.log(`\x1b[90m${'─'.repeat(w)}\x1b[0m`);
-        console.log(`  \x1b[2m⏵⏵ ${mc}${mode}\x1b[0m \x1b[2mpermissions on (shift+tab to cycle)\x1b[0m`);
-        console.log(renderer.statusBar.render());
-        resolve(line.trim());
-      });
-    });
+  const askQuestion = async (): Promise<string> => {
+    inkPrompt.updateStatus(renderer.statusBar.render());
+    inkPrompt.updateMode(permResolver.getMode());
+    const input = await inkPrompt.waitForInput();
+    // When mode changes via shift+tab inside Ink, sync back
+    // (handled by onModeChange callback in the Ink component)
+    return input;
   };
 
   const saveSession = async () => {
@@ -449,8 +419,8 @@ async function runREPL(
     await sessionMgr.save(session).catch(() => {});
   };
 
-  rl.on('close', async () => {
-    renderer.statusBar.stop();
+  process.on('SIGINT', async () => {
+    inkPrompt.unmount();
     await saveSession();
     renderer.loopEnd('user_exit', budget.getTotalCostUsd());
     process.exit(0);
@@ -522,7 +492,7 @@ async function runREPL(
             renderer.statusBar.stop();
             await saveSession();
             renderer.loopEnd(cmdResult.reason, budget.getTotalCostUsd());
-            rl.close();
+            inkPrompt.unmount();
             return;
           case 'error':
             renderer.error(cmdResult.message);
@@ -602,7 +572,7 @@ async function runREPL(
     await sessionMgr.save(session).catch(() => {});
   }
 
-  rl.close();
+  inkPrompt.unmount();
 }
 
 // ─── Event Handler ─────────────────���────────────────────
