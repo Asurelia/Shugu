@@ -412,36 +412,18 @@ async function runREPL(
   const askQuestion = (): Promise<string> => {
     return new Promise((resolve) => {
       const w = process.stdout.columns ?? 120;
-      const mode = permResolver.getMode();
-      const mc = mode === 'bypass' ? '\x1b[31m' : mode === 'fullAuto' ? '\x1b[33m' : '\x1b[32m';
 
-      // Print the FULL block upfront: top bar, prompt placeholder, bottom bar, mode, status
-      console.log(`\x1b[90m${'─'.repeat(w)}\x1b[0m`);          // top bar
-      console.log(`\x1b[1m\x1b[32m> \x1b[0m`);                 // prompt placeholder
-      console.log(`\x1b[90m${'─'.repeat(w)}\x1b[0m`);          // bottom bar
-      console.log(`  \x1b[2m⏵⏵ ${mc}${mode}\x1b[0m \x1b[2mpermissions on (shift+tab to cycle)\x1b[0m`);
-      console.log(renderer.statusBar.render());                  // status bar
+      // Just top bar + prompt. Simple.
+      console.log(`\x1b[90m${'─'.repeat(w)}\x1b[0m`);
+      renderer.promptIndicator();
 
-      // Move cursor back UP 4 lines to the prompt line, position after "> "
-      process.stdout.write(`\x1b[4A\x1b[3G`);
-
-      // Shift+Tab to cycle modes
       const onKeypress = (_ch: string, key: { name?: string; shift?: boolean } | undefined) => {
         if (key?.name === 'tab' && key?.shift) {
           const modes: Array<import('../protocol/tools.js').PermissionMode> = ['default', 'plan', 'acceptEdits', 'fullAuto', 'bypass'];
           const currentIdx = modes.indexOf(permResolver.getMode());
           const nextIdx = (currentIdx + 1) % modes.length;
-          const newMode = modes[nextIdx]!;
-          permResolver.setMode(newMode);
-          renderer.statusBar.update({ mode: newMode });
-          const nmc = newMode === 'bypass' ? '\x1b[31m' : newMode === 'fullAuto' ? '\x1b[33m' : '\x1b[32m';
-          // Redraw mode line (2 lines down from cursor) + status (3 lines down)
-          process.stdout.write('\x1b7');  // save
-          process.stdout.write('\n\n');   // down to mode line
-          process.stdout.write(`\x1b[2K  \x1b[2m⏵⏵ ${nmc}${newMode}\x1b[0m \x1b[2mpermissions on (shift+tab to cycle)\x1b[0m`);
-          process.stdout.write('\n');
-          process.stdout.write(`\x1b[2K${renderer.statusBar.render()}`);
-          process.stdout.write('\x1b8');  // restore
+          permResolver.setMode(modes[nextIdx]!);
+          renderer.statusBar.update({ mode: modes[nextIdx]! });
           return;
         }
       };
@@ -449,8 +431,12 @@ async function runREPL(
 
       rl.once('line', (line) => {
         process.stdin.removeListener('keypress', onKeypress);
-        // Move cursor down past the block (4 lines: bottom bar + mode + status + newline)
-        process.stdout.write(`\x1b[4B\n`);
+        // After Enter: bottom bar + mode + status
+        const mode = permResolver.getMode();
+        const mc = mode === 'bypass' ? '\x1b[31m' : mode === 'fullAuto' ? '\x1b[33m' : '\x1b[32m';
+        console.log(`\x1b[90m${'─'.repeat(w)}\x1b[0m`);
+        console.log(`  \x1b[2m⏵⏵ ${mc}${mode}\x1b[0m \x1b[2mpermissions on (shift+tab to cycle)\x1b[0m`);
+        console.log(renderer.statusBar.render());
         resolve(line.trim());
       });
     });
