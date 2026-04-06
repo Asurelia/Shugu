@@ -396,21 +396,33 @@ async function runREPL(
     mode: permResolver.getMode(),
   });
 
-  // ── Ink prompt (mount/unmount per turn) ──
-  const { promptWithInk } = await import('../ui/PromptArea.js');
+  // ── Full Ink app ──
+  const { launchApp } = await import('../ui/App.js');
+  const app = launchApp(
+    permResolver.getMode(),
+    renderer.statusBar.render(),
+    (newMode) => {
+      permResolver.setMode(newMode as import('../protocol/tools.js').PermissionMode);
+      renderer.statusBar.update({ mode: newMode });
+      app.setMode(newMode);
+      app.setStatus(renderer.statusBar.render());
+    },
+  );
+
+  // Override renderer to push output to Ink instead of console.log
+  const origLog = console.log;
+  const origWrite = process.stdout.write.bind(process.stdout);
+  // Redirect console.log to Ink output
+  console.log = (...args: unknown[]) => {
+    const line = args.map(a => String(a)).join(' ');
+    app.addLine(line);
+  };
 
   const askQuestion = async (): Promise<string> => {
-    // Mount Ink, wait for input, Ink auto-unmounts on submit
-    const input = await promptWithInk(
-      permResolver.getMode(),
-      renderer.statusBar.render(),
-      (newMode) => {
-        permResolver.setMode(newMode as import('../protocol/tools.js').PermissionMode);
-        renderer.statusBar.update({ mode: newMode });
-      },
-    );
-    // After unmount: console.log works normally for the response
-    return input;
+    app.setStatus(renderer.statusBar.render());
+    app.setMode(permResolver.getMode());
+    app.setStreaming(false);
+    return app.waitForInput();
   };
 
   const saveSession = async () => {
@@ -421,8 +433,9 @@ async function runREPL(
   };
 
   process.on('SIGINT', async () => {
+    console.log = origLog;
+    app.unmount();
     await saveSession();
-    renderer.loopEnd('user_exit', budget.getTotalCostUsd());
     process.exit(0);
   });
 
@@ -542,6 +555,7 @@ async function runREPL(
     };
 
     let lastOutputTokens = 0;
+    app.setStreaming(true);
     for await (const event of runLoop(conversationMessages, config, interrupt)) {
       handleEvent(event, renderer, budget);
       if (event.type === 'assistant_message') {
@@ -561,7 +575,8 @@ async function runREPL(
     }
 
     renderer.endStream(lastOutputTokens);
-    // Status bar will be shown by askQuestion() before next prompt
+    app.setStreaming(false);
+    app.setStatus(renderer.statusBar.render());
 
     process.removeListener('SIGINT', sigintHandler);
 
