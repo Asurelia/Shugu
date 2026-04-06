@@ -125,32 +125,57 @@ export function registerBehaviorHooks(hookRegistry: HookRegistry): void {
     },
   });
 
-  // 3. File write path safety check
+  // 3. File write path safety check + input normalization
   hookRegistry.register({
     type: 'PreToolUse',
     pluginName: 'builtin:path-safety',
     priority: 5, // Very high priority
     handler: async (payload: PreToolUsePayload): Promise<PreToolUseResult> => {
-      if (payload.tool !== 'Write' && payload.tool !== 'Edit') {
-        return { proceed: true };
+      // Normalize paths for file tools (fix backslashes, redundant cd, etc.)
+      if (payload.tool === 'Write' || payload.tool === 'Edit' || payload.tool === 'Read') {
+        const filePath = (payload.call.input['file_path'] as string) ?? '';
+        const lower = filePath.toLowerCase();
+
+        // Block writes to sensitive files
+        if ((payload.tool === 'Write' || payload.tool === 'Edit') &&
+            (lower.endsWith('.env') || lower.endsWith('.env.local') || lower.endsWith('.env.production'))) {
+          return { proceed: false, blockReason: `Cannot write to environment file "${filePath}" — use credentials vault instead` };
+        }
+
+        if ((payload.tool === 'Write' || payload.tool === 'Edit') &&
+            (lower.includes('id_rsa') || lower.includes('id_ed25519') || lower.endsWith('.pem'))) {
+          return { proceed: false, blockReason: `Cannot write to private key file "${filePath}"` };
+        }
+
+        // Normalize path: fix mixed slashes
+        if (filePath.includes('\\')) {
+          return {
+            proceed: true,
+            modifiedCall: {
+              ...payload.call,
+              input: { ...payload.call.input, file_path: filePath.replace(/\\/g, '/') },
+            },
+          };
+        }
       }
 
-      const filePath = (payload.call.input['file_path'] as string) ?? '';
-      const lower = filePath.toLowerCase();
-
-      // Block writes to sensitive files
-      if (lower.endsWith('.env') || lower.endsWith('.env.local') || lower.endsWith('.env.production')) {
-        return {
-          proceed: false,
-          blockReason: `Cannot write to environment file "${filePath}" — use credentials vault instead`,
-        };
-      }
-
-      if (lower.includes('id_rsa') || lower.includes('id_ed25519') || lower.endsWith('.pem')) {
-        return {
-          proceed: false,
-          blockReason: `Cannot write to private key file "${filePath}"`,
-        };
+      // Normalize Bash: strip redundant cd prefix if it matches cwd
+      if (payload.tool === 'Bash') {
+        const cmd = (payload.call.input['command'] as string) ?? '';
+        // Remove "cd /current/dir && " prefix — cwd is already set
+        const cdMatch = cmd.match(/^cd\s+["']?([^"'&]+)["']?\s*&&\s*(.+)$/);
+        if (cdMatch) {
+          const normalized = cdMatch[2]!.trim();
+          if (normalized) {
+            return {
+              proceed: true,
+              modifiedCall: {
+                ...payload.call,
+                input: { ...payload.call.input, command: normalized },
+              },
+            };
+          }
+        }
       }
 
       return { proceed: true };
