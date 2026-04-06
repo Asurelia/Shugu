@@ -255,6 +255,10 @@ async function main(): Promise<void> {
       renderer.info(`  Plugins: ${pluginResult.loaded} loaded`);
     }
 
+    // Check if this is the first hatch BEFORE buildSystemPrompt creates the companion file
+    const { isFirstHatch } = await import('../ui/companion/companion.js');
+    const needsHatchCeremony = isFirstHatch();
+
     // Register built-in behavior hooks (security, anti-lazy, path safety)
     registerBehaviorHooks(hookRegistry);
 
@@ -356,7 +360,7 @@ async function main(): Promise<void> {
     if (cliArgs.prompt) {
       await runSingleQuery(client, cliArgs.prompt, renderer, registry, toolContext, systemPrompt, hookRegistry);
     } else {
-      await runREPL(client, renderer, registry, toolContext, permResolver, systemPrompt, hookRegistry, skillRegistry, commands, bgManager, scheduler, obsidianVaultInstance);
+      await runREPL(client, renderer, registry, toolContext, permResolver, systemPrompt, hookRegistry, skillRegistry, commands, bgManager, scheduler, obsidianVaultInstance, needsHatchCeremony);
     }
   } catch (error) {
     if (error instanceof Error && error.message.includes('No API key')) {
@@ -465,6 +469,7 @@ async function runREPL(
   bgManager?: BackgroundManager,
   scheduler?: Scheduler,
   obsidianVaultInstance?: ObsidianVault | null,
+  needsHatchCeremony?: boolean,
 ): Promise<void> {
   const conversationMessages: Message[] = [];
   const budget = new BudgetTracker(client.model);
@@ -557,9 +562,20 @@ async function runREPL(
     app.pushMessage({ type: 'info', text: line });
   }
 
-  // Hatch ceremony on first launch
-  const { isFirstHatch, renderHatchCeremony, renderBuddyCompact, renderBuddyCard } = await import('../ui/companion/companion.js');
-  if (isFirstHatch()) {
+  // Set session title in top bar (like Claude Code: ──── branch-name ─)
+  try {
+    const gitCtx = await getGitContext(toolContext.cwd);
+    const projectName = toolContext.cwd.split(/[\\/]/).pop() ?? '';
+    const branch = gitCtx.branch && gitCtx.branch !== 'unknown' ? gitCtx.branch : '';
+    const title = branch ? `${projectName} ─ ${branch}` : projectName;
+    app.setSessionTitle(title);
+  } catch {
+    app.setSessionTitle(toolContext.cwd.split(/[\\/]/).pop() ?? 'shugu');
+  }
+
+  // Hatch ceremony on first launch (flag set in main() BEFORE companion file was created)
+  const { renderHatchCeremony, renderBuddyCompact, renderBuddyCard } = await import('../ui/companion/companion.js');
+  if (needsHatchCeremony) {
     const c = getCompanionInstance();
     if (c) {
       for (const line of renderHatchCeremony(c)) {

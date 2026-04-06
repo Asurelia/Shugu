@@ -188,6 +188,7 @@ export interface ExternalState {
   showInput: boolean;
   streamStartTime?: number;
   streamTokens?: number;
+  sessionTitle?: string; // Context name shown in top bar (like Claude Code)
 }
 
 const MODES = ['default', 'plan', 'acceptEdits', 'fullAuto', 'bypass'] as const;
@@ -204,6 +205,7 @@ function FullApp({ initialMode, initialStatus, stateRef, onSubmit, onModeChange 
     showInput: true,
     streamStartTime: undefined as number | undefined,
     streamTokens: undefined as number | undefined,
+    sessionTitle: undefined as string | undefined,
   });
   const [inputValue, setInputValue] = useState('');
   const { stdout } = useStdout();
@@ -242,7 +244,8 @@ function FullApp({ initialMode, initialStatus, stateRef, onSubmit, onModeChange 
             prev.isStreaming !== ext.isStreaming ||
             prev.showInput !== ext.showInput ||
             prev.streamStartTime !== ext.streamStartTime ||
-            prev.streamTokens !== ext.streamTokens) {
+            prev.streamTokens !== ext.streamTokens ||
+            prev.sessionTitle !== ext.sessionTitle) {
           return {
             mode: ext.mode,
             statusText: ext.statusText,
@@ -250,6 +253,7 @@ function FullApp({ initialMode, initialStatus, stateRef, onSubmit, onModeChange 
             showInput: ext.showInput,
             streamStartTime: ext.streamStartTime,
             streamTokens: ext.streamTokens,
+            sessionTitle: ext.sessionTitle,
           };
         }
         return prev;
@@ -297,8 +301,18 @@ function FullApp({ initialMode, initialStatus, stateRef, onSubmit, onModeChange 
           <SpinnerInline startTime={liveState.streamStartTime} tokenCount={liveState.streamTokens} />
         )}
 
-        {/* Top separator */}
-        <Text dimColor>{bar}</Text>
+        {/* Top separator with session title (like Claude Code) */}
+        {(() => {
+          const title = liveState.sessionTitle;
+          if (title) {
+            const maxBar = Math.min(cols, 120);
+            const label = ` ${title} `;
+            const leftLen = 4;
+            const rightLen = Math.max(1, maxBar - leftLen - label.length);
+            return <Text dimColor>{'─'.repeat(leftLen)}{label}{'─'.repeat(rightLen)}</Text>;
+          }
+          return <Text dimColor>{bar}</Text>;
+        })()}
 
         {/* Input */}
         {liveState.showInput ? (
@@ -340,6 +354,7 @@ export interface AppHandle {
   waitForInput: () => Promise<string>;
   setMode: (mode: string) => void;
   setStatus: (text: string) => void;
+  setSessionTitle: (title: string) => void;
   startStreaming: () => void;
   stopStreaming: () => void;
   unmount: () => void;
@@ -409,6 +424,9 @@ export function launchFullApp(
     },
     setStatus(text: string) {
       updateState({ statusText: text });
+    },
+    setSessionTitle(title: string) {
+      updateState({ sessionTitle: title });
     },
     startStreaming() {
       updateState({
