@@ -181,25 +181,32 @@ function FullApp({ initialMode, initialStatus, stateRef, onSubmit, onModeChange 
   const cols = stdout?.columns ?? 120;
   const bar = '─'.repeat(Math.min(cols, 120));
 
-  // Track messages for Static rendering
-  const [staticMessages, setStaticMessages] = useState<Array<{ id: number; msg: UIMessage }>>([]);
+  // Track messages for Static rendering — use a ref to avoid stale closure issues
+  const [staticMessages, setStaticMessages] = useState<Array<{ id: string; msg: UIMessage }>>([]);
+  const renderedCountRef = useRef(0);
+  let globalMsgId = useRef(0);
+
+  // Single function to sync new messages — prevents duplicates
+  const syncMessages = useCallback(() => {
+    const ext = stateRef.current;
+    const currentCount = renderedCountRef.current;
+    if (ext.messages.length > currentCount) {
+      const newMsgs = ext.messages.slice(currentCount).map((msg) => ({
+        id: `msg-${globalMsgId.current++}`,
+        msg,
+      }));
+      renderedCountRef.current = ext.messages.length;
+      setRenderedCount(ext.messages.length);
+      setStaticMessages(prev => [...prev, ...newMsgs]);
+    }
+  }, [stateRef]);
 
   // Poll external state
   useEffect(() => {
     const interval = setInterval(() => {
+      syncMessages();
+
       const ext = stateRef.current;
-
-      // New messages → move to static (they get printed once)
-      if (ext.messages.length > renderedCount) {
-        const newMsgs = ext.messages.slice(renderedCount).map((msg, i) => ({
-          id: renderedCount + i,
-          msg,
-        }));
-        setStaticMessages(prev => [...prev, ...newMsgs]);
-        setRenderedCount(ext.messages.length);
-      }
-
-      // Update live state (non-message state)
       setLiveState(prev => {
         if (prev.mode !== ext.mode ||
             prev.statusText !== ext.statusText ||
@@ -220,22 +227,12 @@ function FullApp({ initialMode, initialStatus, stateRef, onSubmit, onModeChange 
       });
     }, 80);
     return () => clearInterval(interval);
-  }, [stateRef, renderedCount]);
+  }, [stateRef, syncMessages]);
 
   // Expose flush for immediate pushMessage rendering
   useEffect(() => {
-    (stateRef as { current: ExternalState & { _flush?: () => void } }).current._flush = () => {
-      const ext = stateRef.current;
-      if (ext.messages.length > renderedCount) {
-        const newMsgs = ext.messages.slice(renderedCount).map((msg, i) => ({
-          id: renderedCount + i,
-          msg,
-        }));
-        setStaticMessages(prev => [...prev, ...newMsgs]);
-        setRenderedCount(ext.messages.length);
-      }
-    };
-  }, [stateRef, renderedCount]);
+    (stateRef as { current: ExternalState & { _flush?: () => void } }).current._flush = syncMessages;
+  }, [stateRef, syncMessages]);
 
   const modeColor = liveState.mode === 'bypass' ? 'red' : liveState.mode === 'fullAuto' ? 'yellow' : 'green';
 
