@@ -34,6 +34,7 @@ import { truncateToolResult, enforceMessageLimit } from '../tools/outputLimits.j
 import { ActionTriggerBy } from '../protocol/actions.js';
 import { logger } from '../utils/logger.js';
 import { shouldReflect, buildReflectionPrompt } from './reflection.js';
+import { tracer } from '../utils/tracer.js';
 
 // ─── Loop Configuration ─────────────────────────────────
 
@@ -105,6 +106,8 @@ export async function* runLoop(
       await interrupt.checkpoint();
 
       yield { type: 'turn_start', turnIndex };
+      const turnStartMs = Date.now();
+      tracer.log('model_call', { turnIndex, model: client.model });
 
       // ── 1. Stream model response ──────────────────
 
@@ -145,6 +148,13 @@ export async function* runLoop(
 
       // Yield the complete assistant message
       yield { type: 'assistant_message', message: assistantMessage };
+      tracer.logTimed('model_response', {
+        turnIndex,
+        input_tokens: turnUsage.input_tokens,
+        output_tokens: turnUsage.output_tokens,
+        stop_reason: stopReason,
+        blocks: assistantMessage.content.length,
+      }, turnStartMs);
 
       // OnMessage hook (fire-and-forget — does not block)
       if (config.hookRegistry) {
@@ -166,6 +176,7 @@ export async function* runLoop(
       budget.addTurnUsage(turnUsage);
 
       yield { type: 'turn_end', turnIndex, usage: turnUsage };
+      tracer.logTimed('model_call', { turnIndex, event: 'turn_end', input_tokens: turnUsage.input_tokens, output_tokens: turnUsage.output_tokens }, turnStartMs);
 
       // ── 2.5. Mid-turn reflection (strategic self-evaluation) ──
       if (config.reflectionInterval && shouldReflect(turnIndex, config.reflectionInterval, maxTurns)) {
@@ -240,6 +251,8 @@ export async function* runLoop(
           }
 
           yield { type: 'tool_executing', call, triggeredBy: ActionTriggerBy.Agent };
+          const toolStartMs = Date.now();
+          tracer.log('tool_call', { tool: call.name, input: JSON.stringify(call.input).slice(0, 200) });
 
           const tool = tools.get(call.name);
           if (!tool) {
@@ -308,7 +321,13 @@ export async function* runLoop(
             }
 
             toolResults.push(result);
-            yield { type: 'tool_result', result, durationMs: Date.now() - execStart };
+            const toolDuration = Date.now() - execStart;
+            tracer.logTimed('tool_result', {
+              tool: call.name,
+              is_error: result.is_error ?? false,
+              content_length: typeof result.content === 'string' ? result.content.length : 0,
+            }, execStart);
+            yield { type: 'tool_result', result, durationMs: toolDuration };
           } catch (error) {
             if (isAbortError(error)) throw error;
 
@@ -343,6 +362,7 @@ export async function* runLoop(
       return;
     }
 
+    tracer.log('error', { message: (error as Error).message, stack: (error as Error).stack?.slice(0, 500) });
     yield { type: 'error', error: error as Error };
     yield {
       type: 'loop_end',

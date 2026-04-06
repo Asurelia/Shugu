@@ -18,6 +18,7 @@ import type { Message } from '../protocol/messages.js';
 import { isTextBlock } from '../protocol/messages.js';
 import { MINIMAX_MODELS } from '../transport/client.js';
 import { logger } from '../utils/logger.js';
+import { tracer } from '../utils/tracer.js';
 
 // ─── Types ────────────────────────────────────────────
 
@@ -205,6 +206,7 @@ export async function analyzeTask(
       classifiedBy: 'heuristic',
     };
     logger.debug(`strategy: ${heuristic} (heuristic)`, input.slice(0, 80));
+    tracer.log('strategy', { complexity: heuristic, classifiedBy: 'heuristic', input: input.slice(0, 100) });
     return strategy;
   }
 
@@ -217,5 +219,6 @@ export async function analyzeTask(
     classifiedBy: 'llm',
   };
   logger.debug(`strategy: ${complexity} (llm)`, input.slice(0, 80));
+  tracer.log('strategy', { complexity, classifiedBy: 'llm', toolHints, input: input.slice(0, 100) });
   return strategy;
 }

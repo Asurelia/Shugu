@@ -14,6 +14,7 @@
 import type { Tool, ToolCall, ToolResult, ToolContext, ToolDefinition } from '../../protocol/tools.js';
 import type { AgentOrchestrator, SpawnOptions } from '../../agents/orchestrator.js';
 import { isTextBlock } from '../../protocol/messages.js';
+import { tracer } from '../../utils/tracer.js';
 
 export const AgentToolDefinition: ToolDefinition = {
   name: 'Agent',
@@ -127,6 +128,9 @@ export class AgentTool implements Tool {
 
     try {
       this.onAgentEvent?.({ agentType, event: 'start', message: prompt.slice(0, 80) });
+      const agentSpanId = tracer.startSpan();
+      const agentStartMs = Date.now();
+      tracer.log('agent_spawn', { agentType, prompt: prompt.slice(0, 150) }, agentSpanId);
       let result = await this.orchestrator.spawn(prompt, agentType, options);
 
       // Self-repair: retry once if agent failed or produced no response
@@ -138,6 +142,7 @@ export class AgentTool implements Tool {
       }
 
       this.onAgentEvent?.({ agentType, event: 'done', turns: result.turns, cost: result.costUsd });
+      tracer.logTimed('agent_done', { agentType, turns: result.turns, cost: result.costUsd, success: result.success, endReason: result.endReason }, agentStartMs, agentSpanId);
 
       const header = `[Agent "${agentType}" — ${result.turns} turns, $${result.costUsd.toFixed(4)}, ${result.endReason}]`;
       const body = result.response || '[No response produced]';

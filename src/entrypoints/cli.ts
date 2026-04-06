@@ -1014,6 +1014,7 @@ async function runREPL(
     // ── Strategic task analysis (classify complexity, generate hints) ──
     const strategy = await analyzeTask(input, conversationMessages, client);
     if (strategy.complexity !== 'trivial' && strategy.strategyPrompt) {
+      tracer.log('strategy', { complexity: strategy.complexity, classifiedBy: strategy.classifiedBy, reflectionInterval: strategy.reflectionInterval });
       app.pushMessage({ type: 'info', text: `  ⚡ Strategy: ${strategy.complexity} (${strategy.classifiedBy})` });
     }
 
@@ -1160,6 +1161,7 @@ async function runREPL(
         if (result.memories.length > 0 && memoryAgent) {
           memoryAgent.saveLLMExtracted(result.memories).then((saved) => {
             if (saved > 0) {
+              tracer.log('memory_save', { count: saved, source: 'llm_extraction' });
               app.pushMessage({ type: 'info', text: `  📝 ${saved} memory note(s) saved` });
             }
             memoryAgent.flushIndex(); // Persist index to disk

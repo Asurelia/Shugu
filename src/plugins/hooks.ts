@@ -18,6 +18,7 @@
 import { EventEmitter } from 'node:events';
 import type { ToolCall, ToolResult } from '../protocol/tools.js';
 import type { Message } from '../protocol/messages.js';
+import { tracer } from '../utils/tracer.js';
 
 // ─── Hook Types ────────────────────────────────────────
 
@@ -123,14 +124,17 @@ export class HookRegistry extends EventEmitter {
         });
 
         if (!result.proceed) {
+          tracer.log('tool_call', { hook: hook.pluginName, action: 'blocked', tool: payload.tool, reason: result.blockReason });
           this.emit('hook:blocked', hook.pluginName, 'PreToolUse', result.blockReason);
           return result;
         }
 
         if (result.modifiedCall) {
+          tracer.log('tool_call', { hook: hook.pluginName, action: 'modified_input', tool: payload.tool });
           currentCall = result.modifiedCall;
         }
       } catch (error) {
+        tracer.log('error', { hook: hook.pluginName, type: 'PreToolUse', error: (error as Error).message });
         this.emit('hook:error', hook.pluginName, 'PreToolUse', error);
       }
     }
