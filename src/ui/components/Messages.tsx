@@ -86,7 +86,7 @@ function MessageRow({ message }: { message: UIMessage }) {
       );
 
     case 'info':
-      return <Text color="blue">{message.text}</Text>;
+      return <Text>{message.text}</Text>;
 
     case 'brew':
       return <BrewTimer durationMs={message.durationMs} tokenCount={message.tokens} />;

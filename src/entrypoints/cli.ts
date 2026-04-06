@@ -415,11 +415,32 @@ async function runREPL(
     },
   );
 
-  // Push a simple banner into the scrollable area
-  app.pushMessage({ type: 'info', text: `Shugu v1.0.0 — ${client.model}` });
-  app.pushMessage({ type: 'info', text: `Provider: MiniMax | Mode: ${permResolver.getMode()}` });
-  app.pushMessage({ type: 'info', text: `${toolContext.cwd}` });
-  app.pushMessage({ type: 'info', text: '' });
+  // Push the full banner into the scrollable area
+  // Load recent sessions
+  const bannerSessionMgr = new SessionManager();
+  const bannerSessions = await bannerSessionMgr.listRecent(5);
+  const bannerActivity = bannerSessions.map((s) => {
+    const ago = formatTimeAgo(s.updatedAt);
+    const proj = s.projectDir.split(/[\\/]/).pop() ?? '';
+    return `${ago}: ${proj} (${s.turnCount}t)`;
+  });
+  const bannerText = renderBanner({
+    version: '1.0.0',
+    provider: 'MiniMax',
+    model: client.model,
+    endpoint: client.baseUrl,
+    tools: registry.getAll().map(t => t.definition.name),
+    clis: [],
+    mode: permResolver.getMode(),
+    projectName: toolContext.cwd.split(/[\\/]/).pop() ?? '',
+    vaultStatus: 'locked',
+    cwd: toolContext.cwd,
+    tips: [],
+    recentActivity: bannerActivity,
+  });
+  for (const line of bannerText.split('\n')) {
+    app.pushMessage({ type: 'info', text: line });
+  }
 
   const askQuestion = async (): Promise<string> => {
     app.setStatus(renderer.statusBar.render());
