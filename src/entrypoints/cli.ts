@@ -38,7 +38,7 @@ import { AgentOrchestrator } from '../agents/orchestrator.js';
 import type { ToolRegistryImpl } from '../tools/registry.js';
 import { CredentialVault } from '../credentials/vault.js';
 import { CredentialProvider } from '../credentials/provider.js';
-// renderStatusLine now handled by StatusBar component
+import { renderBanner } from '../ui/banner.js';
 
 // ─── System Prompt ──────────────────────────────────────
 
@@ -239,20 +239,26 @@ async function main(): Promise<void> {
       return `${ago}: ${proj} (${s.turnCount}t)`;
     });
 
-    renderer.richBanner({
-      version: '1.0.0',
-      provider: 'MiniMax',
-      model: client.model,
-      endpoint: client.baseUrl,
-      tools: toolNames,
-      clis: cliNames,
-      mode: `${cliArgs.mode}`,
-      projectName: cwd.split(/[\\/]/).pop() ?? 'unknown',
-      vaultStatus: credentialProvider?.isAvailable ? 'unlocked' : 'locked',
-      cwd,
-      tips: [],
-      recentActivity,
-    });
+    // Banner will be pushed into Ink app's scrollable area in REPL mode
+    // For single-shot mode, still render with console.log
+    if (!cliArgs.prompt) {
+      // Banner rendered inside Ink app (see runREPL)
+    } else {
+      renderer.richBanner({
+        version: '1.0.0',
+        provider: 'MiniMax',
+        model: client.model,
+        endpoint: client.baseUrl,
+        tools: toolNames,
+        clis: cliNames,
+        mode: `${cliArgs.mode}`,
+        projectName: cwd.split(/[\\/]/).pop() ?? 'unknown',
+        vaultStatus: credentialProvider?.isAvailable ? 'unlocked' : 'locked',
+        cwd,
+        tips: [],
+        recentActivity,
+      });
+    }
 
     // Initialize status bar
     renderer.statusBar.update({
@@ -409,7 +415,11 @@ async function runREPL(
     },
   );
 
-  // No console.log redirection — we push to app.addLine() directly in handleEventInk
+  // Push a simple banner into the scrollable area
+  app.pushMessage({ type: 'info', text: `Shugu v1.0.0 — ${client.model}` });
+  app.pushMessage({ type: 'info', text: `Provider: MiniMax | Mode: ${permResolver.getMode()}` });
+  app.pushMessage({ type: 'info', text: `${toolContext.cwd}` });
+  app.pushMessage({ type: 'info', text: '' });
 
   const askQuestion = async (): Promise<string> => {
     app.setStatus(renderer.statusBar.render());

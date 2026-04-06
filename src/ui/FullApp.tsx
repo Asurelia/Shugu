@@ -25,6 +25,21 @@ import { render, Box, Text, useInput, useStdout } from 'ink';
 import TextInput from 'ink-text-input';
 import { Messages, type UIMessage } from './components/Messages.js';
 
+// Inline spinner (avoids import cycle)
+function SpinnerInline({ startTime, tokenCount }: { startTime: number; tokenCount?: number }) {
+  const VERBS = ['Thinking', 'Hatching', 'Brewing', 'Pondering', 'Cogitating', 'Manifesting'];
+  const [frame, setFrame] = React.useState(0);
+  const [verb] = React.useState(() => VERBS[Math.floor(Math.random() * VERBS.length)]!);
+  React.useEffect(() => {
+    const t = setInterval(() => setFrame(f => f + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const elapsed = Math.floor((Date.now() - startTime) / 1000);
+  const elStr = elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`;
+  const tkStr = tokenCount && tokenCount > 0 ? ` · ↓ ${tokenCount} tokens` : '';
+  return <Text color="magenta">{verb}… ({elStr}{tkStr})</Text>;
+}
+
 // ─── Props & State ──────────────────────────────────────
 
 interface AppProps {
@@ -109,15 +124,37 @@ function FullApp({ initialMode, initialStatus, stateRef, onSubmit, onModeChange 
       {/* ═══ Scrollable messages area ═══ */}
       <Box flexDirection="column" flexGrow={1} overflow="hidden">
         <Messages
-          messages={state.messages}
-          isStreaming={state.isStreaming}
-          streamStartTime={state.streamStartTime}
-          streamTokens={state.streamTokens}
+          messages={state.messages.filter(m => m.type !== 'brew')}
+          isStreaming={false}
+          streamStartTime={undefined}
+          streamTokens={undefined}
         />
       </Box>
 
       {/* ═══ Fixed bottom area ═══ */}
       <Box flexDirection="column" flexShrink={0}>
+        {/* Spinner (during streaming) — collé au-dessus de la barre */}
+        {state.isStreaming && state.streamStartTime && (
+          <Box>
+            <Text color="magenta">{'✻ '}</Text>
+            <SpinnerInline startTime={state.streamStartTime} tokenCount={state.streamTokens} />
+          </Box>
+        )}
+
+        {/* Brew timer (after response) — collé au-dessus de la barre */}
+        {!state.isStreaming && state.messages.length > 0 && (() => {
+          const lastBrew = [...state.messages].reverse().find(m => m.type === 'brew');
+          if (!lastBrew || lastBrew.type !== 'brew') return null;
+          return (
+            <Text dimColor color="magenta">{'✻ Brewed for '}
+              {lastBrew.durationMs >= 60000
+                ? `${Math.floor(lastBrew.durationMs / 60000)}m ${Math.floor((lastBrew.durationMs % 60000) / 1000)}s`
+                : `${Math.floor(lastBrew.durationMs / 1000)}s`}
+              {lastBrew.tokens ? ` · ↓ ${lastBrew.tokens} tokens` : ''}
+            </Text>
+          );
+        })()}
+
         {/* Top separator */}
         <Text dimColor>{bar}</Text>
 
