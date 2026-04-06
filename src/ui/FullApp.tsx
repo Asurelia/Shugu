@@ -119,7 +119,7 @@ function colorizeCode(line: string): React.ReactElement {
 
 // ─── Message Rendering (for Static items) ──────────────
 
-function StaticMessage({ message }: { message: UIMessage }) {
+function StaticMessage({ message, expandThinking = false }: { message: UIMessage; expandThinking?: boolean }) {
   switch (message.type) {
     case 'user': {
       const termWidth = process.stdout.columns ?? 120;
@@ -224,11 +224,23 @@ function StaticMessage({ message }: { message: UIMessage }) {
     }
 
     case 'thinking': {
-      // Collapsed by default — single line like Claude Code
+      if (expandThinking) {
+        // Full thinking block (ctrl+r toggled)
+        const lines = message.text.split('\n');
+        return (
+          <Box flexDirection="column" paddingLeft={2}>
+            <Text dimColor italic>{'∴ [THINKING — '}{lines.length}{' lines]'}</Text>
+            {lines.map((line, i) => (
+              <Text key={i} dimColor italic>{'  '}{line}</Text>
+            ))}
+          </Box>
+        );
+      }
+      // Collapsed by default — single line
       const preview = message.text.replace(/\n/g, ' ').slice(0, 120);
       return (
         <Box paddingLeft={2}>
-          <Text dimColor italic>{'∴ '}{preview}{message.text.length > 120 ? '…' : ''}</Text>
+          <Text dimColor italic>{'∴ '}{preview}{message.text.length > 120 ? '… (ctrl+r to expand)' : ''}</Text>
         </Box>
       );
     }
@@ -476,11 +488,76 @@ function FullApp({ initialMode, initialStatus, stateRef, onSubmit, onModeChange 
 
   const modeColor = liveState.mode === 'bypass' ? 'red' : liveState.mode === 'fullAuto' ? 'yellow' : 'green';
 
-  useInput((_input, key) => {
+  // Toggle states for expand/collapse
+  const [expandThinking, setExpandThinking] = useState(false);
+
+  useInput((input, key) => {
+    // Shift+Tab: cycle modes
     if (key.tab && key.shift && liveState.showInput) {
       const idx = MODES.indexOf(liveState.mode as typeof MODES[number]);
       const next = MODES[(idx + 1) % MODES.length]!;
       onModeChange(next);
+    }
+
+    // Ctrl+O: dump full transcript (everything expanded)
+    if (input === '\x0F') { // ctrl+o
+      const allMsgs = stateRef.current.messages;
+      const transcriptLines: string[] = [
+        '',
+        '═══ Full Transcript (expanded) ═══',
+        '',
+      ];
+      for (const msg of allMsgs) {
+        switch (msg.type) {
+          case 'user':
+            transcriptLines.push(`> ${msg.text}`);
+            transcriptLines.push('');
+            break;
+          case 'assistant_header':
+            transcriptLines.push('assistant →');
+            break;
+          case 'assistant_text':
+            transcriptLines.push(msg.text);
+            transcriptLines.push('');
+            break;
+          case 'thinking':
+            transcriptLines.push(`  ∴ [THINKING] ${msg.text}`);
+            transcriptLines.push('');
+            break;
+          case 'tool_call':
+            transcriptLines.push(`  ╭── ${msg.name}${msg.detail ? ' ' + msg.detail : ''}`);
+            break;
+          case 'tool_result':
+            transcriptLines.push(`  ╰${msg.isError ? '✗' : '✓'}─ ${msg.content}`);
+            transcriptLines.push('');
+            break;
+          case 'error':
+            transcriptLines.push(`  ERROR: ${msg.text}`);
+            break;
+          case 'info':
+            transcriptLines.push(msg.text);
+            break;
+        }
+      }
+      transcriptLines.push('', '═══ End Transcript ═══', '');
+      for (const line of transcriptLines) {
+        stateRef.current.messages.push({ type: 'info', text: line });
+      }
+      syncMessages();
+    }
+
+    // Ctrl+R: toggle thinking expand mode
+    if (input === '\x12') { // ctrl+r
+      setExpandThinking(prev => {
+        const next = !prev;
+        // Push a notification about the toggle
+        stateRef.current.messages.push({
+          type: 'info',
+          text: next ? '  ∴ Thinking: EXPANDED (ctrl+r to collapse)' : '  ∴ Thinking: COLLAPSED (ctrl+r to expand)',
+        });
+        syncMessages();
+        return next;
+      });
     }
   });
 
@@ -529,7 +606,7 @@ function FullApp({ initialMode, initialStatus, stateRef, onSubmit, onModeChange 
       <Static items={staticMessages}>
         {(item) => (
           <Box key={item.id} flexDirection="column">
-            <StaticMessage message={item.msg} />
+            <StaticMessage message={item.msg} expandThinking={expandThinking} />
           </Box>
         )}
       </Static>
