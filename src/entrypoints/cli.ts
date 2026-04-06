@@ -70,80 +70,72 @@ Guidelines:
 - Be concise. Lead with the action, not the reasoning.
 - When a tool call fails, diagnose the error before retrying.`;
 
-async function buildSystemPrompt(cwd: string, skillRegistry?: SkillRegistry): Promise<string> {
+async function buildSystemPrompt(
+  cwd: string,
+  skillRegistry?: SkillRegistry,
+  precomputedAdapters?: Awaited<ReturnType<typeof discoverTools>>,
+): Promise<string> {
   const parts = [BASE_SYSTEM_PROMPT];
 
-  // Workspace context
+  // Workspace context (sync — instant)
   parts.push('\n\n# Environment');
   parts.push(`  - Working directory: ${cwd}`);
   parts.push(`  - Platform: ${process.platform}`);
   parts.push(`  - Date: ${new Date().toISOString().split('T')[0]}`);
 
-  // Git context
-  const git = await getGitContext(cwd);
-  parts.push(formatGitContext(git));
-
-  // Project context
-  const project = await getProjectContext(cwd);
-  parts.push(formatProjectContext(project));
-
-  // Custom instructions from CLAUDE.md/PCC.md
-  if (project.customInstructions) {
-    parts.push('\n\n# Project Instructions');
-    parts.push(project.customInstructions);
-  }
-
-  // CLI tool discovery (CLI-first, not MCP)
-  try {
-    const adapters = await discoverTools(cwd);
-    const hints = generateHints(adapters);
-    if (hints) {
-      parts.push(hints);
-    }
-  } catch {
-    // Discovery failed — not critical
-  }
-
-  // Obsidian vault context
-  try {
-    const vaultPath = await discoverVault(cwd);
-    if (vaultPath) {
+  // ── Run ALL independent async operations in PARALLEL ──
+  const [gitResult, projectResult, vaultResult, memoryResult] = await Promise.all([
+    // 1. Git context (2 spawns instead of 3)
+    getGitContext(cwd).catch(() => null),
+    // 2. Project context (file checks)
+    getProjectContext(cwd).catch(() => null),
+    // 3. Obsidian vault context
+    (async () => {
+      const vaultPath = await discoverVault(cwd);
+      if (!vaultPath) return null;
       const vault = new ObsidianVault(vaultPath);
-      const vaultSummary = await vault.getContextSummary();
-      if (vaultSummary) {
-        parts.push(vaultSummary);
-      }
+      return vault.getContextSummary();
+    })().catch(() => null),
+    // 4. File-based memories
+    (async () => {
+      const memStore = new MemoryStore(cwd);
+      const memories = await memStore.loadAll();
+      return memories.length > 0 ? formatMemoriesForPrompt(memories) : null;
+    })().catch(() => null),
+  ]);
+
+  // Assemble results (order matters for prompt quality)
+  if (gitResult) parts.push(formatGitContext(gitResult));
+  if (projectResult) {
+    parts.push(formatProjectContext(projectResult));
+    if (projectResult.customInstructions) {
+      parts.push('\n\n# Project Instructions');
+      parts.push(projectResult.customInstructions);
     }
-  } catch {
-    // Vault loading failed — not critical
   }
 
-  // File-based memories (fallback if no Obsidian vault)
-  try {
-    const memStore = new MemoryStore(cwd);
-    const memories = await memStore.loadAll();
-    if (memories.length > 0) {
-      parts.push(formatMemoriesForPrompt(memories));
-    }
-  } catch {
-    // Memory loading failed — not critical
+  // CLI tool hints (use pre-computed adapters — NO redundant discoverTools call)
+  if (precomputedAdapters) {
+    try {
+      const hints = generateHints(precomputedAdapters);
+      if (hints) parts.push(hints);
+    } catch { /* non-critical */ }
   }
 
-  // Skill descriptions (so the model knows what /commands are available)
+  if (vaultResult) parts.push(vaultResult);
+  if (memoryResult) parts.push(memoryResult);
+
+  // Skill descriptions (sync — instant)
   if (skillRegistry) {
     const skillsPrompt = generateSkillsPrompt(skillRegistry);
-    if (skillsPrompt) {
-      parts.push(skillsPrompt);
-    }
+    if (skillsPrompt) parts.push(skillsPrompt);
   }
 
-  // Companion introduction
+  // Companion introduction (sync after first call — cached in module)
   try {
     const companion = getCompanion();
     parts.push('\n' + getCompanionPrompt(companion));
-  } catch {
-    // Companion loading failed — not critical
-  }
+  } catch { /* non-critical */ }
 
   return parts.join('\n');
 }
@@ -304,7 +296,7 @@ async function main(): Promise<void> {
 
     // Discover CLI tools before building system prompt
     const adapters = await discoverTools(cwd);
-    const systemPrompt = await buildSystemPrompt(cwd, skillRegistry);
+    const systemPrompt = await buildSystemPrompt(cwd, skillRegistry, adapters);
 
     // Render the rich banner with all info collected
     const toolNames = registry.getAll().map(t => t.definition.name);

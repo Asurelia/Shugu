@@ -158,7 +158,7 @@ async function isCliInstalled(detectCommand: string): Promise<boolean> {
   return new Promise((resolve) => {
     const child = spawn(cmd, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 5000,
+      timeout: 2000, // 2s — any CLI that takes longer for --version is broken
     });
     child.on('error', () => resolve(false));
     child.on('close', (code) => resolve(code === 0));

@@ -29,12 +29,21 @@ export async function getGitContext(cwd: string): Promise<GitContext> {
   const context: GitContext = { isGitRepo: true };
 
   try {
-    context.branch = (await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], cwd)).trim();
-    const status = (await runGit(['status', '--short'], cwd)).trim();
-    context.status = status;
-    context.hasUncommittedChanges = status.length > 0;
-    const log = (await runGit(['log', '--oneline', '-5', '--no-decorate'], cwd)).trim();
-    context.recentCommits = log.split('\n').filter(Boolean);
+    // Run both git commands in parallel (2 spawns instead of 3)
+    const [statusResult, logResult] = await Promise.all([
+      runGit(['status', '--short', '--branch'], cwd),
+      runGit(['log', '--oneline', '-5', '--no-decorate'], cwd),
+    ]);
+
+    // Parse status --branch output: first line is "## branch...tracking"
+    const statusLines = statusResult.trim().split('\n');
+    const branchLine = statusLines[0] ?? '';
+    context.branch = branchLine.replace(/^##\s+/, '').split('...')[0]?.trim() ?? 'unknown';
+    const changeLines = statusLines.slice(1).filter(Boolean);
+    context.status = changeLines.join('\n');
+    context.hasUncommittedChanges = changeLines.length > 0;
+
+    context.recentCommits = logResult.trim().split('\n').filter(Boolean);
   } catch {
     // Partial context is fine
   }

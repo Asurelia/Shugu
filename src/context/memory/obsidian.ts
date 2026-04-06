@@ -51,12 +51,21 @@ export interface VaultConfig {
 
 export class ObsidianVault {
   private config: VaultConfig;
+  private notesCache: { paths: string[]; timestamp: number } | null = null;
+  private static readonly CACHE_TTL_MS = 60_000; // 60s cache
 
   constructor(vaultPath: string) {
     this.config = {
       path: vaultPath,
       agentFolder: 'Agent',
     };
+  }
+
+  /**
+   * Invalidate the notes cache (called after write/delete/archive operations).
+   */
+  invalidateCache(): void {
+    this.notesCache = null;
   }
 
   /**
@@ -207,6 +216,7 @@ export class ObsidianVault {
 
     const content = formatNote(frontmatter, body + linksSection);
     await writeFile(filePath, content, 'utf-8');
+    this.invalidateCache();
 
     return relativePath;
   }
@@ -265,6 +275,7 @@ export class ObsidianVault {
 
     const absPath = join(this.config.path, notePath);
     await writeFile(absPath, formatNote(mergedFm, newBody), 'utf-8');
+    this.invalidateCache();
     return true;
   }
 
@@ -275,6 +286,7 @@ export class ObsidianVault {
     const absPath = join(this.config.path, notePath);
     try {
       await unlink(absPath);
+      this.invalidateCache();
       return true;
     } catch {
       return false;
@@ -308,6 +320,7 @@ export class ObsidianVault {
       await unlink(absPath);
     }
 
+    this.invalidateCache();
     return relArchivePath;
   }
 
@@ -352,6 +365,11 @@ export class ObsidianVault {
    * List all .md files in the vault.
    */
   async listNotes(subfolder?: string): Promise<string[]> {
+    // Use cache for full vault listing (no subfolder filter)
+    if (!subfolder && this.notesCache && (Date.now() - this.notesCache.timestamp) < ObsidianVault.CACHE_TTL_MS) {
+      return this.notesCache.paths;
+    }
+
     const base = subfolder ? join(this.config.path, subfolder) : this.config.path;
     const notes: string[] = [];
 
@@ -377,12 +395,19 @@ export class ObsidianVault {
 
     await walk(base);
     // Fix: paths should be relative to vault root
-    return notes.map((n) => {
+    const result = notes.map((n) => {
       if (n.startsWith(this.config.path)) {
         return relative(this.config.path, n).replace(/\\/g, '/');
       }
       return n.replace(/\\/g, '/');
     });
+
+    // Cache full vault listings
+    if (!subfolder) {
+      this.notesCache = { paths: result, timestamp: Date.now() };
+    }
+
+    return result;
   }
 
   /**
