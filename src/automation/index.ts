@@ -35,3 +35,17 @@ export {
   type ProactiveConfig,
   type ProactiveResult,
 } from './proactive.js';
+
+export {
+  runVaultMaintenance,
+  ensureSchema,
+  archiveStaleNotes,
+  generateDigest,
+  type MaintenanceResult,
+} from './obsidian-agent.js';
+
+export {
+  Kairos,
+  type KairosState,
+  type KairosNotification,
+} from './kairos.js';

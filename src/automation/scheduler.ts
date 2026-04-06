@@ -10,6 +10,7 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { logger } from '../utils/logger.js';
 
 // ─── Cron Expression Parser (minimal) ──────────────────
 
@@ -284,7 +285,9 @@ export class Scheduler extends EventEmitter {
 
       const schedule = parseCron(job.schedule.expression);
       if (cronMatches(schedule, now)) {
-        this.executeJob(job).catch(() => {});
+        this.executeJob(job).catch((err) => {
+          logger.warn(`scheduled job ${job.id} (${job.name}) failed`, err instanceof Error ? err.message : String(err));
+        });
       }
     }
   }
@@ -295,7 +298,9 @@ export class Scheduler extends EventEmitter {
 
     const timer = setInterval(() => {
       if (!this.running.has(job.id) && job.enabled) {
-        this.executeJob(job).catch(() => {});
+        this.executeJob(job).catch((err) => {
+          logger.warn(`interval job ${job.id} (${job.name}) failed`, err instanceof Error ? err.message : String(err));
+        });
       }
     }, job.schedule.ms);
 

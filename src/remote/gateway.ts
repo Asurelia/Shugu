@@ -92,7 +92,7 @@ export class SessionGateway {
       this.server = createServer();
       const wss = new WebSocketServer({ server: this.server });
 
-      wss.on('connection', (socket: WebSocketLike, req: any) => {
+      wss.on('connection', (socket: WebSocketLike, req: { url?: string; headers: Record<string, string | string[] | undefined> }) => {
         // Auth check
         if (this.config.password) {
           const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
@@ -226,5 +226,5 @@ export class SessionGateway {
 interface WebSocketLike {
   send(data: string): void;
   close(code?: number, reason?: string): void;
-  on(event: string, handler: (...args: any[]) => void): void;
+  on(event: string, handler: (...args: never[]) => void): void;
 }

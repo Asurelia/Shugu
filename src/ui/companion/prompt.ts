@@ -8,6 +8,7 @@
 
 import type { Companion } from './types.js';
 import { RARITY_STARS } from './types.js';
+import { pick } from '../../utils/random.js';
 
 /**
  * Generate the companion introduction for the system prompt.
@@ -122,6 +123,3 @@ const PET_REACTIONS: Record<string, string[]> = {
   default: ['*happy*', 'Thank you!', '*wiggles*', '♥'],
 };
 
-function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)]!;
-}

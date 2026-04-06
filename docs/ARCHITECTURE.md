@@ -6,7 +6,7 @@ Project CC is a **14-layer, mono-provider CLI agent** built as a clean-room reim
 
 The core insight: **a sub-agent is not a process — it's a nested `runLoop()` call**. This single decision eliminates React, IPC, process management, and most of the original's complexity.
 
-**9,707 lines of TypeScript. 70 files. 14 tools. 5 agent types. 0 feature flags.**
+**19,652 lines of TypeScript. 120+ files. 14 tools. 5 agent types. 19 commands. 6 bundled skills. 0 feature flags.**
 
 ---
 

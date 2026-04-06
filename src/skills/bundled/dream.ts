@@ -52,7 +52,14 @@ Your task:
    - What opportunities for improvement exist?
 
 Output a structured analysis with specific file references and line numbers.
-Be insightful, not generic. Reference actual code you found.`;
+Be insightful, not generic. Reference actual code you found.
+
+IMPORTANT: At the end of your analysis, summarize your key findings as explicit statements that can be remembered:
+- "Decision: [what was decided and why]"
+- "Pattern: [pattern name] used in [files]"
+- "Risk: [what could go wrong]"
+- "Improvement: [specific suggestion]"
+These statements will be automatically extracted and saved for future sessions.`;
 
     return { type: 'prompt', prompt };
   },

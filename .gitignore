@@ -8,3 +8,6 @@ dist/
 test-smoke.mjs
 .remember/
 .pcc-worktrees/
+*.bak
+*.bak2
+*.bak*

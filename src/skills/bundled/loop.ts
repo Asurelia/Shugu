@@ -125,7 +125,9 @@ export const loopSkill: Skill = {
     activeLoops.set(loopId, { timer, description });
 
     // Run first iteration immediately
-    runOnce().catch(() => {});
+    runOnce().catch((err) => {
+      ctx.error(`[${loopId}] First iteration failed: ${err instanceof Error ? err.message : String(err)}`);
+    });
 
     return { type: 'handled' };
   },

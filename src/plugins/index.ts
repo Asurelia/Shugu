@@ -28,3 +28,8 @@ export {
 export {
   PluginRegistry,
 } from './registry.js';
+
+// Built-in hooks
+export { registerBehaviorHooks } from './builtin/behavior-hooks.js';
+export { registerKnowledgeHooks } from './builtin/knowledge-hook.js';
+export { registerVerificationHook } from './builtin/verification-hook.js';

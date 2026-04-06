@@ -1,3 +1,5 @@
+import { visL } from '../utils/ansi.js';
+
 /**
  * Layer 11 — UI: Status bar
  *
@@ -70,16 +72,8 @@ export class StatusBar {
       ? `$$${s.costUsd.toFixed(2)} / $$${s.budgetUsd.toFixed(2)}`
       : `$$${s.costUsd.toFixed(4)}`;
     const br = s.branch ? ` (${s.branch})` : '';
-    const mc = s.mode === 'bypass' ? RED : s.mode === 'fullAuto' ? YELLOW : GREEN;
 
-    const left = `${BG}${FG}  ${shortM(s.model)} ${GRAY}│${FG} ${CYAN}${s.project}${br}${FG} ${GRAY}│${FG} ${cc}${s.contextPercent}%${FG} (${uK}k/${tK}k) ${GRAY}│${FG} ${cost} ${GRAY}│${FG} ${up}${R}`;
-    const right = `${BG}  ${mc}⏵⏵ ${s.mode}${FG} permissions on${R}`;
-
-    const lv = visL(left);
-    const rv = visL(right);
-    const gap = Math.max(1, w - lv - rv);
-
-    return `${left}${BG}${' '.repeat(gap)}${right}`;
+    return `  ${D}${shortM(s.model)} ${GRAY}│${R} ${CYAN}${s.project}${br}${R} ${GRAY}│${R} ${cc}${s.contextPercent}%${R} ${D}(${uK}k/${tK}k)${R} ${GRAY}│${R} ${D}${cost}${R} ${GRAY}│${R} ${D}${up}${R}`;
   }
 }
 
@@ -90,4 +84,3 @@ function fmtUp(ms: number): string {
   const s = Math.floor(ms / 1000); const m = Math.floor(s / 60); const h = Math.floor(m / 60);
   return h > 0 ? `${h}h${m % 60}m` : m > 0 ? `${m}m${s % 60}s` : `${s}s`;
 }
-function visL(s: string): number { return s.replace(/\x1b\[[0-9;]*m/g, '').length; }

@@ -59,6 +59,12 @@ export class TokenBudgetTracker {
     this.lastKnownInputTokens = usage.input_tokens;
   }
 
+  /** Reset tracking state (used when resuming a session). */
+  reset(): void {
+    this.lastKnownInputTokens = 0;
+    this.consecutiveCompactFailures = 0;
+  }
+
   /**
    * Check if compaction should be triggered.
    */

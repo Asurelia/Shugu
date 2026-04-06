@@ -133,7 +133,7 @@ export class MiniMaxClient {
       model: options.model ?? this.config.model,
       max_tokens: options.maxTokens ?? this.config.maxTokens,
       messages,
-      temperature: this.config.temperature,
+      temperature: Math.max(0.01, options.temperature ?? this.config.temperature),
       stream: true,
       // MiniMax: reasoning is MANDATORY, always split it out
       reasoning_split: this.config.thinkingConfig.showThinking,
@@ -209,6 +209,8 @@ export class MiniMaxClient {
 export interface StreamOptions {
   model?: string;
   maxTokens?: number;
+  /** Override temperature for this request (MiniMax: must be > 0, range (0, 1]) */
+  temperature?: number;
   systemPrompt?: SystemPrompt;
   tools?: ToolDefinition[];
   abortSignal?: AbortSignal;

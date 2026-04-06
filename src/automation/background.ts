@@ -18,6 +18,7 @@ import { InterruptController } from '../engine/interrupts.js';
 import type { Message, AssistantMessage } from '../protocol/messages.js';
 import type { Tool, ToolContext } from '../protocol/tools.js';
 import { isTextBlock } from '../protocol/messages.js';
+import { logger } from '../utils/logger.js';
 
 // ─── Background Session ────────────────────────────────
 
@@ -82,7 +83,9 @@ export class BackgroundManager extends EventEmitter {
     this.attachedListeners.set(id, new Set());
 
     // Run the loop asynchronously (fire-and-forget)
-    this.runSession(id, prompt, config, interrupt).catch(() => {});
+    this.runSession(id, prompt, config, interrupt).catch((err) => {
+      logger.warn(`background session ${id} failed`, err instanceof Error ? err.message : String(err));
+    });
 
     this.emit('session:start', session);
     return session;

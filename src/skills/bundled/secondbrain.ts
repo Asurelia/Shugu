@@ -16,6 +16,7 @@
 
 import type { Skill, SkillContext, SkillResult } from '../loader.js';
 import { ObsidianVault, discoverVault } from '../../context/memory/obsidian.js';
+import { slugify } from '../../utils/strings.js';
 
 export const secondBrainSkill: Skill = {
   name: 'brain',
@@ -244,7 +245,3 @@ Save to: ${vaultPath}/Zettelkasten/${zettelId}-${slugify(rest)}.md`,
 };
 
 // ─── Helpers ───────────────────────────────────────────
-
-function slugify(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80);
-}

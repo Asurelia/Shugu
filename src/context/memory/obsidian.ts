@@ -22,6 +22,7 @@
 import { readFile, writeFile, mkdir, readdir, stat, access, unlink, rename, copyFile } from 'node:fs/promises';
 import { join, relative, basename, dirname } from 'node:path';
 import { homedir } from 'node:os';
+import { slugify } from '../../utils/strings.js';
 
 // ─── Types ──────────────────────────────────────────────
 
@@ -622,12 +623,3 @@ export async function discoverVault(cwd: string): Promise<string | null> {
 
 // ─── Helpers ────────────────────────────────────────────
 
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 80);
-}

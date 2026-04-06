@@ -21,15 +21,15 @@ import { createDefaultRegistry } from '../tools/index.js';
 import { PermissionResolver } from '../policy/permissions.js';
 import { MODE_DESCRIPTIONS } from '../policy/modes.js';
 import type { PermissionMode, ToolContext, ToolCall } from '../protocol/tools.js';
-import type { Message, ContentBlock } from '../protocol/messages.js';
-import { isTextBlock, isThinkingBlock, isToolUseBlock } from '../protocol/messages.js';
+import type { Message } from '../protocol/messages.js';
+import { isTextBlock } from '../protocol/messages.js';
 import { getGitContext, formatGitContext } from '../context/workspace/git.js';
 import { getProjectContext, formatProjectContext } from '../context/workspace/project.js';
 import { TokenBudgetTracker } from '../context/tokenBudget.js';
 import { compactConversation } from '../context/compactor.js';
 import { SessionManager, type SessionData } from '../context/session/persistence.js';
-import { MemoryStore } from '../context/memory/store.js';
-import { formatMemoriesForPrompt } from '../context/memory/extract.js';
+// MemoryStore and formatMemoriesForPrompt replaced by MemoryAgent
+import { MemoryAgent } from '../context/memory/agent.js';
 import { discoverTools, getDiscoverySummary } from '../integrations/discovery.js';
 import { generateHints } from '../integrations/adapter.js';
 import { createDefaultCommands, type CommandContext } from '../commands/index.js';
@@ -46,9 +46,16 @@ import { BackgroundManager } from '../automation/background.js';
 import { Scheduler } from '../automation/scheduler.js';
 import { createBgCommand, createProactiveCommand } from '../commands/automation.js';
 import { runPostTurnIntelligence, type IntelligenceResult } from '../engine/intelligence.js';
-import { registerKnowledgeHooks } from '../plugins/builtin/knowledge-hook.js';
+// knowledge-hook absorbed into MemoryAgent
 import { registerBehaviorHooks } from '../plugins/builtin/behavior-hooks.js';
 import { getCompanion, getCompanionPrompt } from '../ui/companion/index.js';
+import { logger } from '../utils/logger.js';
+// vault maintenance absorbed into MemoryAgent
+import { MINIMAX_MODELS } from '../transport/client.js';
+import { analyzeTask, type TaskStrategy } from '../engine/strategy.js';
+import { Kairos } from '../automation/kairos.js';
+import { registerVerificationHook } from '../plugins/builtin/verification-hook.js';
+import { tracer } from '../utils/tracer.js';
 
 // ─── System Prompt ──────────────────────────────────────
 
@@ -101,12 +108,25 @@ IMPORTANT: You must NEVER generate or guess URLs unless confident they help with
 - Write COMPLETE implementations. No stubs, no TODOs, no "rest remains the same", no "...".
 - If a tool call result was truncated, write down important info in your response — the original result may be cleared later.
 - Real error handling — catch specific errors, useful messages.
-- No \`any\` types in TypeScript. Strict mode.`;
+- No \`any\` types in TypeScript. Strict mode.
+
+# Orchestration
+You are the primary orchestrator. When facing complex tasks:
+1. Break the work into sub-tasks using your thinking
+2. Delegate to specialized agents when beneficial:
+   - Agent(explore): read-only codebase exploration — use FIRST for unfamiliar code
+   - Agent(code): isolated code changes in a sub-context
+   - Agent(review): code quality analysis
+   - Agent(test): write and run tests
+3. Synthesize agent results into a coherent response
+4. Verify the overall result before presenting to the user
+You coordinate — you don't just execute. Plan, delegate, verify.`;
 
 async function buildSystemPrompt(
   cwd: string,
   skillRegistry?: SkillRegistry,
   precomputedAdapters?: Awaited<ReturnType<typeof discoverTools>>,
+  memoryAgent?: MemoryAgent,
 ): Promise<string> {
   const parts = [BASE_SYSTEM_PROMPT];
 
@@ -117,25 +137,18 @@ async function buildSystemPrompt(
   parts.push(`  - Date: ${new Date().toISOString().split('T')[0]}`);
 
   // ── Run ALL independent async operations in PARALLEL ──
-  const [gitResult, projectResult, vaultResult, memoryResult] = await Promise.all([
-    // 1. Git context (2 spawns instead of 3)
-    getGitContext(cwd).catch(() => null),
-    // 2. Project context (file checks)
-    getProjectContext(cwd).catch(() => null),
-    // 3. Obsidian vault context
+  const [gitResult, projectResult, vaultResult] = await Promise.all([
+    getGitContext(cwd).catch((e) => { logger.debug('git context failed', e instanceof Error ? e.message : String(e)); return null; }),
+    getProjectContext(cwd).catch((e) => { logger.debug('project context failed', e instanceof Error ? e.message : String(e)); return null; }),
     (async () => {
       const vaultPath = await discoverVault(cwd);
       if (!vaultPath) return null;
       const vault = new ObsidianVault(vaultPath);
       return vault.getContextSummary();
-    })().catch(() => null),
-    // 4. File-based memories
-    (async () => {
-      const memStore = new MemoryStore(cwd);
-      const memories = await memStore.loadAll();
-      return memories.length > 0 ? formatMemoriesForPrompt(memories) : null;
-    })().catch(() => null),
+    })().catch((e) => { logger.debug('vault context failed', e instanceof Error ? e.message : String(e)); return null; }),
   ]);
+  // Memory loaded from MemoryAgent (already initialized, instant)
+  const memoryResult = memoryAgent ? memoryAgent.getStartupContext() || null : null;
 
   // Assemble results (order matters for prompt quality)
   if (gitResult) parts.push(formatGitContext(gitResult));
@@ -178,16 +191,30 @@ async function buildSystemPrompt(
 interface CliArgs {
   mode: PermissionMode;
   prompt: string | null;
+  continueSession: boolean;
+  resumeSession: string | true | false;
+  verbose: boolean;
 }
 
 function parseArgs(): CliArgs {
   const args = process.argv.slice(2);
   let mode: PermissionMode = 'default';
+  let continueSession = false;
+  let resumeSession: string | true | false = false;
+  let verbose = false;
   const promptParts: string[] = [];
 
   for (const arg of args) {
     if (arg === '--bypass') {
       mode = 'bypass';
+    } else if (arg === '--continue' || arg === '-c') {
+      continueSession = true;
+    } else if (arg === '--resume' || arg === '-r') {
+      resumeSession = true;
+    } else if (arg.startsWith('--resume=')) {
+      resumeSession = arg.slice(9);
+    } else if (arg === '--verbose' || arg === '-v') {
+      verbose = true;
     } else if (arg.startsWith('--mode=')) {
       const modeArg = arg.slice(7);
       if (modeArg === 'plan' || modeArg === 'auto' || modeArg === 'bypass' || modeArg === 'accept-edits') {
@@ -209,17 +236,23 @@ function parseArgs(): CliArgs {
   return {
     mode,
     prompt: promptParts.length > 0 ? promptParts.join(' ').trim() : null,
+    continueSession,
+    resumeSession,
+    verbose,
   };
 }
 
 function printHelp(): void {
   console.log(`
-  Project CC — Claude Code for MiniMax M2.7
+  Shugu — coding agent for MiniMax M2.7
 
   Usage:
-    pcc "prompt"                Single-shot query
-    pcc                         Interactive REPL
-    pcc --mode=<mode> "prompt"  Set permission mode
+    shugu "prompt"              Single-shot query
+    shugu                       Interactive REPL
+    shugu --continue            Resume last session in current directory
+    shugu --resume              Pick a session to resume
+    shugu --resume=<id>         Resume specific session
+    shugu --mode=<mode>         Set permission mode
 
   Modes:
     plan          ${MODE_DESCRIPTIONS.plan}
@@ -229,8 +262,10 @@ function printHelp(): void {
     bypass        ${MODE_DESCRIPTIONS.bypass}
 
   Options:
-    --bypass      Shorthand for --mode=bypass
-    --help, -h    Show this help
+    --continue, -c  Resume most recent session for this project
+    --resume, -r    Interactive session picker
+    --bypass        Shorthand for --mode=bypass
+    --help, -h      Show this help
 
   Environment:
     MINIMAX_API_KEY          MiniMax API key (required)
@@ -247,6 +282,9 @@ async function main(): Promise<void> {
 
   try {
     const client = new MiniMaxClient();
+    // Configure tracer
+    if (cliArgs.verbose) tracer.setVerbose(true);
+    tracer.log('session_start', { mode: cliArgs.mode, verbose: cliArgs.verbose, cwd: process.cwd() });
     // Rich banner rendered after all info is collected (below)
 
     const cwd = process.cwd();
@@ -292,17 +330,25 @@ async function main(): Promise<void> {
     const { isFirstHatch } = await import('../ui/companion/companion.js');
     const needsHatchCeremony = isFirstHatch();
 
-    // Register built-in behavior hooks (security, anti-lazy, path safety)
+    // Register built-in behavior hooks (security, anti-lazy, path safety, verification)
     registerBehaviorHooks(hookRegistry);
+    registerVerificationHook(hookRegistry);
 
-    // Discover Obsidian vault and wire knowledge hooks
+    // Discover Obsidian vault
     const vaultPath = await discoverVault(cwd);
     let obsidianVaultInstance: ObsidianVault | null = null;
     if (vaultPath) {
       obsidianVaultInstance = new ObsidianVault(vaultPath);
       obsidianTool.setVault(obsidianVaultInstance);
-      registerKnowledgeHooks(hookRegistry, obsidianVaultInstance);
     }
+
+    // Unified Memory Agent (Obsidian-first + local cache)
+    const memoryAgent = new MemoryAgent(obsidianVaultInstance, cwd);
+    await memoryAgent.loadIndex();
+    // Fire-and-forget maintenance (archive stale, sync)
+    memoryAgent.maintenance().catch((err) => {
+      logger.debug('memory maintenance failed', err instanceof Error ? err.message : String(err));
+    });
 
     // Create automation instances
     const bgManager = new BackgroundManager();
@@ -333,7 +379,7 @@ async function main(): Promise<void> {
 
     // Discover CLI tools before building system prompt
     const adapters = await discoverTools(cwd);
-    const systemPrompt = await buildSystemPrompt(cwd, skillRegistry, adapters);
+    const systemPrompt = await buildSystemPrompt(cwd, skillRegistry, adapters, memoryAgent);
 
     // Render the rich banner with all info collected
     const toolNames = registry.getAll().map(t => t.definition.name);
@@ -388,12 +434,53 @@ async function main(): Promise<void> {
     const toolMap = new Map(registry.getAll().map(t => [t.definition.name, t]));
     const orchestrator = new AgentOrchestrator(client, toolMap, toolContext);
     agentTool.setOrchestrator(orchestrator);
-    agentTool.setEventCallback((type, msg) => renderer.info(`  [agent:${type}] ${msg}`));
+    // Agent events will be re-wired in runREPL for rich Ink rendering
+    agentTool.setEventCallback(() => {});
+
+    // Handle session resume flags
+    let resumedMessages: Message[] | null = null;
+    const resumeSessionMgr = new SessionManager();
+
+    if (cliArgs.continueSession) {
+      const latest = await resumeSessionMgr.loadLatest(cwd);
+      if (latest && latest.messages.length > 0) {
+        resumedMessages = latest.messages;
+        renderer.info(`  Resuming session ${latest.id} (${latest.turnCount} turns, ${formatTimeAgo(latest.updatedAt)})`);
+      } else {
+        renderer.info('  No previous session found for this directory.');
+      }
+    } else if (cliArgs.resumeSession) {
+      if (typeof cliArgs.resumeSession === 'string') {
+        // Resume specific session by ID
+        const session = await resumeSessionMgr.load(cliArgs.resumeSession);
+        if (session && session.messages.length > 0) {
+          resumedMessages = session.messages;
+          renderer.info(`  Resuming session ${session.id} (${session.turnCount} turns)`);
+        } else {
+          renderer.error(`  Session not found: ${cliArgs.resumeSession}`);
+        }
+      } else {
+        // Show picker — list recent sessions
+        const sessions = await resumeSessionMgr.listRecent(10);
+        if (sessions.length > 0) {
+          renderer.info('\n  Recent sessions:');
+          for (let i = 0; i < sessions.length; i++) {
+            const s = sessions[i]!;
+            const proj = s.projectDir.split(/[\\/]/).pop() ?? '';
+            const ago = formatTimeAgo(s.updatedAt);
+            renderer.info(`    ${i + 1}. [${s.id}] ${proj} — ${s.turnCount} turns, ${ago}`);
+          }
+          renderer.info(`\n  Use: shugu --resume=<id> to resume a specific session\n`);
+        } else {
+          renderer.info('  No sessions found.');
+        }
+      }
+    }
 
     if (cliArgs.prompt) {
       await runSingleQuery(client, cliArgs.prompt, renderer, registry, toolContext, systemPrompt, hookRegistry);
     } else {
-      await runREPL(client, renderer, registry, toolContext, permResolver, systemPrompt, hookRegistry, skillRegistry, commands, bgManager, scheduler, obsidianVaultInstance, needsHatchCeremony);
+      await runREPL(client, renderer, registry, toolContext, permResolver, systemPrompt, hookRegistry, skillRegistry, commands, bgManager, scheduler, obsidianVaultInstance, needsHatchCeremony, resumedMessages, memoryAgent);
     }
   } catch (error) {
     if (error instanceof Error && error.message.includes('No API key')) {
@@ -503,13 +590,20 @@ async function runREPL(
   scheduler?: Scheduler,
   obsidianVaultInstance?: ObsidianVault | null,
   needsHatchCeremony?: boolean,
+  resumedMessages?: Message[] | null,
+  memoryAgent?: MemoryAgent,
 ): Promise<void> {
-  const conversationMessages: Message[] = [];
+  const conversationMessages: Message[] = resumedMessages ? [...resumedMessages] : [];
   const budget = new BudgetTracker(client.model);
   const tokenTracker = new TokenBudgetTracker({ model: client.model });
   const sessionMgr = new SessionManager();
   const session = sessionMgr.createSession(toolContext.cwd, client.model);
   if (!commands) commands = createDefaultCommands();
+
+  // KAIROS — time awareness agent
+  const kairos = new Kairos();
+  let correctionCount = 0;
+  let turnCount = 0;
 
   // Vault refresh tracking (for mid-conversation context updates)
   let lastVaultRefresh = Date.now();
@@ -568,6 +662,36 @@ async function runREPL(
     },
   );
 
+  // Wire rich agent event rendering into Ink app
+  const { AgentTool: AgentToolClass } = await import('../tools/agents/AgentTool.js');
+  const agentToolInstance = registry.getAll().find(t => t.definition.name === 'Agent');
+  if (agentToolInstance && agentToolInstance instanceof AgentToolClass) {
+    const AGENT_COLORS: Record<string, string> = {
+      general: 'blue', explore: 'cyan', code: 'green', review: 'yellow', test: 'magenta',
+    };
+    agentToolInstance.setEventCallback((evt) => {
+      const color = AGENT_COLORS[evt.agentType] ?? 'blue';
+      const prefix = `  [${evt.agentType}]`;
+      switch (evt.event) {
+        case 'start':
+          app.pushMessage({ type: 'info', text: `\x1b[1m\x1b[34m${prefix}\x1b[0m \x1b[2mStarting: ${evt.message ?? ''}\x1b[0m` });
+          break;
+        case 'tool':
+          app.pushMessage({ type: 'info', text: `\x1b[36m${prefix}\x1b[0m \x1b[33m${evt.toolName}\x1b[0m${evt.toolDetail ? ` \x1b[2m${evt.toolDetail}\x1b[0m` : ''}` });
+          break;
+        case 'text':
+          app.pushMessage({ type: 'info', text: `\x1b[36m${prefix}\x1b[0m \x1b[2m${evt.message ?? ''}\x1b[0m` });
+          break;
+        case 'done':
+          app.pushMessage({ type: 'info', text: `\x1b[32m${prefix}\x1b[0m \x1b[2mDone (${evt.turns} turns, $${evt.cost?.toFixed(4)})\x1b[0m` });
+          break;
+        case 'error':
+          app.pushMessage({ type: 'info', text: `\x1b[31m${prefix}\x1b[0m \x1b[31m${evt.message ?? 'Error'}\x1b[0m` });
+          break;
+      }
+    });
+  }
+
   // Push the full banner into the scrollable area
   // Load recent sessions
   const bannerSessionMgr = new SessionManager();
@@ -595,7 +719,7 @@ async function runREPL(
     app.pushMessage({ type: 'info', text: line });
   }
 
-  // Set session title in top bar (like Claude Code: ──── branch-name ─)
+  // Set session title in top bar (──── project ─ branch ─)
   try {
     const gitCtx = await getGitContext(toolContext.cwd);
     const projectName = toolContext.cwd.split(/[\\/]/).pop() ?? '';
@@ -608,6 +732,7 @@ async function runREPL(
 
   // Hatch ceremony on first launch (flag set in main() BEFORE companion file was created)
   const { renderHatchCeremony, renderBuddyCompact, renderBuddyCard } = await import('../ui/companion/companion.js');
+  const { generateReaction } = await import('../ui/companion/prompt.js');
   if (needsHatchCeremony) {
     const c = getCompanionInstance();
     if (c) {
@@ -615,6 +740,12 @@ async function runREPL(
         app.pushMessage({ type: 'info', text: line });
       }
     }
+  }
+
+  // Set companion on the live UI (persistent sprite next to input)
+  const companionInstance = getCompanionInstance();
+  if (companionInstance) {
+    app.setCompanion(companionInstance);
   }
 
   const askQuestion = async (): Promise<string> => {
@@ -628,7 +759,9 @@ async function runREPL(
     session.messages = conversationMessages;
     session.turnCount = budget.getTurnCount();
     session.totalUsage = budget.getTotalUsage();
-    await sessionMgr.save(session).catch(() => {});
+    await sessionMgr.save(session).catch((err) => {
+      logger.debug('session save failed', err instanceof Error ? err.message : String(err));
+    });
   };
 
   process.on('SIGINT', async () => {
@@ -650,6 +783,27 @@ async function runREPL(
     if (!input) {
       renderer.statusBar.redraw();
       continue;
+    }
+
+    // Trace: new user request
+    tracer.startTrace();
+    tracer.log('user_input', { input: input.slice(0, 200), length: input.length });
+
+    // Auto-evaluation: detect user corrections
+    const correctionPatterns = /^(non|no|pas ça|not that|c'est faux|wrong|incorrect|ce n'est pas|that's not|arrête|stop|undo)/i;
+    if (correctionPatterns.test(input.trim())) {
+      correctionCount++;
+    }
+    turnCount++;
+
+    // KAIROS: time awareness check
+    const kairosNotif = kairos.onUserInput();
+    if (kairosNotif) {
+      if (kairosNotif.type === 'away_summary') {
+        app.pushMessage({ type: 'info', text: `  💤 ${kairosNotif.message}` });
+      } else if (kairosNotif.type === 'break_suggestion') {
+        app.pushMessage({ type: 'info', text: `  ☕ ${kairosNotif.message}` });
+      }
     }
 
     // ── Local-state commands (need direct access to REPL state) ──
@@ -675,21 +829,24 @@ async function runREPL(
       const c = getCompanionInstance();
       if (c) {
         app.pushMessage({ type: 'info', text: `  ♥ ♥ ♥  ${c.name} purrs happily!  ♥ ♥ ♥` });
+        app.setCompanionPetted(true);
+        const r = generateReaction(c, { type: 'pet' });
+        if (r) app.setCompanionReaction(r);
       }
       continue;
     }
     if (input === '/buddy mute') {
-      _companionMuted = true;
+      setCompanionMuted(true);
       app.pushMessage({ type: 'info', text: '  Companion muted. Use /buddy unmute to restore.' });
       continue;
     }
     if (input === '/buddy unmute') {
-      _companionMuted = false;
+      setCompanionMuted(false);
       app.pushMessage({ type: 'info', text: '  Companion unmuted.' });
       continue;
     }
     if (input === '/buddy off') {
-      _companionMuted = true;
+      setCompanionMuted(true);
       app.pushMessage({ type: 'info', text: '  Companion hidden. Use /buddy to show again.' });
       continue;
     }
@@ -712,6 +869,35 @@ async function runREPL(
       renderer.info(`Available: ${status.availableTokens.toLocaleString()} tokens`);
       renderer.info(`Compaction needed: ${status.shouldCompact ? 'YES' : 'no'}`);
       renderer.info(`Session: ${session.id} | Turns: ${budget.getTurnCount()}`);
+      continue;
+    }
+    if (input === '/resume' || input === '/continue' || input.startsWith('/resume ')) {
+      const targetId = input.startsWith('/resume ') ? input.slice(8).trim() : null;
+      const resMgr = new SessionManager();
+      if (targetId) {
+        const s = await resMgr.load(targetId);
+        if (s && s.messages.length > 0) {
+          conversationMessages.length = 0;
+          conversationMessages.push(...s.messages);
+          tokenTracker.reset();
+          app.pushMessage({ type: 'info', text: `  Resumed session ${s.id} (${s.turnCount} turns)` });
+        } else {
+          app.pushMessage({ type: 'error', text: `Session not found: ${targetId}` });
+        }
+      } else {
+        const sessions = await resMgr.listRecent(10);
+        if (sessions.length > 0) {
+          app.pushMessage({ type: 'info', text: '  Recent sessions:' });
+          for (const s of sessions) {
+            const proj = s.projectDir.split(/[\\/]/).pop() ?? '';
+            const ago = formatTimeAgo(s.updatedAt);
+            app.pushMessage({ type: 'info', text: `    [${s.id}] ${proj} — ${s.turnCount}t, ${ago}` });
+          }
+          app.pushMessage({ type: 'info', text: '  Use /resume <id> to load a session' });
+        } else {
+          app.pushMessage({ type: 'info', text: '  No sessions found.' });
+        }
+      }
       continue;
     }
     if (input.startsWith('/mode ')) {
@@ -788,6 +974,26 @@ async function runREPL(
           case 'exit':
             renderer.statusBar.stop();
             await saveSession();
+            // KAIROS session summary
+            app.pushMessage({ type: 'info', text: kairos.getSessionSummary(conversationMessages) });
+            // Auto-evaluation: correction ratio feedback
+            if (turnCount > 3 && correctionCount > 0) {
+              const ratio = Math.round((correctionCount / turnCount) * 100);
+              app.pushMessage({ type: 'info', text: `  Corrections: ${correctionCount}/${turnCount} turns (${ratio}%)` });
+              if (ratio > 30 && memoryAgent) {
+                memoryAgent.save({
+                  title: 'High correction rate',
+                  content: `Session had ${ratio}% correction rate (${correctionCount}/${turnCount}). Consider more explicit prompts or breaking tasks into smaller steps.`,
+                  type: 'preference',
+                  confidence: 0.6,
+                  source: 'hint',
+                  tags: ['feedback', 'auto-evaluation'],
+                  timestamp: new Date().toISOString(),
+                });
+              }
+            }
+            // Trace: session end
+            tracer.log('session_end', { turns: turnCount, corrections: correctionCount, cost: budget.getTotalCostUsd() });
             renderer.loopEnd(cmdResult.reason, budget.getTotalCostUsd());
             return;
           case 'error':
@@ -805,6 +1011,12 @@ async function runREPL(
       conversationMessages.push({ role: 'user', content: input });
     }
 
+    // ── Strategic task analysis (classify complexity, generate hints) ──
+    const strategy = await analyzeTask(input, conversationMessages, client);
+    if (strategy.complexity !== 'trivial' && strategy.strategyPrompt) {
+      app.pushMessage({ type: 'info', text: `  ⚡ Strategy: ${strategy.complexity} (${strategy.classifiedBy})` });
+    }
+
     // ── Mid-conversation vault refresh (throttled to 60s) ──
     if (obsidianVaultInstance && (Date.now() - lastVaultRefresh) > 60_000) {
       try {
@@ -814,9 +1026,15 @@ async function runREPL(
         // Vault refresh failure is non-critical
       }
     }
-    const currentSystemPrompt = dynamicVaultContext
-      ? systemPrompt + '\n\n# Updated vault context\n' + dynamicVaultContext
-      : systemPrompt;
+    // Build system prompt as cacheable blocks (static base cached, volatile per-turn)
+    const volatileParts: string[] = [];
+    if (dynamicVaultContext) volatileParts.push('# Updated vault context\n' + dynamicVaultContext);
+    if (strategy.strategyPrompt) volatileParts.push(strategy.strategyPrompt);
+    if (kairos.shouldInjectTimeContext()) volatileParts.push(kairos.getTimeContext());
+    if (memoryAgent && input.length > 10) {
+      const memContext = await memoryAgent.getRelevantContext(input, 5);
+      if (memContext) volatileParts.push(memContext);
+    }
 
     // ── Reactive auto-compaction (OpenClaude pattern: buffer-based + circuit breaker) ──
     if (tokenTracker.shouldAutoCompact()) {
@@ -850,6 +1068,14 @@ async function runREPL(
       permissionMode: permResolver.getMode(),
     };
 
+    // System prompt: static base (cached by MiniMax) + volatile per-turn context
+    const currentSystemPrompt: import('../protocol/messages.js').SystemPromptBlock[] = [
+      { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } },
+      ...(volatileParts.length > 0
+        ? [{ type: 'text' as const, text: volatileParts.join('\n\n') }]
+        : []),
+    ];
+
     const config: LoopConfig = {
       client,
       systemPrompt: currentSystemPrompt,
@@ -858,6 +1084,7 @@ async function runREPL(
       toolContext: turnToolContext,
       hookRegistry,
       maxTurns: 25,
+      reflectionInterval: strategy.reflectionInterval,
     };
 
     let lastOutputTokens = 0;
@@ -867,6 +1094,18 @@ async function runREPL(
     for await (const event of runLoop(conversationMessages, config, interrupt)) {
       // Push events as typed UIMessages into the Ink app
       handleEventForApp(event, app, budget);
+
+      // Companion reactions (lightweight, heuristic-based, no LLM calls)
+      if (companionInstance && !isCompanionMuted()) {
+        if (event.type === 'tool_executing') {
+          const r = generateReaction(companionInstance, { type: 'tool_start', tool: event.call.name });
+          if (r) app.setCompanionReaction(r);
+        } else if (event.type === 'error') {
+          const r = generateReaction(companionInstance, { type: 'error' });
+          if (r) app.setCompanionReaction(r);
+        }
+      }
+
       if (event.type === 'assistant_message') {
         conversationMessages.push(event.message);
       }
@@ -889,6 +1128,12 @@ async function runREPL(
     app.stopStreaming();
     app.setStatus(renderer.statusBar.render());
 
+    // Companion "done" reaction
+    if (companionInstance && !isCompanionMuted()) {
+      const r = generateReaction(companionInstance, { type: 'done' });
+      if (r) app.setCompanionReaction(r);
+    }
+
     process.removeListener('SIGINT', sigintHandler);
 
     // ── Post-turn intelligence (async, fire-and-forget) ──────
@@ -899,6 +1144,8 @@ async function runREPL(
         enableSuggestion: true,
         enableSpeculation: true,
         enableMemoryExtraction: true,
+        // Use cheaper M2.5 for intelligence layers — sufficient for suggestion/memory
+        intelligenceModel: MINIMAX_MODELS.fast,
       },
       (result: IntelligenceResult) => {
         // Prompt suggestion → show as dimmed hint
@@ -909,208 +1156,43 @@ async function runREPL(
         if (result.speculation) {
           app.pushMessage({ type: 'info', text: `  ⚡ Pre-analysis: ${result.speculation.analysis.split('\n')[0]?.slice(0, 100) ?? ''}` });
         }
-        // Memory extraction → save to vault
-        if (result.memories.length > 0 && obsidianVaultInstance) {
-          for (const mem of result.memories) {
-            obsidianVaultInstance.saveAgentNote(mem.title, mem.content, {
-              tags: ['auto-extracted'],
-              type: 'memory',
-            }).catch(() => {});
-          }
-          app.pushMessage({ type: 'info', text: `  📝 ${result.memories.length} knowledge note(s) saved to vault` });
+        // Memory extraction → unified save via MemoryAgent
+        if (result.memories.length > 0 && memoryAgent) {
+          memoryAgent.saveLLMExtracted(result.memories).then((saved) => {
+            if (saved > 0) {
+              app.pushMessage({ type: 'info', text: `  📝 ${saved} memory note(s) saved` });
+            }
+            memoryAgent.flushIndex(); // Persist index to disk
+          }).catch((err) => {
+            logger.debug('memory save failed', err instanceof Error ? err.message : String(err));
+          });
         }
       },
-    ).catch(() => {}); // Entire intelligence pipeline is best-effort
+    ).catch((err) => {
+      logger.debug('post-turn intelligence failed', err instanceof Error ? err.message : String(err));
+    });
 
     // Save session periodically
     session.messages = conversationMessages;
     session.turnCount = budget.getTurnCount();
     session.totalUsage = budget.getTotalUsage();
-    await sessionMgr.save(session).catch(() => {});
+    await sessionMgr.save(session).catch((err) => {
+      logger.debug('session save failed', err instanceof Error ? err.message : String(err));
+    });
   }
 
   // Ink already unmounted after each submit
 }
 
-// ─── Event Handler ─────────────────���────────────────────
-
-function handleEvent(
-  event: LoopEvent,
-  renderer: TerminalRenderer,
-  budget?: BudgetTracker,
-): void {
-  switch (event.type) {
-    case 'turn_start':
-      break;
-
-    case 'assistant_message':
-      renderer.startStream();
-      for (const block of event.message.content) {
-        renderContentBlock(block, renderer);
-      }
-      break;
-
-    case 'tool_executing':
-      renderer.endStream();
-      renderer.toolCall(event.call.name, event.call.id);
-      break;
-
-    case 'tool_result': {
-      const content = typeof event.result.content === 'string'
-        ? event.result.content
-        : JSON.stringify(event.result.content);
-      renderer.toolResult(event.result.tool_use_id, content, event.result.is_error ?? false);
-      break;
-    }
-
-    case 'turn_end':
-      budget?.addTurnUsage(event.usage);
-      break;
-
-    case 'loop_end':
-      renderer.endStream();
-      // Status info now shown in the footer status bar, not inline
-      break;
-
-    case 'error':
-      renderer.error(event.error.message);
-      break;
-  }
-}
-
-function renderContentBlock(block: ContentBlock, renderer: TerminalRenderer): void {
-  if (isThinkingBlock(block)) {
-    renderer.thinkingHeader();
-    renderer.streamThinking(block.thinking);
-    console.log('');
-  } else if (isTextBlock(block)) {
-    renderer.streamText(block.text);
-  } else if (isToolUseBlock(block)) {
-    // Handled via tool_executing event
-  }
-}
-
-// ─── Ink Event Handler (pushes UIMessages to FullApp) ───
-
-// Companion instance — created once, reused across events
-let _companion: import('../ui/companion/index.js').Companion | null = null;
-let _companionMuted = false;
-function getCompanionInstance(): import('../ui/companion/index.js').Companion | null {
-  if (_companion === undefined) return null;
-  if (!_companion) {
-    try { _companion = getCompanion(); } catch { _companion = null; }
-  }
-  return _companion;
-}
-
-function handleEventForApp(
-  event: LoopEvent,
-  app: import('../ui/FullApp.js').AppHandle,
-  budget?: BudgetTracker,
-): void {
-  switch (event.type) {
-    case 'turn_start':
-      break;
-
-    case 'assistant_message': {
-      app.pushMessage({ type: 'assistant_header' });
-      for (const block of event.message.content) {
-        if (isThinkingBlock(block)) {
-          app.pushMessage({ type: 'thinking', text: block.thinking });
-        } else if (isTextBlock(block)) {
-          app.pushMessage({ type: 'assistant_text', text: block.text });
-        }
-      }
-      break;
-    }
-
-    case 'tool_executing': {
-      // Extract human-readable detail from tool input
-      const detail = extractToolDetail(event.call.name, event.call.input);
-      app.pushMessage({ type: 'tool_call', name: event.call.name, id: event.call.id, detail });
-      break;
-    }
-
-    case 'tool_result': {
-      const content = typeof event.result.content === 'string'
-        ? event.result.content
-        : JSON.stringify(event.result.content);
-      app.pushMessage({ type: 'tool_result', content, isError: event.result.is_error ?? false });
-      break;
-    }
-
-    case 'turn_end':
-      budget?.addTurnUsage(event.usage);
-      break;
-
-    case 'loop_end':
-      break;
-
-    case 'error':
-      app.pushMessage({ type: 'error', text: event.error.message });
-      break;
-  }
-}
-
-// ─── Helpers ────────────────────────────────────────────
-
-/**
- * Extract a human-readable detail from tool input.
- * Shows the path, command, or pattern instead of the cryptic tool_use ID.
- */
-function extractToolDetail(toolName: string, input: Record<string, unknown>): string {
-  switch (toolName) {
-    case 'Bash': {
-      const cmd = (input['command'] as string) ?? '';
-      return cmd.length > 80 ? cmd.slice(0, 77) + '...' : cmd;
-    }
-    case 'Read':
-    case 'Write':
-    case 'Edit': {
-      const fp = (input['file_path'] as string) ?? '';
-      // Show just filename or last 2 path segments
-      const parts = fp.replace(/\\/g, '/').split('/');
-      return parts.length > 2 ? parts.slice(-2).join('/') : fp;
-    }
-    case 'Glob': {
-      return (input['pattern'] as string) ?? '';
-    }
-    case 'Grep': {
-      const pat = (input['pattern'] as string) ?? '';
-      const path = (input['path'] as string) ?? '';
-      const shortPath = path.replace(/\\/g, '/').split('/').pop() ?? '';
-      return pat + (shortPath ? ` in ${shortPath}` : '');
-    }
-    case 'WebFetch': {
-      const url = (input['url'] as string) ?? '';
-      try { return new URL(url).hostname; } catch { return url.slice(0, 60); }
-    }
-    case 'WebSearch': {
-      return (input['query'] as string) ?? '';
-    }
-    case 'Agent': {
-      return ((input['description'] as string) ?? '').slice(0, 60);
-    }
-    case 'Obsidian': {
-      const op = (input['operation'] as string) ?? '';
-      const q = (input['query'] as string) ?? (input['path'] as string) ?? (input['title'] as string) ?? '';
-      return `${op}${q ? ': ' + q.slice(0, 50) : ''}`;
-    }
-    default:
-      return '';
-  }
-}
-
-function formatTimeAgo(isoDate: string): string {
-  const ms = Date.now() - new Date(isoDate).getTime();
-  const mins = Math.floor(ms / 60_000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
-}
+// ─── Handlers extracted to cli-handlers.ts ────────────
+import {
+  handleEvent,
+  handleEventForApp,
+  formatTimeAgo,
+  getCompanionInstance,
+  setCompanionMuted,
+  isCompanionMuted,
+} from './cli-handlers.js';
 
 // ─── Entry ──────────────────────────────────────────────
 

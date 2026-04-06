@@ -1,3 +1,5 @@
+import { pick } from '../utils/random.js';
+
 /**
  * Layer 11 — UI: Buddy companion
  *
@@ -253,6 +255,3 @@ function renderBubble(text: string): string[] {
   ];
 }
 
-function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)]!;
-}

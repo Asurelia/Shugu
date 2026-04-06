@@ -113,17 +113,19 @@ export class WebFetchTool implements Tool {
       }
 
       const statusInfo = `HTTP ${response.status} ${response.statusText}`;
+      // Wrap external content so the model can distinguish trusted vs untrusted data
+      const wrapped = `<external-content source="${url}">\n${content}\n</external-content>`;
       if (!response.ok) {
         return {
           tool_use_id: call.id,
-          content: `${statusInfo}\n\n${content}`,
+          content: `${statusInfo}\n\n${wrapped}`,
           is_error: true,
         };
       }
 
       return {
         tool_use_id: call.id,
-        content: `${statusInfo} (${contentType})\n\n${content}`,
+        content: `${statusInfo} (${contentType})\n\n${wrapped}`,
       };
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);

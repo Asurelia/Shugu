@@ -32,6 +32,8 @@ import { InterruptController, isAbortError } from './interrupts.js';
 import type { HookRegistry } from '../plugins/hooks.js';
 import { truncateToolResult, enforceMessageLimit } from '../tools/outputLimits.js';
 import { ActionTriggerBy } from '../protocol/actions.js';
+import { logger } from '../utils/logger.js';
+import { shouldReflect, buildReflectionPrompt } from './reflection.js';
 
 // ─── Loop Configuration ─────────────────────────────────
 
@@ -45,6 +47,8 @@ export interface LoopConfig {
   toolContext?: ToolContext;
   /** Plugin hook registry for Pre/PostToolUse and OnMessage hooks */
   hookRegistry?: HookRegistry;
+  /** Inject reflection prompts every N turns (0 = disabled). Set by strategy layer. */
+  reflectionInterval?: number;
 }
 
 // ─── Loop Events ────────────────────────────────────────
@@ -92,6 +96,9 @@ export async function* runLoop(
   const continuation = new ContinuationTracker();
   const messages: Message[] = [...initialMessages];
   let turnIndex = 0;
+
+  // Loop detection: track last 3 tool calls to detect stuck loops
+  const recentToolCalls: string[] = [];
 
   try {
     while (true) {
@@ -144,7 +151,9 @@ export async function* runLoop(
         config.hookRegistry.runMessageHook({
           message: assistantMessage,
           role: 'assistant',
-        }).catch(() => {});
+        }).catch((err) => {
+          logger.debug('OnMessage hook error', err instanceof Error ? err.message : String(err));
+        });
       }
 
       // Add assistant message to history
@@ -157,6 +166,12 @@ export async function* runLoop(
       budget.addTurnUsage(turnUsage);
 
       yield { type: 'turn_end', turnIndex, usage: turnUsage };
+
+      // ── 2.5. Mid-turn reflection (strategic self-evaluation) ──
+      if (config.reflectionInterval && shouldReflect(turnIndex, config.reflectionInterval, maxTurns)) {
+        const reflection = buildReflectionPrompt(turnIndex, maxTurns);
+        messages.push({ role: 'user', content: reflection });
+      }
 
       // ── 3. Check if we should continue ────────────
 
@@ -210,6 +225,20 @@ export async function* runLoop(
         const toolResults: ToolResult[] = [];
 
         for (let call of turnResult.toolCalls) {
+          // Loop detection: check if same tool+args called 3x in a row
+          const callSig = `${call.name}:${JSON.stringify(call.input).slice(0, 100)}`;
+          recentToolCalls.push(callSig);
+          if (recentToolCalls.length > 5) recentToolCalls.shift();
+          if (recentToolCalls.length >= 3 &&
+              recentToolCalls[recentToolCalls.length - 1] === recentToolCalls[recentToolCalls.length - 2] &&
+              recentToolCalls[recentToolCalls.length - 2] === recentToolCalls[recentToolCalls.length - 3]) {
+            messages.push({
+              role: 'user',
+              content: '[LOOP DETECTED] You have called the same tool 3 times with identical arguments. This is not productive. Change your approach or explain what is blocking you.',
+            });
+            recentToolCalls.length = 0; // Reset after injection
+          }
+
           yield { type: 'tool_executing', call, triggeredBy: ActionTriggerBy.Agent };
 
           const tool = tools.get(call.name);

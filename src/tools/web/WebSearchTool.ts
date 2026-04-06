@@ -70,7 +70,7 @@ export class WebSearchTool implements Tool {
 
       return {
         tool_use_id: call.id,
-        content: `Search results for "${query}":\n\n${formatted}`,
+        content: `<external-content source="web-search" query="${query}">\n${formatted}\n</external-content>`,
       };
     } catch (error) {
       return {

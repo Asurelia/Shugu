@@ -51,6 +51,7 @@ Reply with ONLY the suggestion, no quotes.`;
 export async function generatePromptSuggestion(
   client: MiniMaxClient,
   messages: Message[],
+  model?: string,
 ): Promise<string | null> {
   // Only use last 4 messages for context (token-efficient)
   const recentMessages = messages.slice(-4);
@@ -69,7 +70,7 @@ export async function generatePromptSuggestion(
   try {
     const result = await client.complete(
       [{ role: 'user', content: `${SUGGESTION_PROMPT}\n\nRecent conversation:\n${contextSummary}` }],
-      { maxTokens: 100 }, // Very short — just 1 line
+      { maxTokens: 100, model, temperature: 0.3 }, // Low temp for precision
     );
 
     const suggestion = result.message.content
@@ -80,7 +81,7 @@ export async function generatePromptSuggestion(
 
     if (!suggestion || suggestion === 'NONE' || suggestion.length < 3) return null;
 
-    // Multi-stage filters (ported from Claude Code's 13-filter pipeline)
+    // Multi-stage filters (ported from OpenClaude's 13-filter pipeline)
     const lower = suggestion.toLowerCase();
     const words = suggestion.split(/\s+/);
     if (lower === 'done' || lower === 'yes' || lower === 'no') return null;                // done
@@ -122,6 +123,7 @@ export async function speculate(
   client: MiniMaxClient,
   suggestedPrompt: string,
   recentMessages: Message[],
+  model?: string,
 ): Promise<SpeculationResult | null> {
   const contextSummary = recentMessages.slice(-2).map(m => {
     const text = typeof m.content === 'string'
@@ -140,7 +142,7 @@ export async function speculate(
         role: 'user',
         content: `${SPECULATION_PROMPT}\n\nContext:\n${contextSummary}\n\nSuggested prompt: "${suggestedPrompt}"`,
       }],
-      { maxTokens: 300 },
+      { maxTokens: 300, model, temperature: 0.3 },
     );
 
     const analysis = result.message.content
@@ -194,6 +196,7 @@ export interface ExtractedMemory {
 export async function extractMemories(
   client: MiniMaxClient,
   messages: Message[],
+  model?: string,
 ): Promise<ExtractedMemory[]> {
   // Use last 6 messages (current turn + context)
   const recentMessages = messages.slice(-6);
@@ -212,7 +215,7 @@ export async function extractMemories(
   try {
     const result = await client.complete(
       [{ role: 'user', content: `${MEMORY_EXTRACTION_PROMPT}\n\n---\n\n${turnText}` }],
-      { maxTokens: 500 },
+      { maxTokens: 500, model, temperature: 0.3 },
     );
 
     const response = result.message.content
@@ -249,6 +252,8 @@ export interface IntelligenceConfig {
   enableSuggestion?: boolean;
   enableSpeculation?: boolean;
   enableMemoryExtraction?: boolean;
+  /** Override model for intelligence layers (e.g., use cheaper M2.5 instead of M2.7) */
+  intelligenceModel?: string;
 }
 
 export interface IntelligenceResult {
@@ -271,22 +276,23 @@ export async function runPostTurnIntelligence(
     enableSuggestion = true,
     enableSpeculation = true,
     enableMemoryExtraction = true,
+    intelligenceModel,
   } = config;
 
-  // Run all 3 in parallel
+  // Run all 3 in parallel (using cheaper model if configured)
   const [suggestion, memories] = await Promise.all([
     enableSuggestion
-      ? generatePromptSuggestion(client, messages).catch(() => null)
+      ? generatePromptSuggestion(client, messages, intelligenceModel).catch(() => null)
       : Promise.resolve(null),
     enableMemoryExtraction
-      ? extractMemories(client, messages).catch(() => [])
+      ? extractMemories(client, messages, intelligenceModel).catch(() => [])
       : Promise.resolve([]),
   ]);
 
   // Speculation runs only if we got a suggestion
   let speculation: SpeculationResult | null = null;
   if (enableSpeculation && suggestion) {
-    speculation = await speculate(client, suggestion, messages).catch(() => null);
+    speculation = await speculate(client, suggestion, messages, intelligenceModel).catch(() => null);
   }
 
   onResult({ suggestion, speculation, memories });

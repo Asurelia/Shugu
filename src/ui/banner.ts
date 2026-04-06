@@ -1,3 +1,5 @@
+import { visL } from '../utils/ansi.js';
+
 /**
  * Layer 11 — UI: Startup banner
  *
@@ -188,6 +190,5 @@ export function renderStatusLine(info: {
 
 // ─── Helpers ────────────────────────────────────────────
 
-function visL(s: string): number { return s.replace(/\x1b\[[0-9;]*m/g, '').length; }
 function padV(s: string, w: number): string { const v = visL(s); return v >= w ? s : s + ' '.repeat(w - v); }
 function truncP(s: string, m: number): string { return m > 0 && s.length > m ? s.slice(0, m - 1) + '…' : s; }

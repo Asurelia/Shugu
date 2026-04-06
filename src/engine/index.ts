@@ -16,3 +16,13 @@ export {
   type SpeculationResult,
   type ExtractedMemory,
 } from './intelligence.js';
+export {
+  analyzeTask,
+  classifyByHeuristics,
+  type TaskStrategy,
+  type Complexity,
+} from './strategy.js';
+export {
+  buildReflectionPrompt,
+  shouldReflect,
+} from './reflection.js';

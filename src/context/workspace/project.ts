@@ -5,8 +5,9 @@
  * for injection into the system prompt.
  */
 
-import { readFile, access } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { join, basename } from 'node:path';
+import { fileExists } from '../../utils/fs.js';
 
 export interface ProjectContext {
   name: string;
@@ -66,7 +67,7 @@ export async function getProjectContext(cwd: string): Promise<ProjectContext> {
 
   // Load custom instructions from CLAUDE.md or PCC.md
   let customInstructions: string | undefined;
-  for (const instructionFile of ['CLAUDE.md', 'PCC.md', '.claude/CLAUDE.md', '.pcc/instructions.md']) {
+  for (const instructionFile of ['SHUGU.md', 'CLAUDE.md', 'PCC.md', '.claude/CLAUDE.md', '.pcc/instructions.md']) {
     try {
       const content = await readFile(join(cwd, instructionFile), 'utf-8');
       customInstructions = content.slice(0, 5000); // Cap at 5K chars
@@ -93,11 +94,3 @@ export function formatProjectContext(project: ProjectContext): string {
   return lines.join('\n');
 }
 
-async function fileExists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}

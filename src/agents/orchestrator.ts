@@ -229,16 +229,31 @@ export class AgentOrchestrator {
   }
 
   private buildAgentPrompt(definition: AgentDefinition, additionalContext?: string): string {
-    let prompt = definition.rolePrompt;
+    const parts: string[] = [
+      // Shared base prompt for all agents
+      `You are a Shugu sub-agent. Complete your task thoroughly, then stop.`,
+      ``,
+      `# Guidelines`,
+      `- Be concise and focused on your specific role`,
+      `- Read files before modifying them`,
+      `- Report findings as structured statements`,
+      `- If you hit an obstacle, explain what you tried and what failed`,
+      `- Do not ask clarifying questions — make your best judgment`,
+      ``,
+      `# Your Role`,
+      definition.rolePrompt,
+      ``,
+      `# Environment`,
+      `Working directory: ${this.parentToolContext.cwd}`,
+      `Platform: ${process.platform}`,
+      `Max turns: ${definition.maxTurns}`,
+    ];
 
     if (additionalContext) {
-      prompt += `\n\nAdditional context:\n${additionalContext}`;
+      parts.push(``, `# Context from parent`, additionalContext);
     }
 
-    prompt += `\n\nWorking directory: ${this.parentToolContext.cwd}`;
-    prompt += `\nPlatform: ${process.platform}`;
-
-    return prompt;
+    return parts.join('\n');
   }
 }
 

@@ -13,6 +13,7 @@
 
 import type { Tool, ToolCall, ToolResult, ToolContext, ToolDefinition } from '../../protocol/tools.js';
 import type { AgentOrchestrator, SpawnOptions } from '../../agents/orchestrator.js';
+import { isTextBlock } from '../../protocol/messages.js';
 
 export const AgentToolDefinition: ToolDefinition = {
   name: 'Agent',
@@ -47,23 +48,26 @@ The sub-agent's result is returned as text. It cannot see your conversation — 
   concurrencySafe: true, // Multiple agents can run in parallel
 };
 
+export interface AgentEvent {
+  agentType: string;
+  event: 'start' | 'tool' | 'thinking' | 'text' | 'done' | 'error';
+  toolName?: string;
+  toolDetail?: string;
+  message?: string;
+  turns?: number;
+  cost?: number;
+}
+
 export class AgentTool implements Tool {
   definition = AgentToolDefinition;
   private orchestrator: AgentOrchestrator | null = null;
-  private onAgentEvent?: (agentType: string, event: string) => void;
+  private onAgentEvent?: (event: AgentEvent) => void;
 
-  /**
-   * Set the orchestrator. Called during CLI initialization.
-   * This late-binding keeps the tool layer decoupled from the agent layer.
-   */
   setOrchestrator(orchestrator: AgentOrchestrator): void {
     this.orchestrator = orchestrator;
   }
 
-  /**
-   * Set a callback for agent progress events.
-   */
-  setEventCallback(callback: (agentType: string, event: string) => void): void {
+  setEventCallback(callback: (event: AgentEvent) => void): void {
     this.onAgentEvent = callback;
   }
 
@@ -90,19 +94,51 @@ export class AgentTool implements Tool {
     const options: SpawnOptions = {
       context: additionalContext,
       onEvent: (event) => {
-        // Forward notable events to the parent
         if (event.type === 'tool_executing') {
-          this.onAgentEvent?.(agentType, `Using ${event.call.name}...`);
+          // Extract detail from tool input
+          const input = event.call.input;
+          let detail = '';
+          switch (event.call.name) {
+            case 'Bash': detail = ((input['command'] as string) ?? '').slice(0, 60); break;
+            case 'Read': case 'Write': case 'Edit': {
+              const fp = ((input['file_path'] as string) ?? '').replace(/\\/g, '/').split('/');
+              detail = fp.length > 2 ? fp.slice(-2).join('/') : fp.join('/'); break;
+            }
+            case 'Glob': detail = (input['pattern'] as string) ?? ''; break;
+            case 'Grep': detail = (input['pattern'] as string) ?? ''; break;
+            case 'WebSearch': detail = (input['query'] as string) ?? ''; break;
+            case 'WebFetch': { try { detail = new URL((input['url'] as string) ?? '').hostname; } catch { detail = ''; } break; }
+          }
+          this.onAgentEvent?.({ agentType, event: 'tool', toolName: event.call.name, toolDetail: detail });
+        } else if (event.type === 'assistant_message') {
+          // Extract first line of text for feedback
+          const text = event.message.content
+            .filter(isTextBlock)
+            .map(b => b.text)
+            .join('')
+            .split('\n')[0]
+            ?.slice(0, 80);
+          if (text) {
+            this.onAgentEvent?.({ agentType, event: 'text', message: text });
+          }
         }
       },
     };
 
     try {
-      this.onAgentEvent?.(agentType, 'Starting...');
-      const result = await this.orchestrator.spawn(prompt, agentType, options);
-      this.onAgentEvent?.(agentType, `Done (${result.turns} turns, $${result.costUsd.toFixed(4)})`);
+      this.onAgentEvent?.({ agentType, event: 'start', message: prompt.slice(0, 80) });
+      let result = await this.orchestrator.spawn(prompt, agentType, options);
 
-      // Format the response
+      // Self-repair: retry once if agent failed or produced no response
+      if (!result.success || !result.response) {
+        const errorInfo = result.response || result.endReason;
+        this.onAgentEvent?.({ agentType, event: 'error', message: `Retrying: ${errorInfo}` });
+        const retryPrompt = `Previous attempt failed: ${errorInfo}\nTry a different approach.\n\nOriginal task: ${prompt}`;
+        result = await this.orchestrator.spawn(retryPrompt, agentType, options);
+      }
+
+      this.onAgentEvent?.({ agentType, event: 'done', turns: result.turns, cost: result.costUsd });
+
       const header = `[Agent "${agentType}" — ${result.turns} turns, $${result.costUsd.toFixed(4)}, ${result.endReason}]`;
       const body = result.response || '[No response produced]';
 
@@ -112,6 +148,7 @@ export class AgentTool implements Tool {
         is_error: !result.success,
       };
     } catch (error) {
+      this.onAgentEvent?.({ agentType, event: 'error', message: error instanceof Error ? error.message : String(error) });
       return {
         tool_use_id: call.id,
         content: `Agent execution failed: ${error instanceof Error ? error.message : String(error)}`,

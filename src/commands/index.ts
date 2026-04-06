@@ -8,12 +8,20 @@ export {
   commitCommand, statusCommand, reviewCommand, memoryCommand,
 } from './builtins.js';
 export { createBgCommand, createProactiveCommand } from './automation.js';
+export { initCommand } from './init.js';
+export { doctorCommand } from './doctor.js';
+export { modelCommand, fastCommand, diffCommand, exportCommand, rewindCommand } from './config.js';
+export { traceCommand, healthCommand } from './trace.js';
 
 import { CommandRegistry } from './registry.js';
 import {
   helpCommand, quitCommand, clearCommand, compactCommand,
   commitCommand, statusCommand, reviewCommand, memoryCommand,
 } from './builtins.js';
+import { initCommand } from './init.js';
+import { doctorCommand } from './doctor.js';
+import { modelCommand, fastCommand, diffCommand, exportCommand, rewindCommand } from './config.js';
+import { traceCommand, healthCommand } from './trace.js';
 
 /**
  * Create a command registry with all builtin commands.
@@ -28,5 +36,14 @@ export function createDefaultCommands(): CommandRegistry {
   registry.register(statusCommand);
   registry.register(reviewCommand);
   registry.register(memoryCommand);
+  registry.register(initCommand);
+  registry.register(doctorCommand);
+  registry.register(modelCommand);
+  registry.register(fastCommand);
+  registry.register(diffCommand);
+  registry.register(exportCommand);
+  registry.register(rewindCommand);
+  registry.register(traceCommand);
+  registry.register(healthCommand);
   return registry;
 }
