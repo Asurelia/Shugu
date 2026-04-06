@@ -1,31 +1,132 @@
 /**
- * Layer 11 — UI: Full Ink Application (like Claude Code's REPL.tsx)
+ * Layer 11 — UI: Full Ink Application
+ *
+ * Architecture (inspired by Claude Code's approach, adapted for Ink):
+ *
+ * Uses Ink's <Static> for message history — once rendered, messages are
+ * "printed" to terminal scrollback and never re-rendered. This gives:
+ * - Native terminal scroll (mouse wheel, Page Up/Down)
+ * - No re-render overhead for past messages
+ * - Proper scrollback buffer
+ *
+ * The live area (bottom) contains only: spinner, input, mode, status.
+ * This is the only part that re-renders.
  *
  * Layout:
- *   <Box height="100%" flexDirection="column">
- *     <ScrollBox flexGrow={1}>        ← messages scroll here
- *       <Messages />
- *     </ScrollBox>
- *     <Box flexShrink={0}>            ← fixed bottom
- *       ─── separator ───
- *       > [TextInput]
- *       ─── separator ───
- *       ⏵⏵ mode
- *       status line
- *     </Box>
+ *   <Static>               ← printed to scrollback, scrollable
+ *     {rendered messages}
+ *   </Static>
+ *   <Box>                  ← live area, re-renders
+ *     spinner / brew timer
+ *     ─── separator ───
+ *     > [TextInput]
+ *     ─── separator ───
+ *     ⏵⏵ mode
+ *     status line
  *   </Box>
- *
- * Uses alternate screen buffer for clean rendering.
- * Messages are React state, not text lines.
- * Streaming updates via state → re-render.
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
-import { render, Box, Text, useInput, useStdout } from 'ink';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { render, Box, Text, Static, useInput, useStdout } from 'ink';
 import TextInput from 'ink-text-input';
-import { Messages, type UIMessage } from './components/Messages.js';
+import type { UIMessage } from './components/Messages.js';
 
-// Inline spinner (avoids import cycle)
+// ─── Message Rendering (for Static items) ──────────────
+
+function StaticMessage({ message }: { message: UIMessage }) {
+  switch (message.type) {
+    case 'user':
+      return (
+        <Box marginTop={1}>
+          <Text bold color="green">{'> '}</Text>
+          <Text bold color="white">{message.text}</Text>
+        </Box>
+      );
+
+    case 'assistant_header':
+      return (
+        <Box marginTop={1}>
+          <Text bold color="cyan">assistant</Text>
+          <Text dimColor>{' →'}</Text>
+        </Box>
+      );
+
+    case 'assistant_text':
+      return (
+        <Box flexDirection="column" paddingLeft={2}>
+          {message.text.split('\n').map((line, i) => (
+            <Text key={i}>{line}</Text>
+          ))}
+        </Box>
+      );
+
+    case 'thinking':
+      return (
+        <Box paddingLeft={2}>
+          <Text dimColor italic>{'∴ '}{message.text.length > 200 ? message.text.slice(0, 200) + '…' : message.text}</Text>
+        </Box>
+      );
+
+    case 'tool_call':
+      return (
+        <Box marginTop={1}>
+          <Text color="yellow">{'╭── '}</Text>
+          <Text bold color="yellow">{message.name}</Text>
+          <Text dimColor>{' '}{message.id.slice(-8)}</Text>
+        </Box>
+      );
+
+    case 'tool_result': {
+      const maxLen = 1500;
+      const preview = message.content.length > maxLen
+        ? message.content.slice(0, maxLen) + `\n… [${(message.content.length - maxLen).toLocaleString()} chars truncated]`
+        : message.content;
+      const lines = preview.split('\n').slice(0, 30); // Max 30 lines displayed
+      const icon = message.isError ? '✗' : '✓';
+      const iconColor = message.isError ? 'red' : 'green';
+      return (
+        <Box flexDirection="column">
+          {lines.map((line, i) => (
+            <Box key={i}>
+              <Text color="yellow">{'│ '}</Text>
+              <Text>{line}</Text>
+            </Box>
+          ))}
+          <Box>
+            <Text color="yellow">{'╰'}</Text>
+            <Text color={iconColor}>{icon}</Text>
+            <Text color="yellow">{'────────────────────────────────────────'}</Text>
+          </Box>
+        </Box>
+      );
+    }
+
+    case 'error':
+      return (
+        <Box marginTop={1}>
+          <Text color="red" bold>{'error'}</Text>
+          <Text color="red">{' → '}{message.text}</Text>
+        </Box>
+      );
+
+    case 'info':
+      return <Text>{message.text}</Text>;
+
+    case 'brew':
+      return (
+        <Text dimColor color="magenta">
+          {'✻ Brewed for '}
+          {message.durationMs >= 60000
+            ? `${Math.floor(message.durationMs / 60000)}m ${Math.floor((message.durationMs % 60000) / 1000)}s`
+            : `${Math.floor(message.durationMs / 1000)}s`}
+          {message.tokens ? ` · ↓ ${message.tokens} tokens` : ''}
+        </Text>
+      );
+  }
+}
+
+// ─── Spinner ───────────────────────────────────────────
+
 function SpinnerInline({ startTime, tokenCount }: { startTime: number; tokenCount?: number }) {
   const VERBS = ['Thinking', 'Hatching', 'Brewing', 'Pondering', 'Cogitating', 'Manifesting'];
   const [frame, setFrame] = React.useState(0);
@@ -37,10 +138,10 @@ function SpinnerInline({ startTime, tokenCount }: { startTime: number; tokenCoun
   const elapsed = Math.floor((Date.now() - startTime) / 1000);
   const elStr = elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`;
   const tkStr = tokenCount && tokenCount > 0 ? ` · ↓ ${tokenCount} tokens` : '';
-  return <Text color="magenta">{verb}… ({elStr}{tkStr})</Text>;
+  return <Text color="magenta">{'✻ '}{verb}… ({elStr}{tkStr})</Text>;
 }
 
-// ─── Props & State ──────────────────────────────────────
+// ─── Props & State ─────────────────────────────────────
 
 interface AppProps {
   initialMode: string;
@@ -62,56 +163,85 @@ export interface ExternalState {
 
 const MODES = ['default', 'plan', 'acceptEdits', 'fullAuto', 'bypass'] as const;
 
-// ─── Main App ───────────────────────────────────────────
+// ─── Main App ──────────────────────────────────────────
 
 function FullApp({ initialMode, initialStatus, stateRef, onSubmit, onModeChange }: AppProps) {
-  const [state, setState] = useState<ExternalState>({
-    messages: [],
+  // Track which messages have already been "printed" to Static
+  const [renderedCount, setRenderedCount] = useState(0);
+  const [liveState, setLiveState] = useState({
     mode: initialMode,
     statusText: initialStatus,
     isStreaming: false,
     showInput: true,
+    streamStartTime: undefined as number | undefined,
+    streamTokens: undefined as number | undefined,
   });
   const [inputValue, setInputValue] = useState('');
   const { stdout } = useStdout();
   const cols = stdout?.columns ?? 120;
-  const rows = stdout?.rows ?? 24;
-  const bar = '─'.repeat(cols);
+  const bar = '─'.repeat(Math.min(cols, 120));
 
-  // Sync external state → React state via polling + immediate flush
-  // The poll interval catches streaming updates; immediate flush handles user messages
-  const flushState = useCallback(() => {
-    const ext = stateRef.current;
-    setState(prev => {
-      if (prev.messages.length !== ext.messages.length ||
-          prev.mode !== ext.mode ||
-          prev.statusText !== ext.statusText ||
-          prev.isStreaming !== ext.isStreaming ||
-          prev.showInput !== ext.showInput ||
-          prev.streamStartTime !== ext.streamStartTime ||
-          prev.streamTokens !== ext.streamTokens) {
-        return { ...ext };
+  // Track messages for Static rendering
+  const [staticMessages, setStaticMessages] = useState<Array<{ id: number; msg: UIMessage }>>([]);
+
+  // Poll external state
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const ext = stateRef.current;
+
+      // New messages → move to static (they get printed once)
+      if (ext.messages.length > renderedCount) {
+        const newMsgs = ext.messages.slice(renderedCount).map((msg, i) => ({
+          id: renderedCount + i,
+          msg,
+        }));
+        setStaticMessages(prev => [...prev, ...newMsgs]);
+        setRenderedCount(ext.messages.length);
       }
-      return prev;
-    });
-  }, [stateRef]);
 
-  useEffect(() => {
-    const interval = setInterval(flushState, 100); // 100ms poll (reduced from 50ms)
+      // Update live state (non-message state)
+      setLiveState(prev => {
+        if (prev.mode !== ext.mode ||
+            prev.statusText !== ext.statusText ||
+            prev.isStreaming !== ext.isStreaming ||
+            prev.showInput !== ext.showInput ||
+            prev.streamStartTime !== ext.streamStartTime ||
+            prev.streamTokens !== ext.streamTokens) {
+          return {
+            mode: ext.mode,
+            statusText: ext.statusText,
+            isStreaming: ext.isStreaming,
+            showInput: ext.showInput,
+            streamStartTime: ext.streamStartTime,
+            streamTokens: ext.streamTokens,
+          };
+        }
+        return prev;
+      });
+    }, 80);
     return () => clearInterval(interval);
-  }, [flushState]);
+  }, [stateRef, renderedCount]);
 
-  // Expose flushState so pushMessage can trigger immediate re-render
+  // Expose flush for immediate pushMessage rendering
   useEffect(() => {
-    (stateRef as { current: ExternalState & { _flush?: () => void } }).current._flush = flushState;
-  }, [flushState, stateRef]);
+    (stateRef as { current: ExternalState & { _flush?: () => void } }).current._flush = () => {
+      const ext = stateRef.current;
+      if (ext.messages.length > renderedCount) {
+        const newMsgs = ext.messages.slice(renderedCount).map((msg, i) => ({
+          id: renderedCount + i,
+          msg,
+        }));
+        setStaticMessages(prev => [...prev, ...newMsgs]);
+        setRenderedCount(ext.messages.length);
+      }
+    };
+  }, [stateRef, renderedCount]);
 
-  const modeColor = state.mode === 'bypass' ? 'red' : state.mode === 'fullAuto' ? 'yellow' : 'green';
+  const modeColor = liveState.mode === 'bypass' ? 'red' : liveState.mode === 'fullAuto' ? 'yellow' : 'green';
 
-  // Shift+Tab to cycle modes
   useInput((_input, key) => {
-    if (key.tab && key.shift && state.showInput) {
-      const idx = MODES.indexOf(state.mode as typeof MODES[number]);
+    if (key.tab && key.shift && liveState.showInput) {
+      const idx = MODES.indexOf(liveState.mode as typeof MODES[number]);
       const next = MODES[(idx + 1) % MODES.length]!;
       onModeChange(next);
     }
@@ -123,50 +253,29 @@ function FullApp({ initialMode, initialStatus, stateRef, onSubmit, onModeChange 
     onSubmit(text.trim());
   }, [onSubmit]);
 
-  // Calculate space: bottom area is 5 lines (sep + input + sep + mode + status)
-  const bottomH = 5;
-
   return (
-    <Box flexDirection="column" height={rows}>
-      {/* ═══ Scrollable messages area ═══ */}
-      <Box flexDirection="column" flexGrow={1} overflow="hidden">
-        <Messages
-          messages={state.messages.filter(m => m.type !== 'brew')}
-          isStreaming={false}
-          streamStartTime={undefined}
-          streamTokens={undefined}
-        />
-      </Box>
-
-      {/* ═══ Fixed bottom area ═══ */}
-      <Box flexDirection="column" flexShrink={0}>
-        {/* Spinner (during streaming) — collé au-dessus de la barre */}
-        {state.isStreaming && state.streamStartTime && (
-          <Box>
-            <Text color="magenta">{'✻ '}</Text>
-            <SpinnerInline startTime={state.streamStartTime} tokenCount={state.streamTokens} />
+    <>
+      {/* ═══ Static area: printed to terminal scrollback, never re-rendered ═══ */}
+      <Static items={staticMessages}>
+        {(item) => (
+          <Box key={item.id} flexDirection="column">
+            <StaticMessage message={item.msg} />
           </Box>
         )}
+      </Static>
 
-        {/* Brew timer (after response) — collé au-dessus de la barre */}
-        {!state.isStreaming && state.messages.length > 0 && (() => {
-          const lastBrew = [...state.messages].reverse().find(m => m.type === 'brew');
-          if (!lastBrew || lastBrew.type !== 'brew') return null;
-          return (
-            <Text dimColor color="magenta">{'✻ Brewed for '}
-              {lastBrew.durationMs >= 60000
-                ? `${Math.floor(lastBrew.durationMs / 60000)}m ${Math.floor((lastBrew.durationMs % 60000) / 1000)}s`
-                : `${Math.floor(lastBrew.durationMs / 1000)}s`}
-              {lastBrew.tokens ? ` · ↓ ${lastBrew.tokens} tokens` : ''}
-            </Text>
-          );
-        })()}
+      {/* ═══ Live area: re-renders dynamically ═══ */}
+      <Box flexDirection="column">
+        {/* Spinner during streaming */}
+        {liveState.isStreaming && liveState.streamStartTime && (
+          <SpinnerInline startTime={liveState.streamStartTime} tokenCount={liveState.streamTokens} />
+        )}
 
         {/* Top separator */}
         <Text dimColor>{bar}</Text>
 
-        {/* Input or streaming indicator */}
-        {state.showInput ? (
+        {/* Input */}
+        {liveState.showInput ? (
           <Box>
             <Text bold color="green">{'> '}</Text>
             <TextInput
@@ -176,45 +285,37 @@ function FullApp({ initialMode, initialStatus, stateRef, onSubmit, onModeChange 
             />
           </Box>
         ) : (
-          <Text dimColor>  </Text>
+          <Text dimColor>{'  …'}</Text>
         )}
 
         {/* Bottom separator */}
         <Text dimColor>{bar}</Text>
 
-        {/* Mode indicator */}
+        {/* Mode */}
         <Text>
           {'  '}
           <Text dimColor>⏵⏵ </Text>
-          <Text color={modeColor}>{state.mode}</Text>
+          <Text color={modeColor}>{liveState.mode}</Text>
           <Text dimColor> permissions on (shift+tab to cycle)</Text>
         </Text>
 
-        {/* Status bar */}
-        <Text>{state.statusText}</Text>
+        {/* Status */}
+        <Text>{liveState.statusText}</Text>
       </Box>
-    </Box>
+    </>
   );
 }
 
-// ─── App Handle (bridge from engine to React) ───────────
+// ─── App Handle ────────────────────────────────────────
 
 export interface AppHandle {
-  /** Add a UI message to the conversation */
   pushMessage: (msg: UIMessage) => void;
-  /** Update the last assistant_text message (for streaming) */
   updateLastText: (text: string) => void;
-  /** Wait for user input */
   waitForInput: () => Promise<string>;
-  /** Set mode */
   setMode: (mode: string) => void;
-  /** Set status text */
   setStatus: (text: string) => void;
-  /** Start streaming */
   startStreaming: () => void;
-  /** Stop streaming */
   stopStreaming: () => void;
-  /** Unmount */
   unmount: () => void;
 }
 
@@ -258,13 +359,11 @@ export function launchFullApp(
   return {
     pushMessage(msg: UIMessage) {
       updateState({ messages: [...stateRef.current.messages, msg] });
-      // Trigger immediate re-render for user messages (no 100ms polling delay)
       const flush = (stateRef.current as ExternalState & { _flush?: () => void })._flush;
       if (flush) flush();
     },
     updateLastText(text: string) {
       const msgs = [...stateRef.current.messages];
-      // Find last assistant_text and update it, or create new
       const lastIdx = msgs.findLastIndex(m => m.type === 'assistant_text');
       if (lastIdx >= 0) {
         msgs[lastIdx] = { type: 'assistant_text', text };
