@@ -47,6 +47,7 @@ import { Scheduler } from '../automation/scheduler.js';
 import { createBgCommand, createProactiveCommand } from '../commands/automation.js';
 import { registerKnowledgeHooks } from '../plugins/builtin/knowledge-hook.js';
 import { registerBehaviorHooks } from '../plugins/builtin/behavior-hooks.js';
+import { getCompanion, getCompanionPrompt, generateReaction, type CompanionEvent } from '../ui/companion/index.js';
 
 // ─── System Prompt ──────────────────────────────────────
 
@@ -134,6 +135,14 @@ async function buildSystemPrompt(cwd: string, skillRegistry?: SkillRegistry): Pr
     if (skillsPrompt) {
       parts.push(skillsPrompt);
     }
+  }
+
+  // Companion introduction
+  try {
+    const companion = getCompanion();
+    parts.push('\n' + getCompanionPrompt(companion));
+  } catch {
+    // Companion loading failed — not critical
   }
 
   return parts.join('\n');
@@ -556,6 +565,9 @@ async function runREPL(
     app.pushMessage({ type: 'info', text: line });
   }
 
+  // Companion greeting at REPL start
+  pushCompanionReaction(app, { type: 'greeting' });
+
   const askQuestion = async (): Promise<string> => {
     app.setStatus(renderer.statusBar.render());
     app.setMode(permResolver.getMode());
@@ -592,6 +604,33 @@ async function runREPL(
     }
 
     // ── Local-state commands (need direct access to REPL state) ──
+    if (input === '/buddy' || input === '/buddy pet' || input === '/pet') {
+      pushCompanionReaction(app, { type: 'pet' });
+      continue;
+    }
+    if (input.startsWith('/buddy name ')) {
+      const newName = input.slice(12).trim();
+      const c = getCompanionInstance();
+      if (c && newName) {
+        c.name = newName;
+        const { saveCompanion } = await import('../ui/companion/companion.js');
+        saveCompanion({ name: newName, personality: c.personality, hatchedAt: c.hatchedAt });
+        app.pushMessage({ type: 'info', text: `Companion renamed to ${newName}!` });
+        pushCompanionReaction(app, { type: 'pet' });
+      }
+      continue;
+    }
+    if (input === '/buddy info') {
+      const c = getCompanionInstance();
+      if (c) {
+        const { RARITY_STARS } = await import('../ui/companion/types.js');
+        const { renderFace } = await import('../ui/companion/sprites.js');
+        app.pushMessage({ type: 'info', text: `  ${renderFace(c)} ${c.name} — ${c.rarity} ${c.species} ${RARITY_STARS[c.rarity]}${c.shiny ? ' ✨' : ''}` });
+        app.pushMessage({ type: 'info', text: `  Personality: ${c.personality}` });
+        app.pushMessage({ type: 'info', text: `  Eyes: ${c.eye} | Hat: ${c.hat}` });
+      }
+      continue;
+    }
     if (input === '/cost') { renderer.usage(budget.getSummary()); continue; }
     if (input === '/context') {
       const status = tokenTracker.getStatus();
@@ -845,6 +884,25 @@ function renderContentBlock(block: ContentBlock, renderer: TerminalRenderer): vo
 
 // ─── Ink Event Handler (pushes UIMessages to FullApp) ───
 
+// Companion instance — created once, reused across events
+let _companion: import('../ui/companion/index.js').Companion | null = null;
+function getCompanionInstance(): import('../ui/companion/index.js').Companion | null {
+  if (_companion === undefined) return null;
+  if (!_companion) {
+    try { _companion = getCompanion(); } catch { _companion = null; }
+  }
+  return _companion;
+}
+
+function pushCompanionReaction(app: import('../ui/FullApp.js').AppHandle, event: CompanionEvent): void {
+  const c = getCompanionInstance();
+  if (!c) return;
+  const reaction = generateReaction(c, event);
+  if (reaction) {
+    app.pushMessage({ type: 'info', text: `  ${c.name}: ${reaction}` });
+  }
+}
+
 function handleEventForApp(
   event: LoopEvent,
   app: import('../ui/FullApp.js').AppHandle,
@@ -859,6 +917,7 @@ function handleEventForApp(
       for (const block of event.message.content) {
         if (isThinkingBlock(block)) {
           app.pushMessage({ type: 'thinking', text: block.thinking });
+          pushCompanionReaction(app, { type: 'thinking' });
         } else if (isTextBlock(block)) {
           app.pushMessage({ type: 'assistant_text', text: block.text });
         }
@@ -868,6 +927,7 @@ function handleEventForApp(
 
     case 'tool_executing':
       app.pushMessage({ type: 'tool_call', name: event.call.name, id: event.call.id });
+      pushCompanionReaction(app, { type: 'tool_start', tool: event.call.name });
       break;
 
     case 'tool_result': {
@@ -883,10 +943,12 @@ function handleEventForApp(
       break;
 
     case 'loop_end':
+      pushCompanionReaction(app, { type: 'done' });
       break;
 
     case 'error':
       app.pushMessage({ type: 'error', text: event.error.message });
+      pushCompanionReaction(app, { type: 'error' });
       break;
   }
 }
