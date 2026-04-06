@@ -39,6 +39,13 @@ import type { ToolRegistryImpl } from '../tools/registry.js';
 import { CredentialVault } from '../credentials/vault.js';
 import { CredentialProvider } from '../credentials/provider.js';
 import { renderBanner } from '../ui/banner.js';
+import { createDefaultSkillRegistry, generateSkillsPrompt, type SkillContext, type SkillResult, type SkillRegistry } from '../skills/index.js';
+import { PluginRegistry } from '../plugins/registry.js';
+import type { HookRegistry } from '../plugins/hooks.js';
+import { BackgroundManager } from '../automation/background.js';
+import { Scheduler } from '../automation/scheduler.js';
+import { createBgCommand, createProactiveCommand } from '../commands/automation.js';
+import { registerKnowledgeHooks } from '../plugins/builtin/knowledge-hook.js';
 
 // ─── System Prompt ──────────────────────────────────────
 
@@ -51,6 +58,7 @@ You have access to these tools:
 - Edit: Perform exact string replacements in files
 - Glob: Find files by pattern (e.g., "**/*.ts")
 - Grep: Search file contents with regex
+- Obsidian: Read, write, search, update, and manage the user's Obsidian vault (second brain). Use this to persist knowledge, decisions, and facts across sessions. The wiki in Agent/Wiki/ is yours to maintain — write, update, lint, and organize it.
 
 Guidelines:
 - Read files before modifying them. Understand before changing.
@@ -60,7 +68,7 @@ Guidelines:
 - Be concise. Lead with the action, not the reasoning.
 - When a tool call fails, diagnose the error before retrying.`;
 
-async function buildSystemPrompt(cwd: string): Promise<string> {
+async function buildSystemPrompt(cwd: string, skillRegistry?: SkillRegistry): Promise<string> {
   const parts = [BASE_SYSTEM_PROMPT];
 
   // Workspace context
@@ -117,6 +125,14 @@ async function buildSystemPrompt(cwd: string): Promise<string> {
     }
   } catch {
     // Memory loading failed — not critical
+  }
+
+  // Skill descriptions (so the model knows what /commands are available)
+  if (skillRegistry) {
+    const skillsPrompt = generateSkillsPrompt(skillRegistry);
+    if (skillsPrompt) {
+      parts.push(skillsPrompt);
+    }
   }
 
   return parts.join('\n');
@@ -220,12 +236,62 @@ async function main(): Promise<void> {
       }
     }
 
-    const { registry, agentTool, webFetchTool } = createDefaultRegistry(credentialProvider);
+    const { registry, agentTool, webFetchTool, obsidianTool } = createDefaultRegistry(credentialProvider);
     const permResolver = new PermissionResolver(cliArgs.mode);
+
+    // Create skill registry with bundled skills
+    const skillRegistry = createDefaultSkillRegistry();
+
+    // Create command registry (before plugins so they can add commands)
+    const commands = createDefaultCommands();
+
+    // Load plugins (adds tools, commands, skills, hooks)
+    const pluginRegistry = new PluginRegistry();
+    const pluginResult = await pluginRegistry.loadAll(cwd, registry, commands, skillRegistry);
+    const hookRegistry = pluginRegistry.getHookRegistry();
+    if (pluginResult.loaded > 0) {
+      renderer.info(`  Plugins: ${pluginResult.loaded} loaded`);
+    }
+
+    // Discover Obsidian vault and wire knowledge hooks
+    const vaultPath = await discoverVault(cwd);
+    let obsidianVaultInstance: ObsidianVault | null = null;
+    if (vaultPath) {
+      obsidianVaultInstance = new ObsidianVault(vaultPath);
+      obsidianTool.setVault(obsidianVaultInstance);
+      registerKnowledgeHooks(hookRegistry, obsidianVaultInstance);
+    }
+
+    // Create automation instances
+    const bgManager = new BackgroundManager();
+    const scheduler = new Scheduler();
+
+    // Register automation commands (closures over bgManager/scheduler)
+    const loopConfigFactory = (): LoopConfig => ({
+      client,
+      systemPrompt: '', // Will be set properly after systemPrompt is built
+      tools: new Map(registry.getAll().map(t => [t.definition.name, t])),
+      toolDefinitions: registry.getDefinitions(),
+      toolContext,
+      hookRegistry,
+      maxTurns: 15,
+    });
+    commands.register(createBgCommand(bgManager, loopConfigFactory));
+    commands.register(createProactiveCommand(async (prompt) => {
+      // Simple agent execution for proactive mode
+      const messages: Message[] = [{ role: 'user', content: prompt }];
+      let result = '';
+      for await (const event of runLoop(messages, loopConfigFactory())) {
+        if (event.type === 'assistant_message') {
+          result = event.message.content.filter(isTextBlock).map(b => b.text).join('');
+        }
+      }
+      return result;
+    }));
 
     // Discover CLI tools before building system prompt
     const adapters = await discoverTools(cwd);
-    const systemPrompt = await buildSystemPrompt(cwd);
+    const systemPrompt = await buildSystemPrompt(cwd, skillRegistry);
 
     // Render the rich banner with all info collected
     const toolNames = registry.getAll().map(t => t.definition.name);
@@ -283,9 +349,9 @@ async function main(): Promise<void> {
     agentTool.setEventCallback((type, msg) => renderer.info(`  [agent:${type}] ${msg}`));
 
     if (cliArgs.prompt) {
-      await runSingleQuery(client, cliArgs.prompt, renderer, registry, toolContext, systemPrompt);
+      await runSingleQuery(client, cliArgs.prompt, renderer, registry, toolContext, systemPrompt, hookRegistry);
     } else {
-      await runREPL(client, renderer, registry, toolContext, permResolver, systemPrompt);
+      await runREPL(client, renderer, registry, toolContext, permResolver, systemPrompt, hookRegistry, skillRegistry, commands, bgManager, scheduler, obsidianVaultInstance);
     }
   } catch (error) {
     if (error instanceof Error && error.message.includes('No API key')) {
@@ -337,6 +403,7 @@ async function runSingleQuery(
   registry: ToolRegistryImpl,
   toolContext: ToolContext,
   systemPrompt: string,
+  hookRegistry?: HookRegistry,
 ): Promise<void> {
   const messages: Message[] = [{ role: 'user', content: prompt }];
   const interrupt = new InterruptController();
@@ -352,6 +419,7 @@ async function runSingleQuery(
     toolDefinitions: registry.getDefinitions(),
     toolContext,
     maxTurns: 25,
+    hookRegistry,
   };
 
   let lastUsage = { input_tokens: 0, output_tokens: 0 };
@@ -386,13 +454,55 @@ async function runREPL(
   toolContext: ToolContext,
   permResolver: PermissionResolver,
   systemPrompt: string,
+  hookRegistry?: HookRegistry,
+  skillRegistry?: SkillRegistry,
+  commands?: import('../commands/registry.js').CommandRegistry,
+  bgManager?: BackgroundManager,
+  scheduler?: Scheduler,
+  obsidianVaultInstance?: ObsidianVault | null,
 ): Promise<void> {
   const conversationMessages: Message[] = [];
   const budget = new BudgetTracker(client.model);
   const tokenTracker = new TokenBudgetTracker({ model: client.model });
   const sessionMgr = new SessionManager();
   const session = sessionMgr.createSession(toolContext.cwd, client.model);
-  const commands = createDefaultCommands();
+  if (!commands) commands = createDefaultCommands();
+
+  // Vault refresh tracking (for mid-conversation context updates)
+  let lastVaultRefresh = Date.now();
+  let dynamicVaultContext = '';
+
+  // ── Skill execution helpers ──
+  const queryModel = async (prompt: string): Promise<string> => {
+    const result = await client.complete([{ role: 'user', content: prompt }], { systemPrompt });
+    return result.message.content
+      .filter(isTextBlock)
+      .map((b) => b.text)
+      .join('');
+  };
+
+  const runAgentLoop = async (prompt: string): Promise<string> => {
+    const messages: Message[] = [{ role: 'user', content: prompt }];
+    const agentConfig: LoopConfig = {
+      client,
+      systemPrompt,
+      tools: new Map(registry.getAll().map(t => [t.definition.name, t])),
+      toolDefinitions: registry.getDefinitions(),
+      toolContext,
+      hookRegistry,
+      maxTurns: 20,
+    };
+    let lastText = '';
+    for await (const event of runLoop(messages, agentConfig)) {
+      if (event.type === 'assistant_message') {
+        lastText = event.message.content
+          .filter(isTextBlock)
+          .map((b) => b.text)
+          .join('');
+      }
+    }
+    return lastText;
+  };
 
   renderer.statusBar.update({
     model: client.model,
@@ -514,9 +624,40 @@ async function runREPL(
       continue;
     }
 
+    // ── Skill matching (before command dispatch) ──────────
+    let skillHandled = false;
+    if (skillRegistry && input.startsWith('/')) {
+      const skillMatch = skillRegistry.match(input);
+      if (skillMatch) {
+        const skillCtx: SkillContext = {
+          input,
+          args: skillMatch.args,
+          cwd: toolContext.cwd,
+          messages: conversationMessages,
+          toolContext,
+          tools: new Map(registry.getAll().map(t => [t.definition.name, t])),
+          info: (msg) => app.pushMessage({ type: 'info', text: msg }),
+          error: (msg) => app.pushMessage({ type: 'error', text: msg }),
+          query: queryModel,
+          runAgent: runAgentLoop,
+        };
+        const skillResult = await skillMatch.skill.execute(skillCtx);
+        if (skillResult.type === 'handled') { skillHandled = true; }
+        else if (skillResult.type === 'error') {
+          app.pushMessage({ type: 'error', text: skillResult.message });
+          skillHandled = true;
+        } else if (skillResult.type === 'prompt') {
+          app.pushMessage({ type: 'user', text: input });
+          conversationMessages.push({ role: 'user', content: skillResult.prompt });
+          // Fall through to the agentic loop below
+        }
+      }
+    }
+    if (skillHandled) continue;
+
     // ── Slash command dispatch via registry ──────────────
     if (input.startsWith('/')) {
-      const cmdResult = await commands.dispatch(input, cmdCtx);
+      const cmdResult = await commands!.dispatch(input, cmdCtx);
       if (cmdResult) {
         switch (cmdResult.type) {
           case 'handled':
@@ -528,15 +669,13 @@ async function runREPL(
             renderer.statusBar.stop();
             await saveSession();
             renderer.loopEnd(cmdResult.reason, budget.getTotalCostUsd());
-            // Ink already unmounted after submit
             return;
           case 'error':
             renderer.error(cmdResult.message);
             continue;
           case 'prompt':
-            // Inject the command's prompt as a user message — fall through to the loop
             conversationMessages.push({ role: 'user', content: cmdResult.prompt });
-            break; // Fall through to the agentic loop below
+            break;
         }
       }
       if (cmdResult?.type !== 'prompt') continue;
@@ -545,6 +684,19 @@ async function runREPL(
       app.pushMessage({ type: 'user', text: input });
       conversationMessages.push({ role: 'user', content: input });
     }
+
+    // ── Mid-conversation vault refresh (throttled to 60s) ──
+    if (obsidianVaultInstance && (Date.now() - lastVaultRefresh) > 60_000) {
+      try {
+        dynamicVaultContext = await obsidianVaultInstance.refreshContext();
+        lastVaultRefresh = Date.now();
+      } catch {
+        // Vault refresh failure is non-critical
+      }
+    }
+    const currentSystemPrompt = dynamicVaultContext
+      ? systemPrompt + '\n\n# Updated vault context\n' + dynamicVaultContext
+      : systemPrompt;
 
     // ── Auto-compaction check ─────────────────────────
     if (tokenTracker.shouldCompact()) {
@@ -571,10 +723,11 @@ async function runREPL(
 
     const config: LoopConfig = {
       client,
-      systemPrompt,
+      systemPrompt: currentSystemPrompt,
       tools: new Map(registry.getAll().map(t => [t.definition.name, t])),
       toolDefinitions: registry.getDefinitions(),
       toolContext: turnToolContext,
+      hookRegistry,
       maxTurns: 25,
     };
 

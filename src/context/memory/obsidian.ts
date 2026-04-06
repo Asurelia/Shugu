@@ -19,7 +19,7 @@
  *     Templates/    ← reusable structures
  */
 
-import { readFile, writeFile, mkdir, readdir, stat, access } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, readdir, stat, access, unlink, rename, copyFile } from 'node:fs/promises';
 import { join, relative, basename, dirname } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -235,6 +235,115 @@ export class ObsidianVault {
 
     await writeFile(filePath, formatNote(fm, body), 'utf-8');
     return relativePath;
+  }
+
+  // ─── Updating ──────────────────────────────────────
+
+  /**
+   * Update an existing note: merge frontmatter and replace or append body.
+   */
+  async updateNote(
+    notePath: string,
+    updates: { body?: string; frontmatter?: Record<string, unknown>; appendBody?: string },
+  ): Promise<boolean> {
+    const existing = await this.readNote(notePath);
+    if (!existing) return false;
+
+    const mergedFm: Record<string, unknown> = {
+      ...existing.frontmatter,
+      ...updates.frontmatter,
+      updated: new Date().toISOString().split('T')[0],
+    };
+
+    let newBody = existing.body;
+    if (updates.body !== undefined) {
+      newBody = updates.body;
+    }
+    if (updates.appendBody) {
+      newBody = newBody.trimEnd() + '\n\n' + updates.appendBody;
+    }
+
+    const absPath = join(this.config.path, notePath);
+    await writeFile(absPath, formatNote(mergedFm, newBody), 'utf-8');
+    return true;
+  }
+
+  /**
+   * Delete a note from the vault.
+   */
+  async deleteNote(notePath: string): Promise<boolean> {
+    const absPath = join(this.config.path, notePath);
+    try {
+      await unlink(absPath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Archive a note by moving it to Agent/archive/YYYY-MM-DD/.
+   */
+  async archiveNote(notePath: string): Promise<string | null> {
+    const absPath = join(this.config.path, notePath);
+    try {
+      await access(absPath);
+    } catch {
+      return null;
+    }
+
+    const dateStr = new Date().toISOString().split('T')[0]!;
+    const archiveDir = join(this.config.path, this.config.agentFolder, 'archive', dateStr);
+    await mkdir(archiveDir, { recursive: true });
+
+    const filename = basename(notePath);
+    const archivePath = join(archiveDir, filename);
+    const relArchivePath = join(this.config.agentFolder, 'archive', dateStr, filename).replace(/\\/g, '/');
+
+    try {
+      await rename(absPath, archivePath);
+    } catch {
+      // Cross-device: fallback to copy + delete
+      await copyFile(absPath, archivePath);
+      await unlink(absPath);
+    }
+
+    return relArchivePath;
+  }
+
+  /**
+   * Find notes that haven't been updated in maxAgeDays.
+   */
+  async getStaleNotes(maxAgeDays: number = 30): Promise<ObsidianNote[]> {
+    const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+    const allNotes = await this.listNotes(this.config.agentFolder);
+    const stale: ObsidianNote[] = [];
+
+    for (const notePath of allNotes) {
+      // Skip archive folder
+      if (notePath.includes('/archive/')) continue;
+
+      try {
+        const absPath = join(this.config.path, notePath);
+        const s = await stat(absPath);
+        if (s.mtimeMs < cutoff) {
+          const note = await this.readNote(notePath);
+          if (note) stale.push(note);
+        }
+      } catch {
+        // Skip
+      }
+    }
+
+    return stale;
+  }
+
+  /**
+   * Re-read vault context fresh (no caching).
+   * Used for mid-conversation refresh to pick up external edits.
+   */
+  async refreshContext(query?: string): Promise<string> {
+    return this.getContextSummary(query);
   }
 
   // ─── Listing ────────────────────────────────────────

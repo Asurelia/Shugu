@@ -7,6 +7,7 @@ export {
   helpCommand, quitCommand, clearCommand, compactCommand,
   commitCommand, statusCommand, reviewCommand, memoryCommand,
 } from './builtins.js';
+export { createBgCommand, createProactiveCommand } from './automation.js';
 
 import { CommandRegistry } from './registry.js';
 import {

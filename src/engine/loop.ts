@@ -29,6 +29,7 @@ import { accumulateStream } from '../transport/stream.js';
 import { analyzeTurn, buildToolResultMessage, ensureToolResultPairing, shouldContinue, DEFAULT_MAX_TURNS } from './turns.js';
 import { BudgetTracker } from './budget.js';
 import { InterruptController, isAbortError } from './interrupts.js';
+import type { HookRegistry } from '../plugins/hooks.js';
 
 // ─── Loop Configuration ─────────────────────────────────
 
@@ -40,6 +41,8 @@ export interface LoopConfig {
   maxTurns?: number;
   maxBudgetUsd?: number;
   toolContext?: ToolContext;
+  /** Plugin hook registry for Pre/PostToolUse and OnMessage hooks */
+  hookRegistry?: HookRegistry;
 }
 
 // ─── Loop Events ────────────────────────────────────────
@@ -133,6 +136,14 @@ export async function* runLoop(
       // Yield the complete assistant message
       yield { type: 'assistant_message', message: assistantMessage };
 
+      // OnMessage hook (fire-and-forget — does not block)
+      if (config.hookRegistry) {
+        config.hookRegistry.runMessageHook({
+          message: assistantMessage,
+          role: 'assistant',
+        }).catch(() => {});
+      }
+
       // Add assistant message to history
       // CRITICAL: preserve FULL response including reasoning for MiniMax multi-turn
       messages.push(assistantMessage);
@@ -175,7 +186,7 @@ export async function* runLoop(
 
         const toolResults: ToolResult[] = [];
 
-        for (const call of turnResult.toolCalls) {
+        for (let call of turnResult.toolCalls) {
           yield { type: 'tool_executing', call };
 
           const tool = tools.get(call.name);
@@ -206,8 +217,44 @@ export async function* runLoop(
               }
             }
 
+            // PreToolUse hook — can block or modify the call
+            if (config.hookRegistry) {
+              const hookResult = await config.hookRegistry.runPreToolUse({
+                tool: call.name,
+                call,
+              });
+              if (!hookResult.proceed) {
+                const result: ToolResult = {
+                  tool_use_id: call.id,
+                  content: `Blocked by hook: ${hookResult.blockReason ?? 'unknown reason'}`,
+                  is_error: true,
+                };
+                toolResults.push(result);
+                yield { type: 'tool_result', result };
+                continue;
+              }
+              if (hookResult.modifiedCall) {
+                call = hookResult.modifiedCall;
+              }
+            }
+
             // Execute
-            const result = await tool.execute(call, config.toolContext!);
+            const execStart = Date.now();
+            let result = await tool.execute(call, config.toolContext!);
+
+            // PostToolUse hook — can modify the result
+            if (config.hookRegistry) {
+              const postResult = await config.hookRegistry.runPostToolUse({
+                tool: call.name,
+                call,
+                result,
+                durationMs: Date.now() - execStart,
+              });
+              if (postResult.modifiedResult) {
+                result = postResult.modifiedResult;
+              }
+            }
+
             toolResults.push(result);
             yield { type: 'tool_result', result };
           } catch (error) {
