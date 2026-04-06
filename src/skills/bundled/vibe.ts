@@ -1,256 +1,252 @@
 /**
  * Bundled Skill: Vibe Workflow
  *
- * A 10-stage pipeline that takes a project description and generates
- * a complete, production-ready codebase. Each stage builds on the previous.
+ * Ported from OpenRoom's Vibe Workflow — a staged pipeline that takes
+ * a project description and generates a complete codebase.
  *
- * Stages:
- * 1. Understand  — Parse the user's vision, clarify ambiguity
- * 2. Analyze     — Research existing code, tech stack, constraints
- * 3. Plan        — Architecture, file structure, dependencies
- * 4. Scaffold    — Create project structure, configs, boilerplate
- * 5. Implement   — Write the actual code
- * 6. Validate    — Run tests, type-check, lint
- * 7. Optimize    — Performance, bundle size, caching
- * 8. Document    — README, API docs, inline comments
- * 9. Review      — Self-review for bugs, security, quality
- * 10. Ship       — Git commit, build, deployment prep
+ * 6 creation stages (from OpenRoom):
+ *   01-analysis     → Requirement analysis
+ *   02-architecture → Architecture & component design
+ *   03-planning     → Task decomposition into implementable chunks
+ *   04-codegen      → Code generation (the actual writing)
+ *   05-validate     → Type-check, tests, lint
+ *   06-ship         → Git commit, build, summary
  *
- * From OpenRoom's Vibe Workflow plan — reimplemented as a clean skill.
+ * Key features (ported from OpenRoom):
+ * - Workflow state persistence (JSON checkpoint)
+ * - Resume from breakpoint (/vibe AppName)
+ * - Re-run from specific stage (/vibe AppName --from=04-codegen)
+ * - Rule files loaded on-demand per stage (token savings)
+ * - Stage artifacts saved to .pcc/workflow/{AppName}/outputs/
  */
 
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Skill, SkillContext, SkillResult } from '../loader.js';
 
-// ─── Stage Definition ──────────────────────────────────
+// ─── Stage Definitions ─────────────────────────────────
 
-interface VibeStage {
+interface StageDefinition {
+  id: string;
   name: string;
   emoji: string;
   description: string;
-  prompt: (projectName: string, projectDesc: string, previousOutput: string) => string;
+  /** Rule/context markdown to load as additional prompt context */
+  rules: string[];
+  /** Outputs from previous stages to load */
+  requiresOutputs: string[];
+  /** Artifact filename this stage produces (null = no artifact) */
+  produces: string | null;
+  /** The stage prompt (receives project context + loaded rules + previous outputs) */
+  prompt: string;
 }
 
-const STAGES: VibeStage[] = [
+const CREATION_STAGES: StageDefinition[] = [
   {
-    name: 'Understand',
+    id: '01-analysis',
+    name: 'Analysis',
     emoji: '🔍',
-    description: 'Parse the vision, extract requirements',
-    prompt: (name, desc, _prev) => `
-# Stage 1: Understand
+    description: 'Requirement analysis — understand the vision',
+    rules: [],
+    requiresOutputs: [],
+    produces: 'requirement-breakdown.json',
+    prompt: `# Stage 1: Requirement Analysis
 
-You are beginning the Vibe Workflow for project "${name}".
-
-User's vision: "${desc}"
-
-Your task:
-1. Extract the core requirements from the description
+You are analyzing a project requirement. Your job:
+1. Parse the user's vision — extract core requirements
 2. Identify the target users and use cases
-3. List the key features (MVP scope)
-4. Note any ambiguities or assumptions you're making
-5. Determine the tech stack if mentioned, or recommend one
+3. List features with priority (must/should/could)
+4. Determine tech stack (framework, language, build tools)
+5. Note assumptions and constraints
 
-Output a structured requirements document. Be concise but thorough.`,
+Output a JSON file at the artifacts path with:
+{
+  "appInfo": { "name": "", "description": "", "category": "" },
+  "features": [{ "id": "feat-001", "title": "", "priority": "must|should|could" }],
+  "techStack": { "language": "", "framework": "", "buildTool": "", "testRunner": "" },
+  "assumptions": [],
+  "constraints": []
+}`,
   },
   {
-    name: 'Analyze',
-    emoji: '📊',
-    description: 'Research existing code, constraints',
-    prompt: (name, desc, prev) => `
-# Stage 2: Analyze
+    id: '02-architecture',
+    name: 'Architecture',
+    emoji: '📐',
+    description: 'Architecture & component design',
+    rules: [],
+    requiresOutputs: ['requirement-breakdown.json'],
+    produces: 'solution-design.json',
+    prompt: `# Stage 2: Architecture Design
 
-Project "${name}" — continuing from the requirements.
+Based on the requirement breakdown, design the architecture:
+1. File/directory structure (every file that will be created)
+2. Module boundaries and data flow
+3. Component design (interfaces, types, key functions)
+4. Dependency graph (what depends on what)
+5. Build/dev/test scripts
 
-Previous stage output:
-${prev.slice(-2000)}
-
-Your task:
-1. Check the current directory for any existing code (use Glob and Read)
-2. Identify the tech stack to use based on requirements
-3. Research any libraries or frameworks needed
-4. List constraints (performance, compatibility, security)
-5. Note any risks or technical challenges
-
-Be practical — recommend proven tools over experimental ones.`,
+Output a JSON file at the artifacts path with:
+{
+  "structure": [{ "path": "", "purpose": "" }],
+  "modules": [{ "name": "", "responsibility": "", "dependencies": [] }],
+  "dataFlow": "",
+  "buildScripts": { "dev": "", "build": "", "test": "" }
+}`,
   },
   {
-    name: 'Plan',
+    id: '03-planning',
+    name: 'Planning',
     emoji: '📋',
-    description: 'Architecture and file structure',
-    prompt: (name, desc, prev) => `
-# Stage 3: Plan
+    description: 'Task decomposition into implementable chunks',
+    rules: [],
+    requiresOutputs: ['requirement-breakdown.json', 'solution-design.json'],
+    produces: 'workflow-todolist.json',
+    prompt: `# Stage 3: Task Planning
 
-Project "${name}" — architecture phase.
+Decompose the architecture into ordered, implementable tasks:
+1. Each task = one file or one logical unit to create/modify
+2. Order by dependencies (foundational first)
+3. Group into checkpoints (verifiable milestones)
+4. Include verification for each checkpoint
 
-Previous analysis:
-${prev.slice(-2000)}
-
-Your task:
-1. Design the file/directory structure
-2. Define the module boundaries and data flow
-3. List all files to create with their purpose
-4. Define the build/dev/test scripts
-5. Plan the implementation order (what depends on what)
-
-Output a concrete plan with file paths and descriptions. No code yet — just architecture.`,
+Output a JSON file at the artifacts path with:
+{
+  "checkpoints": [
+    {
+      "id": "cp-01",
+      "name": "",
+      "tasks": [
+        { "id": "task-001", "type": "create_file|generate_code|run_command", "target": "", "description": "" }
+      ],
+      "verification": "command to verify this checkpoint"
+    }
+  ]
+}`,
   },
   {
-    name: 'Scaffold',
-    emoji: '🏗️',
-    description: 'Create project structure and configs',
-    prompt: (name, desc, prev) => `
-# Stage 4: Scaffold
-
-Project "${name}" — scaffolding phase.
-
-Architecture plan:
-${prev.slice(-2000)}
-
-Your task:
-1. Create the project directory structure
-2. Write package.json / config files (tsconfig, etc.)
-3. Create stub files with TODO comments for each module
-4. Set up the build pipeline
-5. Install dependencies if needed
-
-Use Write to create files and Bash to run setup commands. Create REAL files, not stubs.`,
-  },
-  {
-    name: 'Implement',
+    id: '04-codegen',
+    name: 'Code Generation',
     emoji: '⚡',
-    description: 'Write the actual code',
-    prompt: (name, desc, prev) => `
-# Stage 5: Implement
+    description: 'Generate all code — complete implementations only',
+    rules: [],
+    requiresOutputs: ['solution-design.json', 'workflow-todolist.json'],
+    produces: null,
+    prompt: `# Stage 4: Code Generation
 
-Project "${name}" — core implementation phase.
+Execute every task from the workflow todolist IN ORDER:
+1. For each task: create/modify the file with COMPLETE, working code
+2. No stubs, TODOs, placeholders, or "rest remains the same"
+3. After each checkpoint's tasks: run the verification command
+4. If verification fails: fix immediately, do not continue
+5. Use Write for new files, Edit for modifications
 
-This is the main coding stage. Previous scaffolding:
-${prev.slice(-2000)}
-
-Your task:
-1. Implement each module in dependency order
-2. Write COMPLETE, working code — no stubs, no TODOs
-3. Handle errors properly
-4. Follow the architecture from the plan
-5. Use the appropriate tools (Write for new files, Edit for modifications)
-
-Write production-quality code. Every file must be complete and functional.`,
+Quality requirements:
+- Full type safety (no 'any')
+- Real error handling (catch specific errors)
+- All imports resolved
+- All functions complete`,
   },
   {
+    id: '05-validate',
     name: 'Validate',
     emoji: '✅',
-    description: 'Run tests, type-check, lint',
-    prompt: (name, desc, prev) => `
-# Stage 6: Validate
+    description: 'Type-check, tests, lint — fix all issues',
+    rules: [],
+    requiresOutputs: [],
+    produces: null,
+    prompt: `# Stage 5: Validation
 
-Project "${name}" — validation phase.
+Run all verification:
+1. Type-check: run the configured type checker (tsc --noEmit, etc.)
+2. Tests: run the test suite (vitest, jest, pytest, etc.)
+3. Build: run the build command to verify it compiles
+4. If any step fails: FIX THE ISSUE immediately, then re-run
+5. Do NOT move on until everything passes
 
-Implementation summary:
-${prev.slice(-1500)}
-
-Your task:
-1. Run the type checker if TypeScript (tsc --noEmit)
-2. Run any existing tests
-3. If no tests exist, write basic smoke tests
-4. Fix any type errors or test failures
-5. Verify the project builds successfully
-
-Use Bash to run commands. Fix issues immediately — do not leave broken code.`,
+Report what was checked and the results.`,
   },
   {
-    name: 'Optimize',
-    emoji: '🚀',
-    description: 'Performance and quality pass',
-    prompt: (name, desc, prev) => `
-# Stage 7: Optimize
-
-Project "${name}" — optimization phase.
-
-Validation results:
-${prev.slice(-1500)}
-
-Your task:
-1. Review for obvious performance issues
-2. Check bundle size if applicable
-3. Add caching where beneficial
-4. Remove dead code or unused imports
-5. Ensure error messages are helpful
-
-Keep changes minimal and targeted. Don't over-engineer.`,
-  },
-  {
-    name: 'Document',
-    emoji: '📝',
-    description: 'README and API docs',
-    prompt: (name, desc, prev) => `
-# Stage 8: Document
-
-Project "${name}" — documentation phase.
-
-Your task:
-1. Write a clear README.md with:
-   - Project description
-   - Installation steps
-   - Usage examples
-   - API reference (if applicable)
-   - Contributing guide
-2. Add inline comments only where logic is non-obvious
-3. Ensure all public APIs have JSDoc/docstrings
-
-Focus on practical documentation that helps someone use the project.`,
-  },
-  {
-    name: 'Review',
-    emoji: '🔬',
-    description: 'Self-review for quality and security',
-    prompt: (name, desc, prev) => `
-# Stage 9: Review
-
-Project "${name}" — self-review phase.
-
-Your task:
-1. Read through ALL created files
-2. Check for:
-   - Logic bugs
-   - Security vulnerabilities (injection, XSS, auth issues)
-   - Missing error handling
-   - Inconsistent naming or patterns
-   - Hard-coded values that should be configurable
-3. Fix any issues found
-4. Report a summary of what was reviewed and fixed
-
-Be thorough but pragmatic. Fix real issues, not style nits.`,
-  },
-  {
+    id: '06-ship',
     name: 'Ship',
     emoji: '🚢',
-    description: 'Git commit and deployment prep',
-    prompt: (name, desc, prev) => `
-# Stage 10: Ship
+    description: 'Git commit, build summary, next steps',
+    rules: [],
+    requiresOutputs: [],
+    produces: null,
+    prompt: `# Stage 6: Ship
 
-Project "${name}" — shipping phase.
-
-Review summary:
-${prev.slice(-1500)}
-
-Your task:
-1. Run the final build to confirm everything works
+Final steps:
+1. Run final build to confirm everything works
 2. Run git status to see all changes
-3. Create a meaningful git commit message
-4. Report a summary of what was built:
-   - Files created/modified
+3. Create a meaningful git commit with all changes
+4. Report a summary:
+   - Files created/modified (count and list)
    - Key features implemented
    - How to run/test the project
-   - Any known limitations or next steps
+   - Known limitations or next steps
 
-Do NOT push to remote — just commit locally. Show the user what was built.`,
+Do NOT push to remote — just commit locally.`,
   },
 ];
 
-// ─── Vibe Skill ────────────────────────────────────────
+// ─── Workflow State ────────────────────────────────────
+
+interface WorkflowState {
+  appName: string;
+  mode: 'create' | 'change';
+  description: string;
+  currentStage: string;
+  stages: Record<string, { status: 'pending' | 'in_progress' | 'completed'; outputFile: string | null }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+function getWorkflowDir(cwd: string, appName: string): string {
+  return join(cwd, '.pcc', 'workflow', appName);
+}
+
+function getWorkflowPath(cwd: string, appName: string): string {
+  return join(getWorkflowDir(cwd, appName), 'workflow.json');
+}
+
+function loadWorkflow(cwd: string, appName: string): WorkflowState | null {
+  const path = getWorkflowPath(cwd, appName);
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, 'utf-8')) as WorkflowState;
+  } catch {
+    return null;
+  }
+}
+
+function saveWorkflow(cwd: string, appName: string, state: WorkflowState): void {
+  const dir = getWorkflowDir(cwd, appName);
+  mkdirSync(join(dir, 'outputs'), { recursive: true });
+  state.updatedAt = new Date().toISOString();
+  writeFileSync(getWorkflowPath(cwd, appName), JSON.stringify(state, null, 2));
+}
+
+function createWorkflow(appName: string, description: string): WorkflowState {
+  const stages: WorkflowState['stages'] = {};
+  for (const stage of CREATION_STAGES) {
+    stages[stage.id] = { status: 'pending', outputFile: stage.produces };
+  }
+  return {
+    appName,
+    mode: 'create',
+    description,
+    currentStage: CREATION_STAGES[0]!.id,
+    stages,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+// ─── Skill Definition ──────────────────────────────────
 
 export const vibeSkill: Skill = {
   name: 'vibe',
-  description: 'Generate a complete project from a description using the 10-stage Vibe Workflow pipeline',
+  description: 'Generate a complete project using the 6-stage Vibe Workflow (OpenRoom pattern). Supports resume and checkpoint.',
   category: 'workflow',
   triggers: [
     { type: 'command', command: 'vibe' },
@@ -258,52 +254,136 @@ export const vibeSkill: Skill = {
   ],
 
   async execute(ctx: SkillContext): Promise<SkillResult> {
-    // Parse: /vibe ProjectName description of the project
-    const parts = ctx.args.trim().split(/\s+/);
-    if (parts.length < 2) {
+    // Parse: /vibe AppName [description] [--from=stage]
+    const rawArgs = ctx.args.trim();
+    if (!rawArgs) {
       return {
         type: 'error',
-        message: 'Usage: /vibe <ProjectName> <description>\nExample: /vibe TaskAPI A REST API for managing tasks with authentication',
+        message: `Usage: /vibe <AppName> <description>
+  /vibe <AppName>                    — resume from breakpoint
+  /vibe <AppName> --from=04-codegen  — re-run from specific stage
+Example: /vibe TaskAPI A REST API for managing tasks with auth`,
       };
     }
 
-    const projectName = parts[0]!;
-    const projectDesc = parts.slice(1).join(' ');
+    const parts = rawArgs.split(/\s+/);
+    const appName = parts[0]!;
+    let fromStage: string | null = null;
+    const descParts: string[] = [];
 
-    ctx.info(`\n╔══════════════════════════════════════════════╗`);
-    ctx.info(`║  🌊 Vibe Workflow — ${projectName.padEnd(25)}║`);
-    ctx.info(`╚══════════════════════════════════════════════╝\n`);
-    ctx.info(`Vision: ${projectDesc}\n`);
+    for (let i = 1; i < parts.length; i++) {
+      const part = parts[i]!;
+      if (part.startsWith('--from=')) {
+        fromStage = part.slice(7);
+      } else {
+        descParts.push(part);
+      }
+    }
 
-    let previousOutput = '';
-    let stageIndex = 0;
+    const description = descParts.join(' ');
+    const existing = loadWorkflow(ctx.cwd, appName);
 
-    for (const stage of STAGES) {
-      stageIndex++;
-      const header = `${stage.emoji} Stage ${stageIndex}/10: ${stage.name} — ${stage.description}`;
+    // ── Mode determination (OpenRoom pattern) ──
+    let workflow: WorkflowState;
+
+    if (!existing && !description) {
+      return { type: 'error', message: `No existing workflow for "${appName}". Provide a description: /vibe ${appName} <description>` };
+    }
+
+    if (!existing) {
+      // Creation mode
+      workflow = createWorkflow(appName, description);
+      saveWorkflow(ctx.cwd, appName, workflow);
+      ctx.info(`\n🌊 Vibe Workflow — creating "${appName}"`);
+      ctx.info(`Vision: ${description}\n`);
+    } else if (!description && !fromStage) {
+      // Resume mode
+      workflow = existing;
+      ctx.info(`\n🌊 Vibe Workflow — resuming "${appName}" from ${workflow.currentStage}`);
+    } else if (fromStage) {
+      // Re-run from specific stage
+      workflow = existing;
+      const stageIds = CREATION_STAGES.map(s => s.id);
+      const fromIdx = stageIds.indexOf(fromStage);
+      if (fromIdx === -1) {
+        return { type: 'error', message: `Unknown stage: ${fromStage}. Valid: ${stageIds.join(', ')}` };
+      }
+      // Reset this stage and all following to pending
+      for (let i = fromIdx; i < stageIds.length; i++) {
+        const stageState = workflow.stages[stageIds[i]!];
+        if (stageState) stageState.status = 'pending';
+      }
+      workflow.currentStage = fromStage;
+      saveWorkflow(ctx.cwd, appName, workflow);
+      ctx.info(`\n🌊 Vibe Workflow — re-running "${appName}" from ${fromStage}`);
+    } else {
+      // All completed + new description → would be change mode
+      // For simplicity, create a fresh workflow
+      workflow = createWorkflow(appName, description);
+      saveWorkflow(ctx.cwd, appName, workflow);
+      ctx.info(`\n🌊 Vibe Workflow — fresh run for "${appName}"`);
+      ctx.info(`Vision: ${description}\n`);
+    }
+
+    // ── Stage execution loop ──
+    const outputsDir = join(getWorkflowDir(ctx.cwd, appName), 'outputs');
+
+    for (const stage of CREATION_STAGES) {
+      const stageState = workflow.stages[stage.id];
+      if (!stageState || stageState.status === 'completed') continue;
+
+      // Mark in_progress
+      stageState.status = 'in_progress';
+      workflow.currentStage = stage.id;
+      saveWorkflow(ctx.cwd, appName, workflow);
+
       ctx.info(`\n${'─'.repeat(50)}`);
-      ctx.info(header);
+      ctx.info(`${stage.emoji} Stage ${stage.id}: ${stage.name} — ${stage.description}`);
       ctx.info(`${'─'.repeat(50)}\n`);
 
-      const prompt = stage.prompt(projectName, projectDesc, previousOutput);
+      // Load required outputs from previous stages
+      let context = `Project: ${appName}\nDescription: ${workflow.description}\n\n`;
+
+      for (const outputFile of stage.requiresOutputs) {
+        const outputPath = join(outputsDir, outputFile);
+        if (existsSync(outputPath)) {
+          try {
+            const content = readFileSync(outputPath, 'utf-8');
+            context += `\n--- ${outputFile} ---\n${content.slice(0, 5000)}\n`;
+          } catch {
+            // Skip unreadable outputs
+          }
+        }
+      }
+
+      // Build the full prompt: stage instructions + context + artifact path
+      const artifactInfo = stage.produces
+        ? `\nSave the artifact to: ${join(outputsDir, stage.produces)}`
+        : '';
+
+      const fullPrompt = `${stage.prompt}\n\n## Project Context\n${context}${artifactInfo}`;
 
       try {
-        const result = await ctx.runAgent(prompt);
-        previousOutput = result;
+        const result = await ctx.runAgent(fullPrompt);
+
+        // Mark completed
+        stageState.status = 'completed';
+        saveWorkflow(ctx.cwd, appName, workflow);
         ctx.info(`  ✓ ${stage.name} complete`);
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         ctx.error(`  ✗ ${stage.name} failed: ${msg}`);
-        return {
-          type: 'error',
-          message: `Vibe Workflow failed at stage ${stageIndex} (${stage.name}): ${msg}`,
-        };
+        ctx.info(`  Resume with: /vibe ${appName}`);
+        ctx.info(`  Re-run from here with: /vibe ${appName} --from=${stage.id}`);
+        saveWorkflow(ctx.cwd, appName, workflow);
+        return { type: 'error', message: `Vibe Workflow failed at ${stage.id}: ${msg}` };
       }
     }
 
     ctx.info(`\n╔══════════════════════════════════════════════╗`);
-    ctx.info(`║  🌊 Vibe Workflow Complete!                  ║`);
-    ctx.info(`╚══════════════════════════════════════════════╝\n`);
+    ctx.info(`║  🌊 Vibe Workflow Complete: ${appName.padEnd(18)}║`);
+    ctx.info(`╚══════════════════════════════════════════════╝`);
+    ctx.info(`Artifacts: ${outputsDir}`);
 
     return { type: 'handled' };
   },

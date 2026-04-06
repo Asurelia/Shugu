@@ -31,6 +31,7 @@ import { BudgetTracker } from './budget.js';
 import { InterruptController, isAbortError } from './interrupts.js';
 import type { HookRegistry } from '../plugins/hooks.js';
 import { truncateToolResult, enforceMessageLimit } from '../tools/outputLimits.js';
+import { ActionTriggerBy } from '../protocol/actions.js';
 
 // ─── Loop Configuration ─────────────────────────────────
 
@@ -55,8 +56,8 @@ export type LoopEvent =
   | { type: 'stream_thinking'; thinking: string }
   | { type: 'stream_tool_start'; toolName: string; toolId: string }
   | { type: 'assistant_message'; message: AssistantMessage }
-  | { type: 'tool_executing'; call: ToolCall }
-  | { type: 'tool_result'; result: ToolResult }
+  | { type: 'tool_executing'; call: ToolCall; triggeredBy: ActionTriggerBy }
+  | { type: 'tool_result'; result: ToolResult; durationMs?: number }
   | { type: 'turn_end'; turnIndex: number; usage: Usage }
   | { type: 'loop_end'; reason: string; totalUsage: Usage; totalCost: number }
   | { type: 'error'; error: Error };
@@ -209,7 +210,7 @@ export async function* runLoop(
         const toolResults: ToolResult[] = [];
 
         for (let call of turnResult.toolCalls) {
-          yield { type: 'tool_executing', call };
+          yield { type: 'tool_executing', call, triggeredBy: ActionTriggerBy.Agent };
 
           const tool = tools.get(call.name);
           if (!tool) {
@@ -278,7 +279,7 @@ export async function* runLoop(
             }
 
             toolResults.push(result);
-            yield { type: 'tool_result', result };
+            yield { type: 'tool_result', result, durationMs: Date.now() - execStart };
           } catch (error) {
             if (isAbortError(error)) throw error;
 
