@@ -51,48 +51,60 @@ function StaticMessage({ message }: { message: UIMessage }) {
         </Box>
       );
 
-    case 'assistant_text':
+    case 'assistant_text': {
+      const lines = message.text.split('\n');
+      let inCodeBlock = false;
       return (
         <Box flexDirection="column" paddingLeft={2}>
-          {message.text.split('\n').map((line, i) => {
-            // Basic markdown rendering
-            if (line.startsWith('### ')) return <Text key={i} bold color="cyan">{'   '}{line.slice(4)}</Text>;
-            if (line.startsWith('## ')) return <Text key={i} bold color="cyan">{'  '}{line.slice(3)}</Text>;
+          {lines.map((line, i) => {
+            // Toggle code block state
+            if (line.startsWith('```')) {
+              inCodeBlock = !inCodeBlock;
+              const lang = line.slice(3).trim();
+              return inCodeBlock
+                ? <Text key={i} dimColor>{'┌─ '}{lang || 'code'}{' ────────────────────────'}</Text>
+                : <Text key={i} dimColor>{'└──────────────────────────────'}</Text>;
+            }
+            // Inside code block — render as-is with dim border
+            if (inCodeBlock) {
+              return <Text key={i} color="gray">{'│ '}{line}</Text>;
+            }
+            // Markdown formatting
+            if (line.startsWith('### ')) return <Text key={i} bold color="cyan">{line.slice(4)}</Text>;
+            if (line.startsWith('## ')) return <Text key={i} bold color="cyan">{line.slice(3)}</Text>;
             if (line.startsWith('# ')) return <Text key={i} bold color="cyan">{line.slice(2)}</Text>;
-            if (line.startsWith('```')) return <Text key={i} dimColor color="gray">{line}</Text>;
             if (line.startsWith('- ') || line.startsWith('* ')) return <Text key={i}>{'  '}{line}</Text>;
             if (/^\d+\.\s/.test(line)) return <Text key={i}>{'  '}{line}</Text>;
-            if (line.startsWith('|')) return <Text key={i} dimColor>{line}</Text>;
+            if (line.startsWith('| ') && line.endsWith(' |')) return <Text key={i} dimColor>{line}</Text>;
+            if (/^[|\-:]+$/.test(line.replace(/\s/g, ''))) return <Text key={i} dimColor>{line}</Text>; // table separator
             if (line.startsWith('---') || line.startsWith('***')) return <Text key={i} dimColor>{'────────────────────────────────────────'}</Text>;
             if (line.startsWith('>')) return <Text key={i} dimColor italic>{'  │ '}{line.slice(1).trim()}</Text>;
+            // Bold: **text** → render with bold
+            if (line.includes('**')) {
+              // Simple bold rendering — just strip the ** markers
+              return <Text key={i}>{line.replace(/\*\*([^*]+)\*\*/g, '$1')}</Text>;
+            }
             return <Text key={i}>{line}</Text>;
           })}
         </Box>
       );
+    }
 
     case 'thinking': {
-      // Thinking block in a dimmed box — shows reasoning
-      const thinkPreview = message.text.length > 300 ? message.text.slice(0, 300) + '…' : message.text;
-      const thinkLines = thinkPreview.split('\n').slice(0, 6);
+      // Collapsed by default — single line like Claude Code
+      const preview = message.text.replace(/\n/g, ' ').slice(0, 120);
       return (
-        <Box flexDirection="column" paddingLeft={2} marginTop={1}>
-          <Text dimColor italic color="gray">{'╭─ ∴ reasoning ─────────────────────────────'}</Text>
-          {thinkLines.map((line, i) => (
-            <Text key={i} dimColor italic color="gray">{'│ '}{line}</Text>
-          ))}
-          {message.text.length > 300 && (
-            <Text dimColor italic color="gray">{'│ …'}</Text>
-          )}
-          <Text dimColor italic color="gray">{'╰────────────────────────────────────────────'}</Text>
+        <Box paddingLeft={2}>
+          <Text dimColor italic>{'∴ '}{preview}{message.text.length > 120 ? '…' : ''}</Text>
         </Box>
       );
     }
 
     case 'tool_call': {
-      // Show tool name + useful detail (path, command, pattern) instead of cryptic ID
+      // Compact: tool name + detail on one line
       const detail = message.detail || '';
       return (
-        <Box marginTop={1}>
+        <Box>
           <Text color="yellow">{'╭── '}</Text>
           <Text bold color="yellow">{message.name}</Text>
           {detail ? <Text dimColor>{' '}{detail}</Text> : null}
@@ -101,26 +113,19 @@ function StaticMessage({ message }: { message: UIMessage }) {
     }
 
     case 'tool_result': {
-      const maxLen = 1500;
-      const preview = message.content.length > maxLen
-        ? message.content.slice(0, maxLen) + `\n… [${(message.content.length - maxLen).toLocaleString()} chars truncated]`
-        : message.content;
-      const lines = preview.split('\n').slice(0, 30); // Max 30 lines displayed
       const icon = message.isError ? '✗' : '✓';
       const iconColor = message.isError ? 'red' : 'green';
+      // Collapsed: show first meaningful line as summary
+      const firstLine = message.content.split('\n').find(l => l.trim().length > 0) ?? '';
+      const summary = firstLine.length > 100 ? firstLine.slice(0, 97) + '...' : firstLine;
+      const totalLines = message.content.split('\n').length;
+      const sizeInfo = totalLines > 1 ? ` (${totalLines} lines)` : '';
       return (
-        <Box flexDirection="column">
-          {lines.map((line, i) => (
-            <Box key={i}>
-              <Text color="yellow">{'│ '}</Text>
-              <Text>{line}</Text>
-            </Box>
-          ))}
-          <Box>
-            <Text color="yellow">{'╰'}</Text>
-            <Text color={iconColor}>{icon}</Text>
-            <Text color="yellow">{'────────────────────────────────────────'}</Text>
-          </Box>
+        <Box>
+          <Text color="yellow">{'╰'}</Text>
+          <Text color={iconColor}>{icon}</Text>
+          <Text color="yellow">{'─ '}</Text>
+          <Text dimColor>{summary}{sizeInfo}</Text>
         </Box>
       );
     }
