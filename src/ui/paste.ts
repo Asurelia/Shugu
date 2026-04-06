@@ -52,46 +52,50 @@ export function createPasteHandler(): PasteHandler {
         process.stdout.write('\x1b[?2004l');
       });
 
-      // Listen on stdin for paste markers
-      stdinListener = (data: Buffer) => {
-        const str = data.toString();
+      // Intercept stdin: we need to CONSUME paste data before Ink sees it.
+      // We do this by wrapping stdin.emit — when paste markers are detected,
+      // we swallow the data instead of letting it propagate to Ink.
+      const origEmit = process.stdin.emit.bind(process.stdin);
+      process.stdin.emit = function (event: string, ...args: unknown[]): boolean {
+        if (event === 'data' && args[0]) {
+          const str = (args[0] as Buffer).toString();
 
-        // Check for paste start
-        if (str.includes(PASTE_START)) {
-          inPaste = true;
-          pasteBuffer = str.split(PASTE_START).slice(1).join(PASTE_START);
+          // Check for paste start
+          if (str.includes(PASTE_START)) {
+            inPaste = true;
+            pasteBuffer = str.split(PASTE_START).slice(1).join(PASTE_START);
 
-          // Check if paste end is in the same chunk
-          if (pasteBuffer.includes(PASTE_END)) {
-            const content = pasteBuffer.split(PASTE_END)[0] ?? '';
-            inPaste = false;
-            pasteBuffer = '';
-            if (callback && content.length > 0) {
-              callback(sanitizePasteMarkers(content));
+            if (pasteBuffer.includes(PASTE_END)) {
+              const content = pasteBuffer.split(PASTE_END)[0] ?? '';
+              inPaste = false;
+              pasteBuffer = '';
+              if (callback && content.length > 0) {
+                callback(sanitizePasteMarkers(content));
+              }
             }
+            return true; // Swallowed — Ink never sees this
           }
-          return;
+
+          // Accumulate paste content (swallow it)
+          if (inPaste) {
+            pasteBuffer += str;
+            if (pasteBuffer.includes(PASTE_END)) {
+              const content = pasteBuffer.split(PASTE_END)[0] ?? '';
+              inPaste = false;
+              pasteBuffer = '';
+              if (callback && content.length > 0) {
+                callback(sanitizePasteMarkers(content));
+              }
+            }
+            return true; // Swallowed
+          }
         }
 
-        // Accumulate paste content
-        if (inPaste) {
-          pasteBuffer += str;
-          if (pasteBuffer.includes(PASTE_END)) {
-            const content = pasteBuffer.split(PASTE_END)[0] ?? '';
-            inPaste = false;
-            pasteBuffer = '';
-            if (callback && content.length > 0) {
-              callback(sanitizePasteMarkers(content));
-            }
-          }
-          return;
-        }
+        // Not a paste — pass through to Ink normally
+        return origEmit(event, ...args);
+      } as typeof process.stdin.emit;
 
-        // Not a paste — let it pass through to Ink normally
-      };
-
-      // Prepend our listener so it fires before Ink's
-      process.stdin.on('data', stdinListener);
+      stdinListener = () => {}; // Placeholder for disable()
     },
 
     disable() {

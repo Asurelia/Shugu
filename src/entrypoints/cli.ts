@@ -1029,6 +1029,22 @@ async function runREPL(
     }
     // Build system prompt as cacheable blocks (static base cached, volatile per-turn)
     const volatileParts: string[] = [];
+
+    // Mode behavior injection — affects model behavior, not just permissions
+    const currentMode = permResolver.getMode();
+    if (currentMode === 'plan') {
+      volatileParts.push(`[MODE: PLAN] You are in PLAN mode. Do NOT make any changes yet.
+- Analyze the request and propose a step-by-step plan
+- Explain what you would do, which files you would modify, and why
+- Wait for user approval before executing anything
+- Use Read, Glob, Grep to explore — do NOT use Write, Edit, or Bash (except read-only commands)`);
+    } else if (currentMode === 'default') {
+      volatileParts.push(`[MODE: DEFAULT] Ask before making changes to files or running commands. Read-only operations are fine.`);
+    } else if (currentMode === 'acceptEdits') {
+      volatileParts.push(`[MODE: ACCEPT-EDITS] You can edit files freely. Ask before running shell commands.`);
+    }
+    // fullAuto and bypass: no behavioral constraint
+
     if (dynamicVaultContext) volatileParts.push('# Updated vault context\n' + dynamicVaultContext);
     if (strategy.strategyPrompt) volatileParts.push(strategy.strategyPrompt);
     if (kairos.shouldInjectTimeContext()) volatileParts.push(kairos.getTimeContext());
