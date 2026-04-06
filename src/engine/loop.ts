@@ -26,10 +26,11 @@ import type { ToolDefinition, Tool, ToolCall, ToolResult, ToolContext } from '..
 import type { StreamEvent, ContentDelta } from '../protocol/events.js';
 import { MiniMaxClient, type StreamOptions } from '../transport/client.js';
 import { accumulateStream } from '../transport/stream.js';
-import { analyzeTurn, buildToolResultMessage, ensureToolResultPairing, shouldContinue, DEFAULT_MAX_TURNS } from './turns.js';
+import { analyzeTurn, buildToolResultMessage, ensureToolResultPairing, shouldContinue, DEFAULT_MAX_TURNS, ContinuationTracker } from './turns.js';
 import { BudgetTracker } from './budget.js';
 import { InterruptController, isAbortError } from './interrupts.js';
 import type { HookRegistry } from '../plugins/hooks.js';
+import { truncateToolResult, enforceMessageLimit } from '../tools/outputLimits.js';
 
 // ─── Loop Configuration ─────────────────────────────────
 
@@ -87,6 +88,7 @@ export async function* runLoop(
   } = config;
 
   const budget = new BudgetTracker(client.model, maxBudgetUsd);
+  const continuation = new ContinuationTracker();
   const messages: Message[] = [...initialMessages];
   let turnIndex = 0;
 
@@ -168,7 +170,15 @@ export async function* runLoop(
         return;
       }
 
-      const decision = shouldContinue(turnResult, turnIndex, maxTurns);
+      // Check if budget allows auto-continuation on max_tokens
+      const contextWindow = 204_800; // MiniMax M2.7 context
+      const totalUsed = budget.getTotalUsage();
+      const budgetAllows = continuation.shouldContinue(
+        totalUsed.input_tokens + totalUsed.output_tokens,
+        contextWindow,
+      );
+
+      const decision = shouldContinue(turnResult, turnIndex, maxTurns, budgetAllows);
       if (!decision.continue) {
         yield {
           type: 'loop_end',
@@ -177,6 +187,18 @@ export async function* runLoop(
           totalCost: budget.getTotalCostUsd(),
         };
         return;
+      }
+
+      // Auto-continuation: model hit max_tokens but budget has room
+      if (decision.autoContinue) {
+        continuation.recordContinuation(turnUsage.output_tokens);
+        // Nudge message to continue where it left off
+        messages.push({
+          role: 'user',
+          content: '[System: Your response was cut off due to length. Continue exactly where you left off. Do not repeat what you already said.]',
+        });
+        turnIndex++;
+        continue; // Skip tool execution, go straight to next model call
       }
 
       // ── 4. Execute tools ──────────────────────────
@@ -270,8 +292,11 @@ export async function* runLoop(
           }
         }
 
+        // Enforce per-message aggregate output limit (spill large results to disk)
+        const limitedResults = await enforceMessageLimit(toolResults);
+
         // Append tool results as user message
-        const toolResultMessage = buildToolResultMessage(toolResults);
+        const toolResultMessage = buildToolResultMessage(limitedResults);
         messages.push(toolResultMessage);
       }
 

@@ -46,6 +46,7 @@ import { BackgroundManager } from '../automation/background.js';
 import { Scheduler } from '../automation/scheduler.js';
 import { createBgCommand, createProactiveCommand } from '../commands/automation.js';
 import { registerKnowledgeHooks } from '../plugins/builtin/knowledge-hook.js';
+import { registerBehaviorHooks } from '../plugins/builtin/behavior-hooks.js';
 
 // ─── System Prompt ──────────────────────────────────────
 
@@ -252,6 +253,9 @@ async function main(): Promise<void> {
     if (pluginResult.loaded > 0) {
       renderer.info(`  Plugins: ${pluginResult.loaded} loaded`);
     }
+
+    // Register built-in behavior hooks (security, anti-lazy, path safety)
+    registerBehaviorHooks(hookRegistry);
 
     // Discover Obsidian vault and wire knowledge hooks
     const vaultPath = await discoverVault(cwd);
@@ -698,14 +702,23 @@ async function runREPL(
       ? systemPrompt + '\n\n# Updated vault context\n' + dynamicVaultContext
       : systemPrompt;
 
-    // ── Auto-compaction check ─────────────────────────
-    if (tokenTracker.shouldCompact()) {
-      renderer.info('Context window filling up — auto-compacting...');
-      const result = await compactConversation(conversationMessages, client);
-      if (result.wasCompacted) {
-        conversationMessages.length = 0;
-        conversationMessages.push(...result.messages);
-        renderer.info(`Auto-compacted: ${result.removedTurns} turns summarized.`);
+    // ── Reactive auto-compaction (OpenClaude pattern: buffer-based + circuit breaker) ──
+    if (tokenTracker.shouldAutoCompact()) {
+      const status = tokenTracker.getStatus();
+      app.pushMessage({ type: 'info', text: `⚡ Context at ${status.percentUsed}% — auto-compacting...` });
+      try {
+        const result = await compactConversation(conversationMessages, client);
+        if (result.wasCompacted) {
+          conversationMessages.length = 0;
+          conversationMessages.push(...result.messages);
+          tokenTracker.recordCompactSuccess();
+          app.pushMessage({ type: 'info', text: `Compacted: ${result.removedTurns} turns → summary.` });
+        }
+      } catch {
+        tokenTracker.recordCompactFailure();
+        if (tokenTracker.compactCircuitBroken) {
+          app.pushMessage({ type: 'error', text: 'Auto-compaction failed 3 times — circuit breaker tripped. Use /compact manually.' });
+        }
       }
     }
 

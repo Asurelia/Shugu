@@ -9,8 +9,8 @@
 
 import { spawn } from 'node:child_process';
 import type { Tool, ToolCall, ToolResult, ToolContext, ToolDefinition } from '../../protocol/tools.js';
+import { BASH_MAX_OUTPUT_CHARS, BASH_MAX_STDERR_CHARS, truncateBashOutput } from '../outputLimits.js';
 
-const MAX_OUTPUT_LENGTH = 100_000;
 const DEFAULT_TIMEOUT_MS = 120_000; // 2 minutes
 
 export const BashToolDefinition: ToolDefinition = {
@@ -95,17 +95,20 @@ function runBash(
     let stderr = '';
     let timedOut = false;
 
+    // Collect with generous buffer — truncation applied at formatting time
+    const RAW_BUFFER = BASH_MAX_OUTPUT_CHARS * 2;
+
     child.stdout?.on('data', (data: Buffer) => {
       stdout += data.toString();
-      if (stdout.length > MAX_OUTPUT_LENGTH) {
-        stdout = stdout.slice(0, MAX_OUTPUT_LENGTH);
+      if (stdout.length > RAW_BUFFER) {
+        stdout = stdout.slice(0, RAW_BUFFER);
       }
     });
 
     child.stderr?.on('data', (data: Buffer) => {
       stderr += data.toString();
-      if (stderr.length > MAX_OUTPUT_LENGTH) {
-        stderr = stderr.slice(0, MAX_OUTPUT_LENGTH);
+      if (stderr.length > RAW_BUFFER) {
+        stderr = stderr.slice(0, RAW_BUFFER);
       }
     });
 
@@ -149,12 +152,21 @@ function formatOutput(result: BashResult): string {
     parts.push('(Command timed out)');
   }
 
-  if (result.stdout) {
-    parts.push(result.stdout);
+  // Apply truncation with markers
+  const truncated = truncateBashOutput(result.stdout, result.stderr);
+
+  if (truncated.stdout) {
+    parts.push(truncated.stdout);
+    if (truncated.stdoutTruncated) {
+      parts.push(`\n[STDOUT TRUNCATED — showing first ${BASH_MAX_OUTPUT_CHARS.toLocaleString()} of ${result.stdout.length.toLocaleString()} chars]`);
+    }
   }
 
-  if (result.stderr) {
-    parts.push(`stderr:\n${result.stderr}`);
+  if (truncated.stderr) {
+    parts.push(`stderr:\n${truncated.stderr}`);
+    if (truncated.stderrTruncated) {
+      parts.push(`[STDERR TRUNCATED — showing first ${BASH_MAX_STDERR_CHARS.toLocaleString()} of ${result.stderr.length.toLocaleString()} chars]`);
+    }
   }
 
   if (parts.length === 0) {

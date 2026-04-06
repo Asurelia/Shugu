@@ -28,12 +28,24 @@ export const DEFAULT_TOKEN_BUDGET_CONFIG: TokenBudgetConfig = {
   reserveForOutput: 8192,
 };
 
+// ─── Auto-Compaction Constants (from OpenClaude) ───────
+
+/** Buffer tokens before hitting hard limit — triggers auto-compact */
+export const AUTOCOMPACT_BUFFER_TOKENS = 13_000;
+
+/** Warning threshold — yellow zone */
+export const WARNING_BUFFER_TOKENS = 20_000;
+
+/** Max consecutive auto-compact failures before giving up */
+export const MAX_COMPACT_FAILURES = 3;
+
 // ─── Token Budget Tracker ───────────────────────────────
 
 export class TokenBudgetTracker {
   private config: TokenBudgetConfig;
   private contextWindow: number;
   private lastKnownInputTokens: number = 0;
+  private consecutiveCompactFailures: number = 0;
 
   constructor(config: Partial<TokenBudgetConfig> = {}) {
     this.config = { ...DEFAULT_TOKEN_BUDGET_CONFIG, ...config };
@@ -86,6 +98,39 @@ export class TokenBudgetTracker {
       shouldCompact: this.shouldCompact(),
       isNearLimit: this.isNearLimit(),
     };
+  }
+
+  /**
+   * Check if reactive auto-compaction should trigger.
+   * Uses OpenClaude's buffer-based approach:
+   * auto-compact when within AUTOCOMPACT_BUFFER_TOKENS of the limit.
+   * Includes circuit breaker (stops after MAX_COMPACT_FAILURES consecutive failures).
+   */
+  shouldAutoCompact(): boolean {
+    if (this.consecutiveCompactFailures >= MAX_COMPACT_FAILURES) return false;
+    const autoCompactThreshold = this.contextWindow - this.config.reserveForOutput - AUTOCOMPACT_BUFFER_TOKENS;
+    return this.lastKnownInputTokens >= autoCompactThreshold;
+  }
+
+  /**
+   * Record a compaction success (resets circuit breaker).
+   */
+  recordCompactSuccess(): void {
+    this.consecutiveCompactFailures = 0;
+  }
+
+  /**
+   * Record a compaction failure (increments circuit breaker).
+   */
+  recordCompactFailure(): void {
+    this.consecutiveCompactFailures++;
+  }
+
+  /**
+   * Whether the circuit breaker has tripped.
+   */
+  get compactCircuitBroken(): boolean {
+    return this.consecutiveCompactFailures >= MAX_COMPACT_FAILURES;
   }
 
   get lastInputTokens(): number {

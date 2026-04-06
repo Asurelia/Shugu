@@ -100,7 +100,7 @@ export class MiniMaxClient {
     const body = this.buildRequestBody(messages, options);
 
     const response = await withRetry(
-      () => this.makeRequest(body, options.abortSignal),
+      (_attempt) => this.makeRequest(body, options.abortSignal),
       this.config.retryConfig,
     );
 

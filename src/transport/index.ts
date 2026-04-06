@@ -11,6 +11,7 @@ export {
   ContextTooLongError,
   AuthenticationError,
   StreamTimeoutError,
+  ModelFallbackError,
   withRetry,
   type RetryConfig,
 } from './errors.js';

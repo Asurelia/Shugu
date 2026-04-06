@@ -158,14 +158,18 @@ export function shouldContinue(
   turnResult: TurnResult,
   turnCount: number,
   maxTurns: number,
-): { continue: boolean; reason?: string } {
+  budgetAllowsContinuation?: boolean,
+): { continue: boolean; reason?: string; autoContinue?: boolean } {
   // Natural stop
   if (turnResult.stopReason === 'end_turn' && !turnResult.needsToolExecution) {
     return { continue: false, reason: 'end_turn' };
   }
 
-  // Max tokens hit without tool use
+  // Max tokens hit without tool use — check if budget allows continuation
   if (turnResult.stopReason === 'max_tokens' && !turnResult.needsToolExecution) {
+    if (budgetAllowsContinuation) {
+      return { continue: true, autoContinue: true };
+    }
     return { continue: false, reason: 'max_tokens' };
   }
 
@@ -181,4 +185,63 @@ export function shouldContinue(
 
   // Default: stop
   return { continue: false, reason: turnResult.stopReason ?? 'unknown' };
+}
+
+// ─── Auto-Continuation ─────────────────────────────────
+
+/** Threshold: auto-continue if used less than 90% of budget */
+export const CONTINUATION_THRESHOLD = 0.9;
+
+/** Stop auto-continuing if last 2 continuations added < this many tokens */
+export const DIMINISHING_RETURNS_THRESHOLD = 500;
+
+/** Max number of auto-continuations before stopping */
+export const MAX_CONTINUATIONS = 5;
+
+/**
+ * Track auto-continuation state for diminishing returns detection.
+ */
+export class ContinuationTracker {
+  private continuationCount = 0;
+  private recentDeltas: number[] = [];
+
+  /**
+   * Check if budget allows another continuation.
+   */
+  shouldContinue(usedTokens: number, contextWindow: number): boolean {
+    if (this.continuationCount >= MAX_CONTINUATIONS) return false;
+
+    const usage = usedTokens / contextWindow;
+    if (usage >= CONTINUATION_THRESHOLD) return false;
+
+    // Check diminishing returns (last 2 continuations < threshold)
+    if (this.recentDeltas.length >= 2) {
+      const last2 = this.recentDeltas.slice(-2);
+      if (last2.every(d => d < DIMINISHING_RETURNS_THRESHOLD)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Record a continuation and its token output.
+   */
+  recordContinuation(outputTokens: number): void {
+    this.continuationCount++;
+    this.recentDeltas.push(outputTokens);
+  }
+
+  /**
+   * Reset for a new user turn.
+   */
+  reset(): void {
+    this.continuationCount = 0;
+    this.recentDeltas = [];
+  }
+
+  get count(): number {
+    return this.continuationCount;
+  }
 }

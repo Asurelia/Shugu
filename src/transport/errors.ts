@@ -96,20 +96,27 @@ export interface RetryConfig {
 }
 
 export const DEFAULT_RETRY_CONFIG: RetryConfig = {
-  maxRetries: 3,
-  baseDelayMs: 1000,
-  maxDelayMs: 30_000,
+  maxRetries: 10,          // OpenClaude uses 10
+  baseDelayMs: 500,        // OpenClaude uses 500ms base
+  maxDelayMs: 32_000,      // OpenClaude caps at 32s
 };
 
+/** Max retries specifically for 529 (overloaded) before model fallback */
+export const MAX_529_RETRIES = 3;
+
 export async function withRetry<T>(
-  fn: () => Promise<T>,
+  fn: (attempt: number) => Promise<T>,
   config: RetryConfig = DEFAULT_RETRY_CONFIG,
+  onRetry?: (attempt: number, error: Error, delayMs: number) => void,
 ): Promise<T> {
   let lastError: Error | null = null;
+  let consecutive529s = 0;
 
   for (let attempt = 0; attempt <= config.maxRetries; attempt++) {
     try {
-      return await fn();
+      const result = await fn(attempt);
+      consecutive529s = 0; // Reset on success
+      return result;
     } catch (error) {
       lastError = error as Error;
 
@@ -117,16 +124,40 @@ export async function withRetry<T>(
         throw error;
       }
 
+      // Track consecutive 529s for model fallback signal
+      if (error instanceof TransportError && error.statusCode === 529) {
+        consecutive529s++;
+        if (consecutive529s >= MAX_529_RETRIES) {
+          // Signal that model fallback should be attempted
+          throw new ModelFallbackError(
+            `Server overloaded after ${MAX_529_RETRIES} consecutive 529 errors`,
+            lastError,
+          );
+        }
+      } else {
+        consecutive529s = 0;
+      }
+
       if (attempt === config.maxRetries) {
         throw error;
       }
 
       const delay = calculateBackoff(attempt, config, error as TransportError);
+      onRetry?.(attempt, error as Error, delay);
       await sleep(delay);
     }
   }
 
   throw lastError;
+}
+
+// ─── Model Fallback Error ──────────────────────────────
+
+export class ModelFallbackError extends Error {
+  constructor(message: string, public readonly cause: Error) {
+    super(message);
+    this.name = 'ModelFallbackError';
+  }
 }
 
 function calculateBackoff(
@@ -139,9 +170,9 @@ function calculateBackoff(
     return Math.min(error.retryAfterMs, config.maxDelayMs);
   }
 
-  // Exponential backoff with jitter
+  // Exponential backoff with 25% jitter (OpenClaude pattern)
   const exponential = config.baseDelayMs * Math.pow(2, attempt);
-  const jitter = Math.random() * config.baseDelayMs;
+  const jitter = Math.random() * config.baseDelayMs * 0.25;
   return Math.min(exponential + jitter, config.maxDelayMs);
 }
 
