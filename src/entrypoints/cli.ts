@@ -45,6 +45,7 @@ import type { HookRegistry } from '../plugins/hooks.js';
 import { BackgroundManager } from '../automation/background.js';
 import { Scheduler } from '../automation/scheduler.js';
 import { createBgCommand, createProactiveCommand } from '../commands/automation.js';
+import { runPostTurnIntelligence, type IntelligenceResult } from '../engine/intelligence.js';
 import { registerKnowledgeHooks } from '../plugins/builtin/knowledge-hook.js';
 import { registerBehaviorHooks } from '../plugins/builtin/behavior-hooks.js';
 import { getCompanion, getCompanionPrompt } from '../ui/companion/index.js';
@@ -899,6 +900,37 @@ async function runREPL(
     app.setStatus(renderer.statusBar.render());
 
     process.removeListener('SIGINT', sigintHandler);
+
+    // ── Post-turn intelligence (async, fire-and-forget) ──────
+    runPostTurnIntelligence(
+      {
+        client,
+        messages: conversationMessages,
+        enableSuggestion: true,
+        enableSpeculation: true,
+        enableMemoryExtraction: true,
+      },
+      (result: IntelligenceResult) => {
+        // Prompt suggestion → show as dimmed hint
+        if (result.suggestion) {
+          app.pushMessage({ type: 'info', text: `  💡 ${result.suggestion}` });
+        }
+        // Speculation analysis → show if available
+        if (result.speculation) {
+          app.pushMessage({ type: 'info', text: `  ⚡ Pre-analysis: ${result.speculation.analysis.split('\n')[0]?.slice(0, 100) ?? ''}` });
+        }
+        // Memory extraction → save to vault
+        if (result.memories.length > 0 && obsidianVaultInstance) {
+          for (const mem of result.memories) {
+            obsidianVaultInstance.saveAgentNote(mem.title, mem.content, {
+              tags: ['auto-extracted'],
+              type: 'memory',
+            }).catch(() => {});
+          }
+          app.pushMessage({ type: 'info', text: `  📝 ${result.memories.length} knowledge note(s) saved to vault` });
+        }
+      },
+    ).catch(() => {}); // Entire intelligence pipeline is best-effort
 
     // Save session periodically
     session.messages = conversationMessages;
