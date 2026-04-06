@@ -397,8 +397,8 @@ async function runREPL(
   });
 
   // ── Full Ink app ──
-  const { launchApp } = await import('../ui/App.js');
-  const app = launchApp(
+  const { launchFullApp } = await import('../ui/FullApp.js');
+  const app = launchFullApp(
     permResolver.getMode(),
     renderer.statusBar.render(),
     (newMode) => {
@@ -414,7 +414,7 @@ async function runREPL(
   const askQuestion = async (): Promise<string> => {
     app.setStatus(renderer.statusBar.render());
     app.setMode(permResolver.getMode());
-    app.setStreaming(false);
+    app.stopStreaming();
     return app.waitForInput();
   };
 
@@ -510,8 +510,8 @@ async function runREPL(
       }
       if (cmdResult?.type !== 'prompt') continue;
     } else {
-      // Regular user message — show in scrollable area
-      app.addLine(`\x1b[1m\x1b[32m> ${input}\x1b[0m`);
+      // Regular user message
+      app.pushMessage({ type: 'user', text: input });
       conversationMessages.push({ role: 'user', content: input });
     }
 
@@ -548,12 +548,12 @@ async function runREPL(
     };
 
     let lastOutputTokens = 0;
-    app.setStreaming(true);
-    app.addLine('');
-    app.addLine('\x1b[35m✻ Hatching...\x1b[0m');
+    const streamStart = Date.now();
+    app.startStreaming();
+
     for await (const event of runLoop(conversationMessages, config, interrupt)) {
-      // Handle events directly into Ink app (not renderer)
-      handleEventInk(event, app, budget);
+      // Push events as typed UIMessages into the Ink app
+      handleEventForApp(event, app, budget);
       if (event.type === 'assistant_message') {
         conversationMessages.push(event.message);
       }
@@ -571,10 +571,9 @@ async function runREPL(
     }
 
     // Brew timer
-    if (lastOutputTokens > 0) {
-      app.addLine(`\x1b[2m\x1b[35m✻ Brewed (↓ ${lastOutputTokens} tokens)\x1b[0m`);
-    }
-    app.setStreaming(false);
+    const brewMs = Date.now() - streamStart;
+    app.pushMessage({ type: 'brew', durationMs: brewMs, tokens: lastOutputTokens });
+    app.stopStreaming();
     app.setStatus(renderer.statusBar.render());
 
     process.removeListener('SIGINT', sigintHandler);
@@ -647,11 +646,11 @@ function renderContentBlock(block: ContentBlock, renderer: TerminalRenderer): vo
   }
 }
 
-// ─── Ink Event Handler (pushes lines to App) ───────────
+// ─── Ink Event Handler (pushes UIMessages to FullApp) ───
 
-function handleEventInk(
+function handleEventForApp(
   event: LoopEvent,
-  app: import('../ui/App.js').AppHandle,
+  app: import('../ui/FullApp.js').AppHandle,
   budget?: BudgetTracker,
 ): void {
   switch (event.type) {
@@ -661,36 +660,23 @@ function handleEventInk(
     case 'assistant_message': {
       for (const block of event.message.content) {
         if (isThinkingBlock(block)) {
-          app.addLine(`\x1b[2m\x1b[35mthinking\x1b[0m \x1b[2m→ ${block.thinking}\x1b[0m`);
+          app.pushMessage({ type: 'thinking', text: block.thinking });
         } else if (isTextBlock(block)) {
-          // Split multi-line text into separate lines for Ink
-          for (const line of block.text.split('\n')) {
-            app.addLine(line);
-          }
+          app.pushMessage({ type: 'assistant_text', text: block.text });
         }
       }
       break;
     }
 
     case 'tool_executing':
-      app.addLine('');
-      app.addLine(`\x1b[33m┌──────────────────────────────────────────\x1b[0m`);
-      app.addLine(`\x1b[33m│\x1b[0m \x1b[1m${event.call.name}\x1b[0m \x1b[2m${event.call.id.slice(-8)}\x1b[0m`);
+      app.pushMessage({ type: 'tool_call', name: event.call.name, id: event.call.id });
       break;
 
     case 'tool_result': {
       const content = typeof event.result.content === 'string'
         ? event.result.content
         : JSON.stringify(event.result.content);
-      const isError = event.result.is_error ?? false;
-      const color = isError ? '\x1b[31m' : '\x1b[32m';
-      const icon = isError ? '✗' : '✓';
-      // Truncate and indent
-      const truncated = content.length > 500 ? content.slice(0, 500) + '...' : content;
-      for (const line of truncated.split('\n')) {
-        app.addLine(`\x1b[33m│\x1b[0m ${line}`);
-      }
-      app.addLine(`\x1b[33m└${color}${icon}\x1b[0m\x1b[33m─────────────────────────────────────────\x1b[0m`);
+      app.pushMessage({ type: 'tool_result', content, isError: event.result.is_error ?? false });
       break;
     }
 
@@ -702,7 +688,7 @@ function handleEventInk(
       break;
 
     case 'error':
-      app.addLine(`\x1b[31m\x1b[1merror\x1b[0m\x1b[31m → ${event.error.message}\x1b[0m`);
+      app.pushMessage({ type: 'error', text: event.error.message });
       break;
   }
 }
