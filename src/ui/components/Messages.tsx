@@ -90,8 +90,14 @@ function MessageRow({ message, isFirst }: { message: UIMessage; isFirst?: boolea
         </Box>
       );
 
-    case 'tool_result':
-      return <ToolResultBlock content={message.content} isError={message.isError} />;
+    case 'tool_result': {
+      // Truncate very long results to prevent terminal flooding
+      const maxPreview = 2000;
+      const truncatedContent = message.content.length > maxPreview
+        ? message.content.slice(0, maxPreview) + `\n... [${(message.content.length - maxPreview).toLocaleString()} chars truncated]`
+        : message.content;
+      return <ToolResultBlock content={truncatedContent} isError={message.isError} />;
+    }
 
     case 'error':
       return (

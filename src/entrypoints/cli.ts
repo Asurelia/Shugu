@@ -659,6 +659,11 @@ async function runREPL(
       continue;
     }
 
+    // ── Show user message IMMEDIATELY (before any processing) ──
+    if (!input.startsWith('/') || input.startsWith('/vibe') || input.startsWith('/dream') || input.startsWith('/hunt') || input.startsWith('/brain') || input.startsWith('/proactive')) {
+      app.pushMessage({ type: 'user', text: input });
+    }
+
     // ── Skill matching (before command dispatch) ──────────
     let skillHandled = false;
     if (skillRegistry && input.startsWith('/')) {
@@ -682,9 +687,7 @@ async function runREPL(
           app.pushMessage({ type: 'error', text: skillResult.message });
           skillHandled = true;
         } else if (skillResult.type === 'prompt') {
-          app.pushMessage({ type: 'user', text: input });
           conversationMessages.push({ role: 'user', content: skillResult.prompt });
-          // Fall through to the agentic loop below
         }
       }
     }
@@ -709,14 +712,14 @@ async function runREPL(
             renderer.error(cmdResult.message);
             continue;
           case 'prompt':
+            app.pushMessage({ type: 'user', text: input });
             conversationMessages.push({ role: 'user', content: cmdResult.prompt });
             break;
         }
       }
       if (cmdResult?.type !== 'prompt') continue;
     } else {
-      // Regular user message
-      app.pushMessage({ type: 'user', text: input });
+      // Regular user message (already displayed above)
       conversationMessages.push({ role: 'user', content: input });
     }
 
@@ -886,11 +889,16 @@ function getCompanionInstance(): import('../ui/companion/index.js').Companion | 
   return _companion;
 }
 
+let _companionThrottleUntil = 0;
 function pushCompanionReaction(app: import('../ui/FullApp.js').AppHandle, event: CompanionEvent): void {
   const c = getCompanionInstance();
   if (!c) return;
+  // Throttle: max 1 reaction per 5 seconds (prevents flooding during streaming)
+  const now = Date.now();
+  if (now < _companionThrottleUntil && event.type !== 'greeting' && event.type !== 'pet') return;
   const reaction = generateReaction(c, event);
   if (reaction) {
+    _companionThrottleUntil = now + 5000;
     app.pushMessage({ type: 'info', text: `  ${c.name}: ${reaction}` });
   }
 }

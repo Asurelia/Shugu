@@ -78,26 +78,33 @@ function FullApp({ initialMode, initialStatus, stateRef, onSubmit, onModeChange 
   const rows = stdout?.rows ?? 24;
   const bar = '─'.repeat(cols);
 
-  // Poll external state changes (from engine)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const ext = stateRef.current;
-      setState(prev => {
-        // Only update if something changed
-        if (prev.messages.length !== ext.messages.length ||
-            prev.mode !== ext.mode ||
-            prev.statusText !== ext.statusText ||
-            prev.isStreaming !== ext.isStreaming ||
-            prev.showInput !== ext.showInput ||
-            prev.streamStartTime !== ext.streamStartTime ||
-            prev.streamTokens !== ext.streamTokens) {
-          return { ...ext };
-        }
-        return prev;
-      });
-    }, 50); // 50ms for smooth streaming
-    return () => clearInterval(interval);
+  // Sync external state → React state via polling + immediate flush
+  // The poll interval catches streaming updates; immediate flush handles user messages
+  const flushState = useCallback(() => {
+    const ext = stateRef.current;
+    setState(prev => {
+      if (prev.messages.length !== ext.messages.length ||
+          prev.mode !== ext.mode ||
+          prev.statusText !== ext.statusText ||
+          prev.isStreaming !== ext.isStreaming ||
+          prev.showInput !== ext.showInput ||
+          prev.streamStartTime !== ext.streamStartTime ||
+          prev.streamTokens !== ext.streamTokens) {
+        return { ...ext };
+      }
+      return prev;
+    });
   }, [stateRef]);
+
+  useEffect(() => {
+    const interval = setInterval(flushState, 100); // 100ms poll (reduced from 50ms)
+    return () => clearInterval(interval);
+  }, [flushState]);
+
+  // Expose flushState so pushMessage can trigger immediate re-render
+  useEffect(() => {
+    (stateRef as { current: ExternalState & { _flush?: () => void } }).current._flush = flushState;
+  }, [flushState, stateRef]);
 
   const modeColor = state.mode === 'bypass' ? 'red' : state.mode === 'fullAuto' ? 'yellow' : 'green';
 
@@ -251,6 +258,9 @@ export function launchFullApp(
   return {
     pushMessage(msg: UIMessage) {
       updateState({ messages: [...stateRef.current.messages, msg] });
+      // Trigger immediate re-render for user messages (no 100ms polling delay)
+      const flush = (stateRef.current as ExternalState & { _flush?: () => void })._flush;
+      if (flush) flush();
     },
     updateLastText(text: string) {
       const msgs = [...stateRef.current.messages];
