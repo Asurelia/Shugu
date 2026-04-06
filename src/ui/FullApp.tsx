@@ -54,27 +54,51 @@ function StaticMessage({ message }: { message: UIMessage }) {
     case 'assistant_text':
       return (
         <Box flexDirection="column" paddingLeft={2}>
-          {message.text.split('\n').map((line, i) => (
-            <Text key={i}>{line}</Text>
-          ))}
+          {message.text.split('\n').map((line, i) => {
+            // Basic markdown rendering
+            if (line.startsWith('### ')) return <Text key={i} bold color="cyan">{'   '}{line.slice(4)}</Text>;
+            if (line.startsWith('## ')) return <Text key={i} bold color="cyan">{'  '}{line.slice(3)}</Text>;
+            if (line.startsWith('# ')) return <Text key={i} bold color="cyan">{line.slice(2)}</Text>;
+            if (line.startsWith('```')) return <Text key={i} dimColor color="gray">{line}</Text>;
+            if (line.startsWith('- ') || line.startsWith('* ')) return <Text key={i}>{'  '}{line}</Text>;
+            if (/^\d+\.\s/.test(line)) return <Text key={i}>{'  '}{line}</Text>;
+            if (line.startsWith('|')) return <Text key={i} dimColor>{line}</Text>;
+            if (line.startsWith('---') || line.startsWith('***')) return <Text key={i} dimColor>{'────────────────────────────────────────'}</Text>;
+            if (line.startsWith('>')) return <Text key={i} dimColor italic>{'  │ '}{line.slice(1).trim()}</Text>;
+            return <Text key={i}>{line}</Text>;
+          })}
         </Box>
       );
 
-    case 'thinking':
+    case 'thinking': {
+      // Thinking block in a dimmed box — shows reasoning
+      const thinkPreview = message.text.length > 300 ? message.text.slice(0, 300) + '…' : message.text;
+      const thinkLines = thinkPreview.split('\n').slice(0, 6);
       return (
-        <Box paddingLeft={2}>
-          <Text dimColor italic>{'∴ '}{message.text.length > 200 ? message.text.slice(0, 200) + '…' : message.text}</Text>
+        <Box flexDirection="column" paddingLeft={2} marginTop={1}>
+          <Text dimColor italic color="gray">{'╭─ ∴ reasoning ─────────────────────────────'}</Text>
+          {thinkLines.map((line, i) => (
+            <Text key={i} dimColor italic color="gray">{'│ '}{line}</Text>
+          ))}
+          {message.text.length > 300 && (
+            <Text dimColor italic color="gray">{'│ …'}</Text>
+          )}
+          <Text dimColor italic color="gray">{'╰────────────────────────────────────────────'}</Text>
         </Box>
       );
+    }
 
-    case 'tool_call':
+    case 'tool_call': {
+      // Show tool name + useful detail (path, command, pattern) instead of cryptic ID
+      const detail = message.detail || '';
       return (
         <Box marginTop={1}>
           <Text color="yellow">{'╭── '}</Text>
           <Text bold color="yellow">{message.name}</Text>
-          <Text dimColor>{' '}{message.id.slice(-8)}</Text>
+          {detail ? <Text dimColor>{' '}{detail}</Text> : null}
         </Box>
       );
+    }
 
     case 'tool_result': {
       const maxLen = 1500;

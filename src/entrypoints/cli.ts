@@ -925,10 +925,13 @@ function handleEventForApp(
       break;
     }
 
-    case 'tool_executing':
-      app.pushMessage({ type: 'tool_call', name: event.call.name, id: event.call.id });
+    case 'tool_executing': {
+      // Extract human-readable detail from tool input
+      const detail = extractToolDetail(event.call.name, event.call.input);
+      app.pushMessage({ type: 'tool_call', name: event.call.name, id: event.call.id, detail });
       pushCompanionReaction(app, { type: 'tool_start', tool: event.call.name });
       break;
+    }
 
     case 'tool_result': {
       const content = typeof event.result.content === 'string'
@@ -954,6 +957,53 @@ function handleEventForApp(
 }
 
 // ─── Helpers ────────────────────────────────────────────
+
+/**
+ * Extract a human-readable detail from tool input.
+ * Shows the path, command, or pattern instead of the cryptic tool_use ID.
+ */
+function extractToolDetail(toolName: string, input: Record<string, unknown>): string {
+  switch (toolName) {
+    case 'Bash': {
+      const cmd = (input['command'] as string) ?? '';
+      return cmd.length > 80 ? cmd.slice(0, 77) + '...' : cmd;
+    }
+    case 'Read':
+    case 'Write':
+    case 'Edit': {
+      const fp = (input['file_path'] as string) ?? '';
+      // Show just filename or last 2 path segments
+      const parts = fp.replace(/\\/g, '/').split('/');
+      return parts.length > 2 ? parts.slice(-2).join('/') : fp;
+    }
+    case 'Glob': {
+      return (input['pattern'] as string) ?? '';
+    }
+    case 'Grep': {
+      const pat = (input['pattern'] as string) ?? '';
+      const path = (input['path'] as string) ?? '';
+      const shortPath = path.replace(/\\/g, '/').split('/').pop() ?? '';
+      return pat + (shortPath ? ` in ${shortPath}` : '');
+    }
+    case 'WebFetch': {
+      const url = (input['url'] as string) ?? '';
+      try { return new URL(url).hostname; } catch { return url.slice(0, 60); }
+    }
+    case 'WebSearch': {
+      return (input['query'] as string) ?? '';
+    }
+    case 'Agent': {
+      return ((input['description'] as string) ?? '').slice(0, 60);
+    }
+    case 'Obsidian': {
+      const op = (input['operation'] as string) ?? '';
+      const q = (input['query'] as string) ?? (input['path'] as string) ?? (input['title'] as string) ?? '';
+      return `${op}${q ? ': ' + q.slice(0, 50) : ''}`;
+    }
+    default:
+      return '';
+  }
+}
 
 function formatTimeAgo(isoDate: string): string {
   const ms = Date.now() - new Date(isoDate).getTime();
