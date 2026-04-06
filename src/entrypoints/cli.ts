@@ -396,19 +396,20 @@ async function runREPL(
     mode: permResolver.getMode(),
   });
 
-  // ── Ink prompt area ──
-  const { launchInkPrompt } = await import('../ui/PromptArea.js');
-  const inkPrompt = launchInkPrompt(
-    permResolver.getMode(),
-    renderer.statusBar.render(),
-  );
+  // ── Ink prompt (mount/unmount per turn) ──
+  const { promptWithInk } = await import('../ui/PromptArea.js');
 
   const askQuestion = async (): Promise<string> => {
-    inkPrompt.updateStatus(renderer.statusBar.render());
-    inkPrompt.updateMode(permResolver.getMode());
-    const input = await inkPrompt.waitForInput();
-    // When mode changes via shift+tab inside Ink, sync back
-    // (handled by onModeChange callback in the Ink component)
+    // Mount Ink, wait for input, Ink auto-unmounts on submit
+    const input = await promptWithInk(
+      permResolver.getMode(),
+      renderer.statusBar.render(),
+      (newMode) => {
+        permResolver.setMode(newMode as import('../protocol/tools.js').PermissionMode);
+        renderer.statusBar.update({ mode: newMode });
+      },
+    );
+    // After unmount: console.log works normally for the response
     return input;
   };
 
@@ -420,7 +421,6 @@ async function runREPL(
   };
 
   process.on('SIGINT', async () => {
-    inkPrompt.unmount();
     await saveSession();
     renderer.loopEnd('user_exit', budget.getTotalCostUsd());
     process.exit(0);
@@ -492,7 +492,7 @@ async function runREPL(
             renderer.statusBar.stop();
             await saveSession();
             renderer.loopEnd(cmdResult.reason, budget.getTotalCostUsd());
-            inkPrompt.unmount();
+            // Ink already unmounted after submit
             return;
           case 'error':
             renderer.error(cmdResult.message);
@@ -572,7 +572,7 @@ async function runREPL(
     await sessionMgr.save(session).catch(() => {});
   }
 
-  inkPrompt.unmount();
+  // Ink already unmounted after each submit
 }
 
 // ─── Event Handler ─────────────────���────────────────────
