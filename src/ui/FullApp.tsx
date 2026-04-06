@@ -517,6 +517,8 @@ function FullApp({ initialMode, initialStatus, stateRef, onSubmit, onModeChange 
       finalText = text.replace(/\[Pasted text #\d+ — \d+ lines\]/, pastedContentRef.current);
       pastedContentRef.current = null;
     }
+    // Sanitize residual paste markers ([200~, [201~, etc.)
+    finalText = finalText.replace(/\[200~/g, '').replace(/\[201~/g, '').replace(/200~/g, '').replace(/201~/g, '');
     setInputValue('');
     onSubmit(finalText.trim());
   }, [onSubmit]);

@@ -12,6 +12,17 @@
 const PASTE_START = '\x1b[200~';
 const PASTE_END = '\x1b[201~';
 
+/** Strip any residual paste markers (full or partial) from text */
+function sanitizePasteMarkers(text: string): string {
+  return text
+    .replace(/\x1b\[200~/g, '')
+    .replace(/\x1b\[201~/g, '')
+    .replace(/\[200~/g, '')
+    .replace(/\[201~/g, '')
+    .replace(/200~/g, '')
+    .replace(/201~/g, '');
+}
+
 export interface PasteHandler {
   /** Enable bracketed paste mode on the terminal */
   enable(): void;
@@ -56,7 +67,7 @@ export function createPasteHandler(): PasteHandler {
             inPaste = false;
             pasteBuffer = '';
             if (callback && content.length > 0) {
-              callback(content);
+              callback(sanitizePasteMarkers(content));
             }
           }
           return;
@@ -70,7 +81,7 @@ export function createPasteHandler(): PasteHandler {
             inPaste = false;
             pasteBuffer = '';
             if (callback && content.length > 0) {
-              callback(content);
+              callback(sanitizePasteMarkers(content));
             }
           }
           return;

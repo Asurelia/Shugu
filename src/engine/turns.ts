@@ -135,6 +135,31 @@ export function ensureToolResultPairing(messages: Message[]): Message[] {
     }
   }
 
+  // Second pass: remove orphaned tool_results (tool_use_id has no matching tool_use)
+  // This prevents API 400 "tool result's tool id not found" errors
+  const allToolUseIds = new Set<string>();
+  for (const msg of result) {
+    if (msg.role === 'assistant' && Array.isArray(msg.content)) {
+      for (const block of msg.content) {
+        if (isToolUseBlock(block)) allToolUseIds.add(block.id);
+      }
+    }
+  }
+
+  for (const msg of result) {
+    if (msg.role === 'user' && Array.isArray(msg.content)) {
+      const filtered = (msg.content as ContentBlock[]).filter((block) => {
+        if ((block as { type: string }).type === 'tool_result') {
+          return allToolUseIds.has((block as ToolResultBlock).tool_use_id);
+        }
+        return true;
+      });
+      if (filtered.length !== (msg.content as ContentBlock[]).length) {
+        (msg as UserMessage).content = filtered.length > 0 ? filtered : 'ok';
+      }
+    }
+  }
+
   return result;
 }
 
