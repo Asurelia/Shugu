@@ -4,7 +4,8 @@
  */
 
 import type { CompanionBones, Companion, Rarity, Species, Eye, Hat } from './types.js';
-import { SPECIES, EYES, HATS, RARITIES, RARITY_WEIGHTS } from './types.js';
+import { SPECIES, EYES, HATS, RARITIES, RARITY_WEIGHTS, RARITY_STARS } from './types.js';
+import { renderSprite, renderFace } from './sprites.js';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
@@ -109,4 +110,125 @@ export function getCompanion(seed?: string): Companion {
   }
 
   return { ...bones, ...stored };
+}
+
+// ─── Stats Generation ──────────────────────────────────
+
+const STAT_NAMES = ['DEBUGGING', 'PATIENCE', 'CHAOS', 'WISDOM', 'SNARK'] as const;
+
+const RARITY_STAT_FLOOR: Record<Rarity, number> = {
+  common: 5, uncommon: 15, rare: 25, epic: 35, legendary: 50,
+};
+
+export function generateStats(bones: CompanionBones): Record<string, number> {
+  const rng = new SeededRandom(simpleHash(`stats-${bones.species}-${bones.eye}-${bones.rarity}`));
+  const floor = RARITY_STAT_FLOOR[bones.rarity];
+  const stats: Record<string, number> = {};
+
+  // Pick a peak stat and a dump stat
+  const peakIdx = Math.floor(rng.next() * STAT_NAMES.length);
+  const dumpIdx = (peakIdx + 2) % STAT_NAMES.length;
+
+  for (let i = 0; i < STAT_NAMES.length; i++) {
+    let val = floor + Math.floor(rng.next() * (100 - floor));
+    if (i === peakIdx) val = Math.min(100, val + 20);
+    if (i === dumpIdx) val = Math.max(floor, val - 25);
+    stats[STAT_NAMES[i]!] = val;
+  }
+
+  return stats;
+}
+
+// ─── Display Functions ─────────────────────────────────
+
+function statBar(value: number): string {
+  const filled = Math.round(value / 100 * 14);
+  return '█'.repeat(filled) + '░'.repeat(14 - filled);
+}
+
+/**
+ * Render the full /buddy card as text lines.
+ */
+export function renderBuddyCard(companion: Companion): string[] {
+  const stars = RARITY_STARS[companion.rarity];
+  const stats = generateStats(companion);
+  const sprite = renderSprite(companion, 0);
+  const face = renderFace(companion);
+
+  const lines: string[] = [];
+  lines.push('╭───────────────────────────────────────╮');
+  lines.push(`│  ${face}  ${companion.name}  ${stars}${companion.shiny ? ' ✨' : ''}`.padEnd(40) + '│');
+  lines.push(`│  ${companion.rarity} ${companion.species}`.padEnd(40) + '│');
+  lines.push('│' + '─'.repeat(39) + '│');
+
+  // Sprite
+  for (const spriteLine of sprite) {
+    lines.push('│  ' + spriteLine.padEnd(37) + '│');
+  }
+
+  lines.push('│' + '─'.repeat(39) + '│');
+
+  // Stats
+  for (const [name, value] of Object.entries(stats)) {
+    const bar = statBar(value);
+    lines.push(`│  ${name.padEnd(10)} ${bar} ${String(value).padStart(3)}  │`);
+  }
+
+  lines.push('│' + '─'.repeat(39) + '│');
+  lines.push(`│  Personality: ${companion.personality}`.slice(0, 39).padEnd(40) + '│');
+  lines.push('╰───────────────────────────────────────╯');
+
+  return lines;
+}
+
+/**
+ * Render the compact /buddy view (sprite + name).
+ */
+export function renderBuddyCompact(companion: Companion): string[] {
+  const stars = RARITY_STARS[companion.rarity];
+  const sprite = renderSprite(companion, 0);
+  const lines: string[] = [];
+  for (const line of sprite) {
+    lines.push(`  ${line}`);
+  }
+  lines.push(`  ${companion.name} — ${companion.rarity} ${companion.species} ${stars}${companion.shiny ? ' ✨' : ''}`);
+  return lines;
+}
+
+/**
+ * Render the hatch ceremony for a new companion.
+ */
+export function renderHatchCeremony(companion: Companion): string[] {
+  const stars = RARITY_STARS[companion.rarity];
+  const sprite = renderSprite(companion, 0);
+  const stats = generateStats(companion);
+
+  const lines: string[] = [];
+  lines.push('');
+  lines.push('  ✦ ✦ ✦  A wild companion appeared!  ✦ ✦ ✦');
+  lines.push('');
+  for (const line of sprite) {
+    lines.push(`      ${line}`);
+  }
+  lines.push('');
+  lines.push(`  Name: ${companion.name}`);
+  lines.push(`  Species: ${companion.species} ${stars}${companion.shiny ? ' ✨ SHINY!' : ''}`);
+  lines.push(`  Rarity: ${companion.rarity}`);
+  lines.push(`  Personality: ${companion.personality}`);
+  lines.push('');
+  for (const [name, value] of Object.entries(stats)) {
+    lines.push(`  ${name.padEnd(10)} ${statBar(value)} ${value}`);
+  }
+  lines.push('');
+  lines.push(`  ${companion.name} will sit beside your input and observe your work.`);
+  lines.push('  Use /buddy to see them, /buddy card for stats, /buddy pet for ♥');
+  lines.push('');
+  return lines;
+}
+
+/**
+ * Check if this is the first time the companion is seen (for hatch ceremony).
+ */
+export function isFirstHatch(): boolean {
+  return !existsSync(COMPANION_FILE);
 }

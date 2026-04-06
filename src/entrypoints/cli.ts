@@ -47,7 +47,7 @@ import { Scheduler } from '../automation/scheduler.js';
 import { createBgCommand, createProactiveCommand } from '../commands/automation.js';
 import { registerKnowledgeHooks } from '../plugins/builtin/knowledge-hook.js';
 import { registerBehaviorHooks } from '../plugins/builtin/behavior-hooks.js';
-import { getCompanion, getCompanionPrompt, generateReaction, type CompanionEvent } from '../ui/companion/index.js';
+import { getCompanion, getCompanionPrompt } from '../ui/companion/index.js';
 
 // ─── System Prompt ──────────────────────────────────────
 
@@ -557,8 +557,16 @@ async function runREPL(
     app.pushMessage({ type: 'info', text: line });
   }
 
-  // Companion greeting at REPL start
-  pushCompanionReaction(app, { type: 'greeting' });
+  // Hatch ceremony on first launch
+  const { isFirstHatch, renderHatchCeremony, renderBuddyCompact, renderBuddyCard } = await import('../ui/companion/companion.js');
+  if (isFirstHatch()) {
+    const c = getCompanionInstance();
+    if (c) {
+      for (const line of renderHatchCeremony(c)) {
+        app.pushMessage({ type: 'info', text: line });
+      }
+    }
+  }
 
   const askQuestion = async (): Promise<string> => {
     app.setStatus(renderer.statusBar.render());
@@ -596,30 +604,55 @@ async function runREPL(
     }
 
     // ── Local-state commands (need direct access to REPL state) ──
-    if (input === '/buddy' || input === '/buddy pet' || input === '/pet') {
-      pushCompanionReaction(app, { type: 'pet' });
+    if (input === '/buddy' || input === '/pet') {
+      const c = getCompanionInstance();
+      if (c) {
+        for (const line of renderBuddyCompact(c)) {
+          app.pushMessage({ type: 'info', text: line });
+        }
+      }
+      continue;
+    }
+    if (input === '/buddy card' || input === '/buddy info' || input === '/buddy stats') {
+      const c = getCompanionInstance();
+      if (c) {
+        for (const line of renderBuddyCard(c)) {
+          app.pushMessage({ type: 'info', text: line });
+        }
+      }
+      continue;
+    }
+    if (input === '/buddy pet') {
+      const c = getCompanionInstance();
+      if (c) {
+        app.pushMessage({ type: 'info', text: `  ♥ ♥ ♥  ${c.name} purrs happily!  ♥ ♥ ♥` });
+      }
+      continue;
+    }
+    if (input === '/buddy mute') {
+      _companionMuted = true;
+      app.pushMessage({ type: 'info', text: '  Companion muted. Use /buddy unmute to restore.' });
+      continue;
+    }
+    if (input === '/buddy unmute') {
+      _companionMuted = false;
+      app.pushMessage({ type: 'info', text: '  Companion unmuted.' });
+      continue;
+    }
+    if (input === '/buddy off') {
+      _companionMuted = true;
+      app.pushMessage({ type: 'info', text: '  Companion hidden. Use /buddy to show again.' });
       continue;
     }
     if (input.startsWith('/buddy name ')) {
       const newName = input.slice(12).trim();
       const c = getCompanionInstance();
       if (c && newName) {
+        const oldName = c.name;
         c.name = newName;
         const { saveCompanion } = await import('../ui/companion/companion.js');
         saveCompanion({ name: newName, personality: c.personality, hatchedAt: c.hatchedAt });
-        app.pushMessage({ type: 'info', text: `Companion renamed to ${newName}!` });
-        pushCompanionReaction(app, { type: 'pet' });
-      }
-      continue;
-    }
-    if (input === '/buddy info') {
-      const c = getCompanionInstance();
-      if (c) {
-        const { RARITY_STARS } = await import('../ui/companion/types.js');
-        const { renderFace } = await import('../ui/companion/sprites.js');
-        app.pushMessage({ type: 'info', text: `  ${renderFace(c)} ${c.name} — ${c.rarity} ${c.species} ${RARITY_STARS[c.rarity]}${c.shiny ? ' ✨' : ''}` });
-        app.pushMessage({ type: 'info', text: `  Personality: ${c.personality}` });
-        app.pushMessage({ type: 'info', text: `  Eyes: ${c.eye} | Hat: ${c.hat}` });
+        app.pushMessage({ type: 'info', text: `  ${oldName} is now ${newName}!` });
       }
       continue;
     }
@@ -881,26 +914,13 @@ function renderContentBlock(block: ContentBlock, renderer: TerminalRenderer): vo
 
 // Companion instance — created once, reused across events
 let _companion: import('../ui/companion/index.js').Companion | null = null;
+let _companionMuted = false;
 function getCompanionInstance(): import('../ui/companion/index.js').Companion | null {
   if (_companion === undefined) return null;
   if (!_companion) {
     try { _companion = getCompanion(); } catch { _companion = null; }
   }
   return _companion;
-}
-
-let _companionThrottleUntil = 0;
-function pushCompanionReaction(app: import('../ui/FullApp.js').AppHandle, event: CompanionEvent): void {
-  const c = getCompanionInstance();
-  if (!c) return;
-  // Throttle: max 1 reaction per 5 seconds (prevents flooding during streaming)
-  const now = Date.now();
-  if (now < _companionThrottleUntil && event.type !== 'greeting' && event.type !== 'pet') return;
-  const reaction = generateReaction(c, event);
-  if (reaction) {
-    _companionThrottleUntil = now + 5000;
-    app.pushMessage({ type: 'info', text: `  ${c.name}: ${reaction}` });
-  }
 }
 
 function handleEventForApp(
@@ -917,7 +937,6 @@ function handleEventForApp(
       for (const block of event.message.content) {
         if (isThinkingBlock(block)) {
           app.pushMessage({ type: 'thinking', text: block.thinking });
-          pushCompanionReaction(app, { type: 'thinking' });
         } else if (isTextBlock(block)) {
           app.pushMessage({ type: 'assistant_text', text: block.text });
         }
@@ -929,7 +948,6 @@ function handleEventForApp(
       // Extract human-readable detail from tool input
       const detail = extractToolDetail(event.call.name, event.call.input);
       app.pushMessage({ type: 'tool_call', name: event.call.name, id: event.call.id, detail });
-      pushCompanionReaction(app, { type: 'tool_start', tool: event.call.name });
       break;
     }
 
@@ -946,12 +964,10 @@ function handleEventForApp(
       break;
 
     case 'loop_end':
-      pushCompanionReaction(app, { type: 'done' });
       break;
 
     case 'error':
       app.pushMessage({ type: 'error', text: event.error.message });
-      pushCompanionReaction(app, { type: 'error' });
       break;
   }
 }
