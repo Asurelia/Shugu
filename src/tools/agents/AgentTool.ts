@@ -135,7 +135,9 @@ export class AgentTool implements Tool {
 
       // Self-repair: retry once if agent failed or produced no response
       if (!result.success || !result.response) {
-        const errorInfo = result.response || result.endReason;
+        // Sanitize error info: truncate, strip potential secrets/paths
+        const rawError = result.response || result.endReason || 'unknown error';
+        const errorInfo = rawError.slice(0, 200).replace(/[A-Za-z0-9_\-]{20,}/g, '[REDACTED]');
         this.onAgentEvent?.({ agentType, event: 'error', message: `Retrying: ${errorInfo}` });
         const retryPrompt = `Previous attempt failed: ${errorInfo}\nTry a different approach.\n\nOriginal task: ${prompt}`;
         result = await this.orchestrator.spawn(retryPrompt, agentType, options);
