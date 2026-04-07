@@ -13,7 +13,7 @@ import { isSpillPath } from '../outputLimits.js';
 
 export const FileReadToolDefinition: ToolDefinition = {
   name: 'Read',
-  description: `Reads a file from the filesystem. Returns content with line numbers. Use offset and limit for large files. Can read text files, images, and PDFs.`,
+  description: `Reads a text file from the filesystem. Returns content with line numbers. Use offset and limit for large files.`,
   inputSchema: {
     type: 'object',
     properties: {

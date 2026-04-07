@@ -15,6 +15,8 @@ export interface MessageStartEvent {
     id: string;
     model: string;
     usage: Usage;
+    /** MiniMax may include pre-computed reasoning as an array on message_start */
+    reasoning_details?: Array<{ text: string }>;
   };
 }
 
@@ -76,7 +78,8 @@ export type StreamEvent =
   | ContentBlockDeltaEvent
   | ContentBlockStopEvent
   | MessageDeltaEvent
-  | MessageStopEvent;
+  | MessageStopEvent
+  | ReasoningDelta;
 
 // ─── Stream State ───────────────────────────────────────
 

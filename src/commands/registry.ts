@@ -7,6 +7,7 @@
  */
 
 import type { Message } from '../protocol/messages.js';
+import type { MiniMaxClient } from '../transport/client.js';
 
 // ─── Command Types ──────────────────────────────────────
 
@@ -27,6 +28,8 @@ export interface CommandContext {
   error: (msg: string) => void;
   /** Access to the model for commands that need it (e.g., /commit) */
   query?: (prompt: string) => Promise<string>;
+  /** Access to the client for commands that need to switch models */
+  client?: MiniMaxClient;
 }
 
 export type CommandResult =

@@ -15,7 +15,7 @@ const DEFAULT_TIMEOUT_MS = 120_000; // 2 minutes
 
 export const BashToolDefinition: ToolDefinition = {
   name: 'Bash',
-  description: `Executes a bash command and returns its output. The working directory persists between calls. Use for: running commands, installing packages, checking system state, git operations. Avoid for: reading files (use FileRead), searching files (use Grep/Glob), writing files (use FileWrite).`,
+  description: `Executes a bash command and returns its output. Each command runs in a fresh shell rooted at the project directory. Use absolute paths or chain with && for multi-step operations. Use for: running commands, installing packages, checking system state, git operations. Avoid for: reading files (use Read), searching files (use Grep/Glob), writing files (use Write).`,
   inputSchema: {
     type: 'object',
     properties: {

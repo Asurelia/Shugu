@@ -101,6 +101,8 @@ export class ProactiveLoop extends EventEmitter {
     let totalCost = 0;
     let lastResponse = '';
     let goalDone = false;
+    // Carry full history forward between iterations so tool_results are preserved
+    let carryHistory: Message[] = [];
 
     try {
       for (let iteration = 1; iteration <= maxIterations; iteration++) {
@@ -111,7 +113,7 @@ export class ProactiveLoop extends EventEmitter {
         // Build the messages for this iteration
         const messages: Message[] = iteration === 1
           ? [{ role: 'user', content: `[PROACTIVE MODE] Goal: ${goal}\n\nBegin working toward this goal. Do not ask for confirmation — proceed autonomously.` }]
-          : [{ role: 'user', content: continuationPrompt(goal, iteration, lastResponse) }];
+          : [...carryHistory, { role: 'user', content: continuationPrompt(goal, iteration, lastResponse) }];
 
         // Run one iteration of the agentic loop
         for await (const event of runLoop(messages, loopConfig, this.interrupt)) {
@@ -123,6 +125,10 @@ export class ProactiveLoop extends EventEmitter {
               .filter(isTextBlock)
               .map((b) => b.text)
               .join('');
+          }
+
+          if (event.type === 'history_sync') {
+            carryHistory = [...event.messages];
           }
 
           if (event.type === 'loop_end') {

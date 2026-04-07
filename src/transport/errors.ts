@@ -47,6 +47,13 @@ export class StreamTimeoutError extends TransportError {
   }
 }
 
+export class ModelNotFoundError extends TransportError {
+  constructor(model: string) {
+    super(`Model not found: ${model}`, 404, false);
+    this.name = 'ModelNotFoundError';
+  }
+}
+
 // ─── Error Classification ───────────────────────────────
 
 export function classifyHttpError(status: number, body: string): TransportError {
@@ -61,6 +68,10 @@ export function classifyHttpError(status: number, body: string): TransportError 
 
   if (status === 400 && (body.includes('prompt is too long') || body.includes('context window exceeds limit'))) {
     return new ContextTooLongError(body);
+  }
+
+  if (status === 404 && body.includes('model')) {
+    return new ModelNotFoundError(body);
   }
 
   if (status === 529 || status === 503) {

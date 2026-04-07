@@ -27,7 +27,7 @@ export interface CompactionConfig {
 }
 
 export const DEFAULT_COMPACTION_CONFIG: CompactionConfig = {
-  keepRecentTurns: 4,
+  keepRecentTurns: 6,
   summaryMaxTokens: 2048,
 };
 
@@ -144,15 +144,19 @@ function identifyTurns(messages: Message[]): Turn[] {
 
 // ─── Summary Generation ─────────────────────────────────
 
-const COMPACTION_PROMPT = `Summarize the following conversation concisely. Focus on:
-1. What the user asked for
-2. What actions were taken (files read/written, commands run)
-3. Key decisions and outcomes
-4. Any unresolved issues or next steps
+const COMPACTION_PROMPT = `Summarize the following conversation as a structured action log. Use this format:
 
-Be factual and specific. Include file paths, command results, and code changes mentioned.
-Do NOT include the full content of files — just note which files were involved.
-Keep the summary under 500 words.`;
+- [TOOL: name] path/target → outcome (success/error/partial)
+- [DECISION] what was decided and why
+- [FINDING] what was discovered or learned
+- [PENDING] unresolved issues or next steps
+
+Rules:
+- Preserve ALL file paths, tool names, error messages, and specific results
+- Do NOT paraphrase code — note the file and what changed
+- Do NOT include conversational filler or greetings
+- Include every tool call and its outcome
+- Keep under 500 words`;
 
 async function generateSummary(
   messages: Message[],

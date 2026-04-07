@@ -117,6 +117,8 @@ export async function buildSystemPrompt(
       parts.push('\n\n# Project Instructions');
       parts.push(projectResult.customInstructions);
     }
+  } else {
+    logger.warn('Project context failed to load — custom instructions will be missing');
   }
 
   // CLI tool hints

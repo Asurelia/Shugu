@@ -52,6 +52,7 @@ export interface CliArgs {
   continueSession: boolean;
   resumeSession: string | true | false;
   verbose: boolean;
+  model: string | null;
 }
 
 export function parseArgs(): CliArgs {
@@ -60,11 +61,14 @@ export function parseArgs(): CliArgs {
   let continueSession = false;
   let resumeSession: string | true | false = false;
   let verbose = false;
+  let model: string | null = null;
   const promptParts: string[] = [];
 
   for (const arg of args) {
     if (arg === '--bypass') {
       mode = 'bypass';
+    } else if (arg.startsWith('--model=')) {
+      model = arg.slice(8);
     } else if (arg === '--continue' || arg === '-c') {
       continueSession = true;
     } else if (arg === '--resume' || arg === '-r') {
@@ -91,12 +95,18 @@ export function parseArgs(): CliArgs {
     }
   }
 
+  // Resolve model: CLI arg > env var > default
+  if (!model) {
+    model = process.env['MINIMAX_MODEL'] ?? null;
+  }
+
   return {
     mode,
     prompt: promptParts.length > 0 ? promptParts.join(' ').trim() : null,
     continueSession,
     resumeSession,
     verbose,
+    model,
   };
 }
 
@@ -111,6 +121,7 @@ export function printHelp(): void {
     shugu --resume              Pick a session to resume
     shugu --resume=<id>         Resume specific session
     shugu --mode=<mode>         Set permission mode
+    shugu --model=<name>        Set model (overrides MINIMAX_MODEL env)
 
   Modes:
     plan          ${MODE_DESCRIPTIONS.plan}
@@ -129,6 +140,7 @@ export function printHelp(): void {
     MINIMAX_API_KEY          MiniMax API key (required)
     ANTHROPIC_AUTH_TOKEN     Alternative auth token
     MINIMAX_BASE_URL         Custom API base URL
+    MINIMAX_MODEL            Default model name (fallback if --model not set)
 `);
 }
 
@@ -173,7 +185,7 @@ export interface BootstrapResult {
 
 export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
   const renderer = new TerminalRenderer();
-  const client = new MiniMaxClient();
+  const client = new MiniMaxClient(cliArgs.model ? { model: cliArgs.model } : {});
 
   // Configure tracer
   if (cliArgs.verbose) tracer.setVerbose(true);
