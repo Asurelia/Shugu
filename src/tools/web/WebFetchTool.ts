@@ -69,7 +69,7 @@ export class WebFetchTool implements Tool {
     try {
       // Build headers — auto-inject credentials if available
       const headers: Record<string, string> = {
-        'User-Agent': 'PCC/1.0 (Project CC Agent)',
+        'User-Agent': 'Shugu/0.2 (AI Coding Agent)',
         'Accept': 'text/html,application/json,text/plain,*/*',
         ...extraHeaders,
       };

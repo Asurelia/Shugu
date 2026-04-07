@@ -128,7 +128,7 @@ async function searchDuckDuckGo(query: string, limit: number): Promise<SearchRes
     const encoded = encodeURIComponent(query);
     const response = await fetch(`https://html.duckduckgo.com/html/?q=${encoded}`, {
       headers: {
-        'User-Agent': 'PCC/1.0 (Project CC Agent)',
+        'User-Agent': 'Shugu/0.2 (AI Coding Agent)',
       },
     });
 

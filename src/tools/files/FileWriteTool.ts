@@ -7,6 +7,7 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import { resolve, isAbsolute, dirname } from 'node:path';
 import type { Tool, ToolCall, ToolResult, ToolContext, ToolDefinition } from '../../protocol/tools.js';
+import { validateWorkspacePath } from '../../policy/workspace.js';
 
 export const FileWriteToolDefinition: ToolDefinition = {
   name: 'Write',
@@ -46,6 +47,16 @@ export class FileWriteTool implements Tool {
     const content = call.input['content'] as string;
 
     const absPath = isAbsolute(filePath) ? filePath : resolve(context.cwd, filePath);
+
+    // Workspace boundary check (always enforced for writes)
+    const validation = await validateWorkspacePath(filePath, context.cwd);
+    if (!validation.valid) {
+      return {
+        tool_use_id: call.id,
+        content: `Error: ${validation.reason}`,
+        is_error: true,
+      };
+    }
 
     try {
       // Create parent directories

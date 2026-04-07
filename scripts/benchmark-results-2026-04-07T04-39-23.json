@@ -1,0 +1,1049 @@
+{
+  "version": 1,
+  "generatedAt": "2026-04-07T04:39:23.750Z",
+  "model": "MiniMax-M2.7-highspeed",
+  "benchmarkA": {
+    "name": "context-window-stress",
+    "thresholds": [
+      {
+        "targetTokens": 50000,
+        "estimatedTokens": 50006,
+        "factsUsed": 2925,
+        "recalls": [
+          {
+            "question": {
+              "type": "beginning",
+              "prompt": "What is the secret code for city Mbabane? Reply with ONLY the code (e.g., ZULU-XXXX).",
+              "expectedCodes": [
+                "ZULU-0147"
+              ],
+              "factIds": [
+                147
+              ]
+            },
+            "response": "ZULU-0147",
+            "correct": true,
+            "latencyMs": 6065,
+            "inputTokens": 259,
+            "outputTokens": 432,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "middle",
+              "prompt": "What is the secret code for city Jakarta-7? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-1463"
+              ],
+              "factIds": [
+                1463
+              ]
+            },
+            "response": "ZULU-1463",
+            "correct": true,
+            "latencyMs": 2205,
+            "inputTokens": 250,
+            "outputTokens": 89,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "end",
+              "prompt": "What is the secret code for city Sarajevo-13? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-2779"
+              ],
+              "factIds": [
+                2779
+              ]
+            },
+            "response": "ZULU-2778",
+            "correct": false,
+            "latencyMs": 2190,
+            "inputTokens": 250,
+            "outputTokens": 66,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "nonexistent",
+              "prompt": "What is the secret code for city ATLANTIS? Reply with ONLY the code, or \"NOT FOUND\" if not in the facts.",
+              "expectedCodes": [],
+              "factIds": []
+            },
+            "response": "NOT FOUND",
+            "correct": true,
+            "latencyMs": 10179,
+            "inputTokens": 262,
+            "outputTokens": 646,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "reasoning",
+              "prompt": "What are the secret codes for BOTH city Shenzhen-3 AND city Papeete-10? Reply with both codes.",
+              "expectedCodes": [
+                "ZULU-0732",
+                "ZULU-2194"
+              ],
+              "factIds": [
+                732,
+                2194
+              ]
+            },
+            "response": "ZULU-0732, ZULU-2194",
+            "correct": true,
+            "latencyMs": 3804,
+            "inputTokens": 257,
+            "outputTokens": 194,
+            "error": null
+          }
+        ],
+        "accuracy": 0.75,
+        "hallucinationDetected": false,
+        "avgLatencyMs": 4889,
+        "apiInputTokens": 257,
+        "error": null,
+        "hardLimitHit": false
+      },
+      {
+        "targetTokens": 100000,
+        "estimatedTokens": 100004,
+        "factsUsed": 5808,
+        "recalls": [
+          {
+            "question": {
+              "type": "beginning",
+              "prompt": "What is the secret code for city Munich-1? Reply with ONLY the code (e.g., ZULU-XXXX).",
+              "expectedCodes": [
+                "ZULU-0291"
+              ],
+              "factIds": [
+                291
+              ]
+            },
+            "response": "ZULU-0291",
+            "correct": true,
+            "latencyMs": 8082,
+            "inputTokens": 130723,
+            "outputTokens": 67,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "middle",
+              "prompt": "What is the secret code for city Edmonton-14? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-2905"
+              ],
+              "factIds": [
+                2905
+              ]
+            },
+            "response": "ZULU-2905",
+            "correct": true,
+            "latencyMs": 3068,
+            "inputTokens": 351,
+            "outputTokens": 82,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "end",
+              "prompt": "What is the secret code for city Boston-27? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-5518"
+              ],
+              "factIds": [
+                5518
+              ]
+            },
+            "response": "ZULU-5518",
+            "correct": true,
+            "latencyMs": 2420,
+            "inputTokens": 351,
+            "outputTokens": 68,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "nonexistent",
+              "prompt": "What is the secret code for city ATLANTIS? Reply with ONLY the code, or \"NOT FOUND\" if not in the facts.",
+              "expectedCodes": [],
+              "factIds": []
+            },
+            "response": "NOT FOUND",
+            "correct": true,
+            "latencyMs": 4839,
+            "inputTokens": 363,
+            "outputTokens": 178,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "reasoning",
+              "prompt": "What are the secret codes for BOTH city Nassau-7 AND city Manama-21? Reply with both codes.",
+              "expectedCodes": [
+                "ZULU-1453",
+                "ZULU-4357"
+              ],
+              "factIds": [
+                1453,
+                4357
+              ]
+            },
+            "response": "ZULU-0453, ZULU-2357",
+            "correct": false,
+            "latencyMs": 3097,
+            "inputTokens": 358,
+            "outputTokens": 158,
+            "error": null
+          }
+        ],
+        "accuracy": 0.75,
+        "hallucinationDetected": false,
+        "avgLatencyMs": 4301,
+        "apiInputTokens": 358,
+        "error": null,
+        "hardLimitHit": false
+      },
+      {
+        "targetTokens": 150000,
+        "estimatedTokens": 150004,
+        "factsUsed": 8693,
+        "recalls": [
+          {
+            "question": {
+              "type": "beginning",
+              "prompt": "What is the secret code for city Lusaka-2? Reply with ONLY the code (e.g., ZULU-XXXX).",
+              "expectedCodes": [
+                "ZULU-0435"
+              ],
+              "factIds": [
+                435
+              ]
+            },
+            "response": "ZULU-0435",
+            "correct": true,
+            "latencyMs": 10559,
+            "inputTokens": 65423,
+            "outputTokens": 156,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "middle",
+              "prompt": "What is the secret code for city Mbabane-21? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-4347"
+              ],
+              "factIds": [
+                4347
+              ]
+            },
+            "response": "\nZULU-4347",
+            "correct": true,
+            "latencyMs": 5486,
+            "inputTokens": 455,
+            "outputTokens": 173,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "end",
+              "prompt": "What is the secret code for city Caracas-41? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-8259"
+              ],
+              "factIds": [
+                8259
+              ]
+            },
+            "response": "ZULU-8259",
+            "correct": true,
+            "latencyMs": 5264,
+            "inputTokens": 453,
+            "outputTokens": 183,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "nonexistent",
+              "prompt": "What is the secret code for city ATLANTIS? Reply with ONLY the code, or \"NOT FOUND\" if not in the facts.",
+              "expectedCodes": [],
+              "factIds": []
+            },
+            "response": "NOT FOUND",
+            "correct": true,
+            "latencyMs": 4867,
+            "inputTokens": 465,
+            "outputTokens": 127,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "reasoning",
+              "prompt": "What are the secret codes for BOTH city Reykjavik-10 AND city Portland-32? Reply with both codes.",
+              "expectedCodes": [
+                "ZULU-2174",
+                "ZULU-6520"
+              ],
+              "factIds": [
+                2174,
+                6520
+              ]
+            },
+            "response": "ZULU-1874, ZULU-6920",
+            "correct": false,
+            "latencyMs": 6655,
+            "inputTokens": 460,
+            "outputTokens": 393,
+            "error": null
+          }
+        ],
+        "accuracy": 0.75,
+        "hallucinationDetected": false,
+        "avgLatencyMs": 6566,
+        "apiInputTokens": 460,
+        "error": null,
+        "hardLimitHit": false
+      },
+      {
+        "targetTokens": 180000,
+        "estimatedTokens": 180010,
+        "factsUsed": 10410,
+        "recalls": [
+          {
+            "question": {
+              "type": "beginning",
+              "prompt": "What is the secret code for city Mumbai-2? Reply with ONLY the code (e.g., ZULU-XXXX).",
+              "expectedCodes": [
+                "ZULU-0521"
+              ],
+              "factIds": [
+                521
+              ]
+            },
+            "response": "ZULU-1121",
+            "correct": false,
+            "latencyMs": 9459,
+            "inputTokens": 39200,
+            "outputTokens": 127,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "middle",
+              "prompt": "What is the secret code for city Seoul-26? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-5206"
+              ],
+              "factIds": [
+                5206
+              ]
+            },
+            "response": "ZULU-6606",
+            "correct": false,
+            "latencyMs": 11036,
+            "inputTokens": 215,
+            "outputTokens": 656,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "end",
+              "prompt": "What is the secret code for city Lyon-49? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-9890"
+              ],
+              "factIds": [
+                9890
+              ]
+            },
+            "response": "\nZULU-9890",
+            "correct": true,
+            "latencyMs": 3830,
+            "inputTokens": 215,
+            "outputTokens": 80,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "nonexistent",
+              "prompt": "What is the secret code for city ATLANTIS? Reply with ONLY the code, or \"NOT FOUND\" if not in the facts.",
+              "expectedCodes": [],
+              "factIds": []
+            },
+            "response": "NOT FOUND",
+            "correct": true,
+            "latencyMs": 12548,
+            "inputTokens": 227,
+            "outputTokens": 587,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "reasoning",
+              "prompt": "What are the secret codes for BOTH city Lima-13 AND city Baku-39? Reply with both codes.",
+              "expectedCodes": [
+                "ZULU-2603",
+                "ZULU-7808"
+              ],
+              "factIds": [
+                2603,
+                7808
+              ]
+            },
+            "response": "ZULU-10403, ZULU-7641",
+            "correct": false,
+            "latencyMs": 4486,
+            "inputTokens": 221,
+            "outputTokens": 107,
+            "error": null
+          }
+        ],
+        "accuracy": 0.25,
+        "hallucinationDetected": false,
+        "avgLatencyMs": 8272,
+        "apiInputTokens": 221,
+        "error": null,
+        "hardLimitHit": false
+      },
+      {
+        "targetTokens": 195000,
+        "estimatedTokens": 195009,
+        "factsUsed": 11248,
+        "recalls": [
+          {
+            "question": {
+              "type": "beginning",
+              "prompt": "What is the secret code for city Tashkent-2? Reply with ONLY the code (e.g., ZULU-XXXX).",
+              "expectedCodes": [
+                "ZULU-0563"
+              ],
+              "factIds": [
+                563
+              ]
+            },
+            "response": "ZULU-0363.",
+            "correct": false,
+            "latencyMs": 15788,
+            "inputTokens": 19125,
+            "outputTokens": 403,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "middle",
+              "prompt": "What is the secret code for city Dhaka-28? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-5625"
+              ],
+              "factIds": [
+                5625
+              ]
+            },
+            "response": "NOT FOUND",
+            "correct": false,
+            "latencyMs": 7326,
+            "inputTokens": 298,
+            "outputTokens": 227,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "end",
+              "prompt": "What is the secret code for city Florence-53? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-10686"
+              ],
+              "factIds": [
+                10686
+              ]
+            },
+            "response": "ZULU-10686.",
+            "correct": true,
+            "latencyMs": 3933,
+            "inputTokens": 298,
+            "outputTokens": 38,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "nonexistent",
+              "prompt": "What is the secret code for city ATLANTIS? Reply with ONLY the code, or \"NOT FOUND\" if not in the facts.",
+              "expectedCodes": [],
+              "factIds": []
+            },
+            "response": "NOT FOUND",
+            "correct": true,
+            "latencyMs": 4382,
+            "inputTokens": 310,
+            "outputTokens": 79,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "reasoning",
+              "prompt": "What are the secret codes for BOTH city Male-14 AND city Tonga-42? Reply with both codes.",
+              "expectedCodes": [
+                "ZULU-2813",
+                "ZULU-8437"
+              ],
+              "factIds": [
+                2813,
+                8437
+              ]
+            },
+            "response": "ZULU-4812, NOT FOUND",
+            "correct": false,
+            "latencyMs": 10759,
+            "inputTokens": 305,
+            "outputTokens": 476,
+            "error": null
+          }
+        ],
+        "accuracy": 0.25,
+        "hallucinationDetected": false,
+        "avgLatencyMs": 8438,
+        "apiInputTokens": 305,
+        "error": null,
+        "hardLimitHit": false
+      },
+      {
+        "targetTokens": 200000,
+        "estimatedTokens": 200016,
+        "factsUsed": 11527,
+        "recalls": [
+          {
+            "question": {
+              "type": "beginning",
+              "prompt": "What is the secret code for city Ljubljana-2? Reply with ONLY the code (e.g., ZULU-XXXX).",
+              "expectedCodes": [
+                "ZULU-0577"
+              ],
+              "factIds": [
+                577
+              ]
+            },
+            "response": "ZULU-1577",
+            "correct": false,
+            "latencyMs": 10072,
+            "inputTokens": 6585,
+            "outputTokens": 56,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "middle",
+              "prompt": "What is the secret code for city Dushanbe-28? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-5764"
+              ],
+              "factIds": [
+                5764
+              ]
+            },
+            "response": "ZULU-8764",
+            "correct": false,
+            "latencyMs": 3457,
+            "inputTokens": 305,
+            "outputTokens": 26,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "end",
+              "prompt": "What is the secret code for city Riyadh-54? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-10951"
+              ],
+              "factIds": [
+                10951
+              ]
+            },
+            "response": "",
+            "correct": false,
+            "latencyMs": 22052,
+            "inputTokens": 303,
+            "outputTokens": 1024,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "nonexistent",
+              "prompt": "What is the secret code for city ATLANTIS? Reply with ONLY the code, or \"NOT FOUND\" if not in the facts.",
+              "expectedCodes": [],
+              "factIds": []
+            },
+            "response": "NOT FOUND",
+            "correct": true,
+            "latencyMs": 12878,
+            "inputTokens": 315,
+            "outputTokens": 608,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "reasoning",
+              "prompt": "What are the secret codes for BOTH city Geneva-14 AND city Warsaw-43? Reply with both codes.",
+              "expectedCodes": [
+                "ZULU-2882",
+                "ZULU-8646"
+              ],
+              "factIds": [
+                2882,
+                8646
+              ]
+            },
+            "response": "ZULU-2842, ZULU-8446",
+            "correct": false,
+            "latencyMs": 5390,
+            "inputTokens": 309,
+            "outputTokens": 132,
+            "error": null
+          }
+        ],
+        "accuracy": 0,
+        "hallucinationDetected": false,
+        "avgLatencyMs": 10770,
+        "apiInputTokens": 309,
+        "error": null,
+        "hardLimitHit": false
+      },
+      {
+        "targetTokens": 204000,
+        "estimatedTokens": 204001,
+        "factsUsed": 11750,
+        "recalls": [
+          {
+            "question": {
+              "type": "beginning",
+              "prompt": "What is the secret code for city Castries-2? Reply with ONLY the code (e.g., ZULU-XXXX).",
+              "expectedCodes": [
+                "ZULU-0588"
+              ],
+              "factIds": [
+                588
+              ]
+            },
+            "response": "",
+            "correct": false,
+            "latencyMs": 1008,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "error": "context_too_long"
+          }
+        ],
+        "accuracy": 0,
+        "hallucinationDetected": false,
+        "avgLatencyMs": 1008,
+        "apiInputTokens": 0,
+        "error": "context_too_long",
+        "hardLimitHit": true
+      },
+      {
+        "targetTokens": 210000,
+        "estimatedTokens": 210004,
+        "factsUsed": 12085,
+        "recalls": [
+          {
+            "question": {
+              "type": "beginning",
+              "prompt": "What is the secret code for city Oslo-3? Reply with ONLY the code (e.g., ZULU-XXXX).",
+              "expectedCodes": [
+                "ZULU-0605"
+              ],
+              "factIds": [
+                605
+              ]
+            },
+            "response": "",
+            "correct": false,
+            "latencyMs": 1789,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "error": "context_too_long"
+          }
+        ],
+        "accuracy": 0,
+        "hallucinationDetected": false,
+        "avgLatencyMs": 1789,
+        "apiInputTokens": 0,
+        "error": "context_too_long",
+        "hardLimitHit": true
+      }
+    ],
+    "hardLimitTokens": 204000
+  },
+  "benchmarkB": {
+    "name": "obsidian-memory-impact",
+    "withMemory": [
+      {
+        "question": {
+          "prompt": "What database does this project use and why?",
+          "expectedKeywords": [
+            "postgresql",
+            "relational"
+          ],
+          "category": "decision"
+        },
+        "mode": "with-memory",
+        "response": "The database technology used in this project is not specified in the available project memories. To answer this accurately, I would need to:\n\n1. Check the project's configuration files (e.g., `database.ts`, `prisma.schema`, `knexfile.ts`, `typeorm.config.ts`)\n2. Look at environment variables (`DATAB",
+        "score": 0,
+        "citesMemory": true,
+        "latencyMs": 10386,
+        "inputTokens": 220,
+        "outputTokens": 204,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "What is the indentation style preference for this project?",
+          "expectedKeywords": [
+            "tabs",
+            "2"
+          ],
+          "category": "preference"
+        },
+        "mode": "with-memory",
+        "response": "**Indentation preference for this project:**\n\n- Use **tabs** (not spaces)\n- **2-width** indentation\n- Applies to all TypeScript files",
+        "score": 2,
+        "citesMemory": true,
+        "latencyMs": 9928,
+        "inputTokens": 214,
+        "outputTokens": 95,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "What is the rate limit for the external payment API?",
+          "expectedKeywords": [
+            "100",
+            "minute"
+          ],
+          "category": "fact"
+        },
+        "mode": "with-memory",
+        "response": "The external payment API has a rate limit of **100 requests per minute**. Above that limit, requests are throttled.",
+        "score": 2,
+        "citesMemory": false,
+        "latencyMs": 2490,
+        "inputTokens": 213,
+        "outputTokens": 108,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "Where are production deployments hosted?",
+          "expectedKeywords": [
+            "railway",
+            "main"
+          ],
+          "category": "decision"
+        },
+        "mode": "with-memory",
+        "response": "Production deployments are hosted on **Railway**, with auto-deploy configured from the main branch. Staging uses preview deploys.",
+        "score": 2,
+        "citesMemory": true,
+        "latencyMs": 7663,
+        "inputTokens": 212,
+        "outputTokens": 83,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "How does authentication work in this project?",
+          "expectedKeywords": [
+            "jwt",
+            "15",
+            "refresh"
+          ],
+          "category": "decision"
+        },
+        "mode": "with-memory",
+        "response": "## Authentication Strategy\n\nBased on the project memories, authentication in this project works as follows:\n\n### JWT Token Authentication\n\n- **Access tokens**: JWT tokens with a **15-minute expiry**\n- **Refresh tokens**: Stored in **httpOnly cookies** (not accessible via JavaScript, providing protec",
+        "score": 2,
+        "citesMemory": true,
+        "latencyMs": 10146,
+        "inputTokens": 218,
+        "outputTokens": 371,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "What testing frameworks are used?",
+          "expectedKeywords": [
+            "vitest",
+            "playwright"
+          ],
+          "category": "fact"
+        },
+        "mode": "with-memory",
+        "response": "The project uses **Vitest** for unit tests and **Playwright** for end-to-end testing.",
+        "score": 2,
+        "citesMemory": false,
+        "latencyMs": 2576,
+        "inputTokens": 212,
+        "outputTokens": 80,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "What CSS solution does the project use?",
+          "expectedKeywords": [
+            "tailwind"
+          ],
+          "category": "decision"
+        },
+        "mode": "with-memory",
+        "response": "The provided project memories do not contain information about the CSS solution used in this project. The memories only cover:\n\n- Testing framework (Vitest, Playwright)\n- API versioning\n- File uploads\n- Database choice (PostgreSQL)\n- API rate limits\n\nTo find out the CSS solution, you would need to c",
+        "score": 0,
+        "citesMemory": true,
+        "latencyMs": 4991,
+        "inputTokens": 217,
+        "outputTokens": 186,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "How is caching implemented?",
+          "expectedKeywords": [
+            "redis",
+            "5",
+            "minute"
+          ],
+          "category": "fact"
+        },
+        "mode": "with-memory",
+        "response": "Caching is implemented using **Redis** with different TTLs depending on the data type:\n\n- **API responses**: cached with a **5-minute TTL**\n- **User sessions**: cached with a **1-hour TTL**",
+        "score": 2,
+        "citesMemory": false,
+        "latencyMs": 2285,
+        "inputTokens": 210,
+        "outputTokens": 131,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "What is the search technology used?",
+          "expectedKeywords": [
+            "meilisearch"
+          ],
+          "category": "fact"
+        },
+        "mode": "with-memory",
+        "response": "The project uses **Meilisearch** for full-text search, with auto-sync from PostgreSQL every 30 seconds.",
+        "score": 2,
+        "citesMemory": false,
+        "latencyMs": 3412,
+        "inputTokens": 218,
+        "outputTokens": 92,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "How are feature flags managed?",
+          "expectedKeywords": [
+            "launchdarkly",
+            "2 week"
+          ],
+          "category": "fact"
+        },
+        "mode": "with-memory",
+        "response": "Feature flags are managed through **LaunchDarkly**. New features are kept behind flags for **2 weeks** before a full rollout.",
+        "score": 2,
+        "citesMemory": false,
+        "latencyMs": 1488,
+        "inputTokens": 215,
+        "outputTokens": 55,
+        "error": null
+      }
+    ],
+    "withoutMemory": [
+      {
+        "question": {
+          "prompt": "What database does this project use and why?",
+          "expectedKeywords": [
+            "postgresql",
+            "relational"
+          ],
+          "category": "decision"
+        },
+        "mode": "without-memory",
+        "response": "I don't have any context about which specific project you're asking about. Could you please clarify which project you'd like me to look at?\n\nFor example:\n\n- A project name or repository URL\n- A file path if you have access to the codebase\n- More details about the project you're working on\n\nOnce I kn",
+        "score": 0,
+        "citesMemory": false,
+        "latencyMs": 4517,
+        "inputTokens": 49,
+        "outputTokens": 159,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "What is the indentation style preference for this project?",
+          "expectedKeywords": [
+            "tabs",
+            "2"
+          ],
+          "category": "preference"
+        },
+        "mode": "without-memory",
+        "response": "I don't have access to a specific project context. To determine the indentation style preference, I would need to know which project you're referring to.\n\nIf you have a specific codebase, you can typically find indentation preferences in configuration files like:\n- `.editorconfig`\n- `.prettierrc` or",
+        "score": 0,
+        "citesMemory": false,
+        "latencyMs": 6630,
+        "inputTokens": 50,
+        "outputTokens": 277,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "What is the rate limit for the external payment API?",
+          "expectedKeywords": [
+            "100",
+            "minute"
+          ],
+          "category": "fact"
+        },
+        "mode": "without-memory",
+        "response": "I don't have specific information about which external payment API you're referring to. Rate limits vary significantly between providers:\n\n- **Stripe**: ~1,000 requests/second (varies by endpoint and plan)\n- **PayPal**: Varies by API and account type\n- **Square**: ~10 requests/second for most endpoi",
+        "score": 1,
+        "citesMemory": false,
+        "latencyMs": 5548,
+        "inputTokens": 51,
+        "outputTokens": 282,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "Where are production deployments hosted?",
+          "expectedKeywords": [
+            "railway",
+            "main"
+          ],
+          "category": "decision"
+        },
+        "mode": "without-memory",
+        "response": "\nI'm not sure which production deployments you're referring to. Could you clarify?\n\nAre you asking about:\n\n1. **A specific project we're working on together?** - If so, let me know which one and I can share the relevant deployment information.\n\n2. **General production hosting options?** - Common cho",
+        "score": 0,
+        "citesMemory": false,
+        "latencyMs": 6552,
+        "inputTokens": 46,
+        "outputTokens": 309,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "How does authentication work in this project?",
+          "expectedKeywords": [
+            "jwt",
+            "15",
+            "refresh"
+          ],
+          "category": "decision"
+        },
+        "mode": "without-memory",
+        "response": "# Clarification Needed\n\nI don't have context about a specific project you're working on. To help you with authentication details, I need some clarification:\n\n## What I Need From You:\n1. **Which project?** - Is this your codebase, an open-source project, or something else?\n2. **What framework/languag",
+        "score": 0,
+        "citesMemory": false,
+        "latencyMs": 9985,
+        "inputTokens": 48,
+        "outputTokens": 422,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "What testing frameworks are used?",
+          "expectedKeywords": [
+            "vitest",
+            "playwright"
+          ],
+          "category": "fact"
+        },
+        "mode": "without-memory",
+        "response": "I'd be happy to help with testing frameworks, but I don't have context about a specific project. Could you clarify which project or codebase you're asking about?\n\nIn the meantime, here are common testing frameworks by language/environment:\n\n**JavaScript/TypeScript:**\n- Jest\n- Mocha + Chai\n- Jasmine\n",
+        "score": 2,
+        "citesMemory": false,
+        "latencyMs": 5246,
+        "inputTokens": 46,
+        "outputTokens": 326,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "What CSS solution does the project use?",
+          "expectedKeywords": [
+            "tailwind"
+          ],
+          "category": "decision"
+        },
+        "mode": "without-memory",
+        "response": "I'd be happy to help, but I need more context. Which project are you asking about?\n\nIf you're referring to a specific codebase or repository, could you let me know:\n- The project name\n- Or provide relevant code/structure that shows the CSS setup\n\nIn the meantime, here are common CSS solutions projec",
+        "score": 2,
+        "citesMemory": false,
+        "latencyMs": 6954,
+        "inputTokens": 48,
+        "outputTokens": 321,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "How is caching implemented?",
+          "expectedKeywords": [
+            "redis",
+            "5",
+            "minute"
+          ],
+          "category": "fact"
+        },
+        "mode": "without-memory",
+        "response": "Caching is implemented by storing copies of frequently accessed data in a faster storage layer (the cache) to reduce access time and load on the primary data source. Here’s a breakdown of how caching works and is implemented:\n\n### **Core Concepts**\n1. **Cache Hit**: Data is found in the cache (fast ",
+        "score": 0,
+        "citesMemory": false,
+        "latencyMs": 19235,
+        "inputTokens": 45,
+        "outputTokens": 962,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "What is the search technology used?",
+          "expectedKeywords": [
+            "meilisearch"
+          ],
+          "category": "fact"
+        },
+        "mode": "without-memory",
+        "response": "Your question doesn't include enough context for me to answer accurately. Could you clarify which project, application, or system you're asking about?\n\nFor example:\n\n- Are you referring to a specific project in this codebase?\n- Is this about a particular application (like a website, mobile app, or i",
+        "score": 0,
+        "citesMemory": false,
+        "latencyMs": 8797,
+        "inputTokens": 47,
+        "outputTokens": 194,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "How are feature flags managed?",
+          "expectedKeywords": [
+            "launchdarkly",
+            "2 week"
+          ],
+          "category": "fact"
+        },
+        "mode": "without-memory",
+        "response": "Feature flags (also known as feature toggles) are a powerful technique used in software development to enable or disable functionality without deploying new code. They allow teams to control feature releases, experiment with changes, and mitigate risks in production environments. Here’s a comprehens",
+        "score": 1,
+        "citesMemory": false,
+        "latencyMs": 22091,
+        "inputTokens": 46,
+        "outputTokens": 1024,
+        "error": null
+      }
+    ],
+    "avgScoreWith": 1.6,
+    "avgScoreWithout": 0.6
+  },
+  "totalCostUsd": 0.09611169999999997
+}

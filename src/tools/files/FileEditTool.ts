@@ -8,6 +8,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve, isAbsolute } from 'node:path';
 import type { Tool, ToolCall, ToolResult, ToolContext, ToolDefinition } from '../../protocol/tools.js';
+import { validateWorkspacePath } from '../../policy/workspace.js';
 
 export const FileEditToolDefinition: ToolDefinition = {
   name: 'Edit',
@@ -63,6 +64,16 @@ export class FileEditTool implements Tool {
     const replaceAll = (call.input['replace_all'] as boolean) ?? false;
 
     const absPath = isAbsolute(filePath) ? filePath : resolve(context.cwd, filePath);
+
+    // Workspace boundary check (always enforced for edits)
+    const validation = await validateWorkspacePath(filePath, context.cwd);
+    if (!validation.valid) {
+      return {
+        tool_use_id: call.id,
+        content: `Error: ${validation.reason}`,
+        is_error: true,
+      };
+    }
 
     try {
       const content = await readFile(absPath, 'utf-8');

@@ -105,19 +105,27 @@ export class ObsidianVault {
     const queryLower = query.toLowerCase();
     const queryWords = queryLower.split(/\s+/).filter((w) => w.length > 2);
 
+    // Expand query with related terms (synonym/concept mapping)
+    const expanded = expandVaultQueryTerms(queryWords);
+
     for (const notePath of allNotes) {
       const note = await this.readNote(notePath);
       if (!note) continue;
 
-      const text = `${note.title} ${note.body} ${note.tags.join(' ')}`.toLowerCase();
+      const titleLower = note.title.toLowerCase();
+      const bodyLower = note.body.toLowerCase();
+      const tagsLower = note.tags.join(' ').toLowerCase();
       let score = 0;
-      for (const word of queryWords) {
-        if (text.includes(word)) score++;
+
+      for (const word of expanded) {
+        if (titleLower.includes(word)) score += 3;  // Title = strongest signal
+        if (tagsLower.includes(word)) score += 2;   // Tags = structured metadata
+        if (bodyLower.includes(word)) score += 1;    // Body = general content
       }
       // Boost exact phrase match
-      if (text.includes(queryLower)) score += 3;
+      if (`${titleLower} ${bodyLower}`.includes(queryLower)) score += 3;
 
-      if (score > 0) results.push({ note, score });
+      if (score > 0.5) results.push({ note, score });
     }
 
     return results
@@ -481,6 +489,39 @@ export class ObsidianVault {
   get vaultPath(): string {
     return this.config.path;
   }
+}
+
+// ─── Query Expansion (shared synonym/concept mapping) ───
+
+const VAULT_TERM_GROUPS: string[][] = [
+  ['database', 'db', 'sql', 'postgresql', 'postgres', 'mongodb', 'mongo', 'mysql', 'sqlite', 'supabase', 'prisma', 'drizzle'],
+  ['auth', 'authentication', 'login', 'jwt', 'oauth', 'session', 'token', 'password', 'credential'],
+  ['deploy', 'deployment', 'hosting', 'vercel', 'railway', 'netlify', 'aws', 'docker', 'ci/cd', 'pipeline'],
+  ['test', 'testing', 'vitest', 'jest', 'playwright', 'cypress', 'e2e', 'unit test', 'coverage'],
+  ['style', 'css', 'styling', 'tailwind', 'sass', 'scss', 'styled-components', 'design system'],
+  ['cache', 'caching', 'redis', 'memcached', 'ttl', 'cdn', 'cloudfront'],
+  ['search', 'searching', 'meilisearch', 'elasticsearch', 'algolia', 'full-text', 'fuzzy'],
+  ['state', 'state management', 'zustand', 'redux', 'jotai', 'recoil', 'tanstack', 'context'],
+  ['api', 'endpoint', 'rest', 'graphql', 'route', 'versioning', 'rate limit'],
+  ['monitor', 'monitoring', 'logging', 'sentry', 'datadog', 'pino', 'observability', 'error tracking'],
+  ['email', 'mail', 'resend', 'sendgrid', 'mailchimp', 'smtp', 'transactional'],
+  ['upload', 'file upload', 'storage', 's3', 'blob', 'sharp', 'image processing'],
+  ['feature flag', 'feature toggle', 'launchdarkly', 'unleash', 'rollout'],
+  ['git', 'branch', 'commit', 'merge', 'pr', 'pull request', 'workflow'],
+  ['format', 'formatting', 'indent', 'indentation', 'tabs', 'spaces', 'prettier', 'eslint', 'linter'],
+  ['timezone', 'date', 'time', 'utc', 'date-fns', 'dayjs', 'moment'],
+];
+
+function expandVaultQueryTerms(queryWords: string[]): string[] {
+  const expanded = new Set(queryWords);
+  for (const word of queryWords) {
+    for (const group of VAULT_TERM_GROUPS) {
+      if (group.some(term => term.includes(word) || word.includes(term))) {
+        for (const term of group) expanded.add(term);
+      }
+    }
+  }
+  return [...expanded];
 }
 
 // ─── Note Parsing ───────────────────────────────────────

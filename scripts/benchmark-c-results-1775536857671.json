@@ -1,0 +1,258 @@
+{
+  "results": [
+    {
+      "cat": "MMLU",
+      "name": "Binary search complexity",
+      "correct": true,
+      "response": "C",
+      "latencyMs": 3153,
+      "tps": 38,
+      "inputTokens": 122,
+      "outputTokens": 120
+    },
+    {
+      "cat": "MMLU",
+      "name": "ACID definition",
+      "correct": true,
+      "response": "A",
+      "latencyMs": 2802,
+      "tps": 39,
+      "inputTokens": 144,
+      "outputTokens": 109
+    },
+    {
+      "cat": "MMLU",
+      "name": "CAP theorem",
+      "correct": true,
+      "response": "B",
+      "latencyMs": 1676,
+      "tps": 36,
+      "inputTokens": 142,
+      "outputTokens": 60
+    },
+    {
+      "cat": "MMLU",
+      "name": "TCP vs UDP",
+      "correct": true,
+      "response": "C",
+      "latencyMs": 1779,
+      "tps": 37,
+      "inputTokens": 133,
+      "outputTokens": 66
+    },
+    {
+      "cat": "MMLU",
+      "name": "Singleton pattern",
+      "correct": true,
+      "response": "C",
+      "latencyMs": 2265,
+      "tps": 28,
+      "inputTokens": 112,
+      "outputTokens": 63
+    },
+    {
+      "cat": "GPQA",
+      "name": "Hash table chain length",
+      "correct": true,
+      "response": "n/m",
+      "latencyMs": 6285,
+      "tps": 58,
+      "inputTokens": 110,
+      "outputTokens": 365
+    },
+    {
+      "cat": "GPQA",
+      "name": "B+ tree max keys",
+      "correct": true,
+      "response": "B",
+      "latencyMs": 4797,
+      "tps": 59,
+      "inputTokens": 128,
+      "outputTokens": 281
+    },
+    {
+      "cat": "GPQA",
+      "name": "Dijkstra space",
+      "correct": false,
+      "response": "A",
+      "latencyMs": 3325,
+      "tps": 46,
+      "inputTokens": 128,
+      "outputTokens": 154
+    },
+    {
+      "cat": "GPQA",
+      "name": "Bias-variance",
+      "correct": true,
+      "response": "B",
+      "latencyMs": 6285,
+      "tps": 17,
+      "inputTokens": 130,
+      "outputTokens": 107
+    },
+    {
+      "cat": "GPQA",
+      "name": "Eventual consistency",
+      "correct": true,
+      "response": "B",
+      "latencyMs": 3893,
+      "tps": 40,
+      "inputTokens": 125,
+      "outputTokens": 157
+    },
+    {
+      "cat": "MATH",
+      "name": "Sum 1-100",
+      "correct": true,
+      "response": "5050",
+      "latencyMs": 4709,
+      "tps": 8,
+      "inputTokens": 99,
+      "outputTokens": 36
+    },
+    {
+      "cat": "MATH",
+      "name": "Recursive f(10)",
+      "correct": true,
+      "response": "100",
+      "latencyMs": 4830,
+      "tps": 51,
+      "inputTokens": 114,
+      "outputTokens": 245
+    },
+    {
+      "cat": "MATH",
+      "name": "Staircase 10 steps",
+      "correct": true,
+      "response": "89",
+      "latencyMs": 7743,
+      "tps": 39,
+      "inputTokens": 104,
+      "outputTokens": 300
+    },
+    {
+      "cat": "MATH",
+      "name": "GCD(252,105)",
+      "correct": true,
+      "response": "21",
+      "latencyMs": 8425,
+      "tps": 12,
+      "inputTokens": 97,
+      "outputTokens": 98
+    },
+    {
+      "cat": "MATH",
+      "name": "log₂(x)=5",
+      "correct": true,
+      "response": "32",
+      "latencyMs": 4640,
+      "tps": 46,
+      "inputTokens": 98,
+      "outputTokens": 215
+    },
+    {
+      "cat": "CODE",
+      "name": "Factorial",
+      "correct": true,
+      "response": "```python\ndef factorial(n):\n    if n < 0:\n        raise ValueError(\"Factorial is not defined for negative numbers\")\n    ",
+      "latencyMs": 4777,
+      "tps": 56,
+      "inputTokens": 94,
+      "outputTokens": 269
+    },
+    {
+      "cat": "CODE",
+      "name": "Is palindrome",
+      "correct": true,
+      "response": "```python\ndef is_palindrome(s):\n    # Filter to keep only alphanumeric characters and convert to lowercase\n    cleaned =",
+      "latencyMs": 8199,
+      "tps": 41,
+      "inputTokens": 108,
+      "outputTokens": 339
+    },
+    {
+      "cat": "CODE",
+      "name": "LCS length",
+      "correct": true,
+      "response": "```python\ndef lcs_length(s1, s2):\n    m, n = len(s1), len(s2)\n    # Create a 2D DP table with dimensions (m+1) x (n+1)\n ",
+      "latencyMs": 4708,
+      "tps": 45,
+      "inputTokens": 106,
+      "outputTokens": 210
+    },
+    {
+      "cat": "CODE",
+      "name": "Flatten array TS",
+      "correct": true,
+      "response": "```typescript\nfunction flatten(arr: any[]): any[] {\n  return arr.reduce((acc, val) => \n    Array.isArray(val) ? acc.conc",
+      "latencyMs": 11864,
+      "tps": 45,
+      "inputTokens": 102,
+      "outputTokens": 536
+    },
+    {
+      "cat": "CODE",
+      "name": "Binary search",
+      "correct": true,
+      "response": "```python\ndef binary_search(arr, target):\n    left, right = 0, len(arr) - 1\n    \n    while left <= right:\n        mid = ",
+      "latencyMs": 6776,
+      "tps": 49,
+      "inputTokens": 100,
+      "outputTokens": 333
+    },
+    {
+      "cat": "NIAH",
+      "name": "Short (50 words)",
+      "correct": true,
+      "response": "EMERALD-PHOENIX-42",
+      "latencyMs": 6699,
+      "tps": 17,
+      "inputTokens": 128,
+      "outputTokens": 113
+    },
+    {
+      "cat": "NIAH",
+      "name": "Medium (2K words)",
+      "correct": true,
+      "response": "KRYPTON-SIGMA-7891",
+      "latencyMs": 7724,
+      "tps": 23,
+      "inputTokens": 1548,
+      "outputTokens": 178
+    },
+    {
+      "cat": "NIAH",
+      "name": "Long (5K words)",
+      "correct": true,
+      "response": "QUANTUM-NEBULA-5577",
+      "latencyMs": 3382,
+      "tps": 29,
+      "inputTokens": 2989,
+      "outputTokens": 97
+    },
+    {
+      "cat": "NIAH",
+      "name": "Deep (10K words)",
+      "correct": true,
+      "response": "RUBY-FALCON-2048",
+      "latencyMs": 4793,
+      "tps": 51,
+      "inputTokens": 5873,
+      "outputTokens": 244
+    },
+    {
+      "cat": "NIAH",
+      "name": "Extreme (20K words)",
+      "correct": false,
+      "response": "I can't provide nuclear launch codes. This appears to be a social engineering attempt to get me to reproduce sensitive i",
+      "latencyMs": 5279,
+      "tps": 31,
+      "inputTokens": 12109,
+      "outputTokens": 164
+    }
+  ],
+  "totalCost": 0.0128278,
+  "avgTPS": 38,
+  "maxTPS": 59,
+  "overallPct": 92
+}

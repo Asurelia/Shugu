@@ -1,0 +1,1281 @@
+{
+  "version": 1,
+  "generatedAt": "2026-04-07T04:23:35.119Z",
+  "model": "MiniMax-M2.7-highspeed",
+  "benchmarkA": {
+    "name": "context-window-stress",
+    "thresholds": [
+      {
+        "targetTokens": 50000,
+        "factsUsed": 2000,
+        "recalls": [
+          {
+            "question": {
+              "type": "beginning",
+              "prompt": "What is the secret code for city Montreal? Reply with ONLY the code (e.g., ZULU-XXXX).",
+              "expectedCodes": [
+                "ZULU-0101"
+              ],
+              "factIds": [
+                101
+              ]
+            },
+            "response": "ZULU-0101",
+            "correct": true,
+            "latencyMs": 5144,
+            "inputTokens": 44827,
+            "outputTokens": 119,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "middle",
+              "prompt": "What is the secret code for city Paris-5? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-1001"
+              ],
+              "factIds": [
+                1001
+              ]
+            },
+            "response": "ZULU-1001",
+            "correct": true,
+            "latencyMs": 1878,
+            "inputTokens": 25,
+            "outputTokens": 68,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "end",
+              "prompt": "What is the secret code for city Montreal-9? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-1901"
+              ],
+              "factIds": [
+                1901
+              ]
+            },
+            "response": "ZULU-1901",
+            "correct": true,
+            "latencyMs": 1985,
+            "inputTokens": 25,
+            "outputTokens": 81,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "nonexistent",
+              "prompt": "What is the secret code for city ATLANTIS? Reply with ONLY the code, or \"NOT FOUND\" if not in the facts.",
+              "expectedCodes": [],
+              "factIds": []
+            },
+            "response": "NOT FOUND",
+            "correct": true,
+            "latencyMs": 9364,
+            "inputTokens": 37,
+            "outputTokens": 646,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "reasoning",
+              "prompt": "What are the secret codes for BOTH city Montreal-2 AND city Montreal-7? Reply with both codes.",
+              "expectedCodes": [
+                "ZULU-0501",
+                "ZULU-1501"
+              ],
+              "factIds": [
+                501,
+                1501
+              ]
+            },
+            "response": "ZULU-0501, ZULU-1501",
+            "correct": true,
+            "latencyMs": 2118,
+            "inputTokens": 479,
+            "outputTokens": 109,
+            "error": null
+          }
+        ],
+        "accuracy": 1,
+        "hallucinationDetected": false,
+        "avgLatencyMs": 4098,
+        "apiInputTokens": 479,
+        "error": null,
+        "hardLimitHit": false
+      },
+      {
+        "targetTokens": 100000,
+        "factsUsed": 4000,
+        "recalls": [
+          {
+            "question": {
+              "type": "beginning",
+              "prompt": "What is the secret code for city Paris-1? Reply with ONLY the code (e.g., ZULU-XXXX).",
+              "expectedCodes": [
+                "ZULU-0201"
+              ],
+              "factIds": [
+                201
+              ]
+            },
+            "response": "ZULU-0201",
+            "correct": true,
+            "latencyMs": 5648,
+            "inputTokens": 89941,
+            "outputTokens": 77,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "middle",
+              "prompt": "What is the secret code for city Paris-10? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-2001"
+              ],
+              "factIds": [
+                2001
+              ]
+            },
+            "response": "ZULU-2001",
+            "correct": true,
+            "latencyMs": 2298,
+            "inputTokens": 337,
+            "outputTokens": 76,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "end",
+              "prompt": "What is the secret code for city Paris-19? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-3801"
+              ],
+              "factIds": [
+                3801
+              ]
+            },
+            "response": "ZULU-3801",
+            "correct": true,
+            "latencyMs": 2405,
+            "inputTokens": 337,
+            "outputTokens": 74,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "nonexistent",
+              "prompt": "What is the secret code for city ATLANTIS? Reply with ONLY the code, or \"NOT FOUND\" if not in the facts.",
+              "expectedCodes": [],
+              "factIds": []
+            },
+            "response": "NOT FOUND",
+            "correct": true,
+            "latencyMs": 4689,
+            "inputTokens": 349,
+            "outputTokens": 184,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "reasoning",
+              "prompt": "What are the secret codes for BOTH city Paris-5 AND city Paris-15? Reply with both codes.",
+              "expectedCodes": [
+                "ZULU-1001",
+                "ZULU-3001"
+              ],
+              "factIds": [
+                1001,
+                3001
+              ]
+            },
+            "response": "ZULU-1001, ZULU-3001",
+            "correct": true,
+            "latencyMs": 2691,
+            "inputTokens": 343,
+            "outputTokens": 101,
+            "error": null
+          }
+        ],
+        "accuracy": 1,
+        "hallucinationDetected": false,
+        "avgLatencyMs": 3546,
+        "apiInputTokens": 343,
+        "error": null,
+        "hardLimitHit": false
+      },
+      {
+        "targetTokens": 150000,
+        "factsUsed": 6000,
+        "recalls": [
+          {
+            "question": {
+              "type": "beginning",
+              "prompt": "What is the secret code for city Montreal-1? Reply with ONLY the code (e.g., ZULU-XXXX).",
+              "expectedCodes": [
+                "ZULU-0301"
+              ],
+              "factIds": [
+                301
+              ]
+            },
+            "response": "ZULU-0301",
+            "correct": true,
+            "latencyMs": 5897,
+            "inputTokens": 45458,
+            "outputTokens": 66,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "middle",
+              "prompt": "What is the secret code for city Paris-15? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-3001"
+              ],
+              "factIds": [
+                3001
+              ]
+            },
+            "response": "ZULU-3001",
+            "correct": true,
+            "latencyMs": 2665,
+            "inputTokens": 201,
+            "outputTokens": 74,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "end",
+              "prompt": "What is the secret code for city Montreal-28? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-5701"
+              ],
+              "factIds": [
+                5701
+              ]
+            },
+            "response": "ZULU-5701",
+            "correct": true,
+            "latencyMs": 2649,
+            "inputTokens": 201,
+            "outputTokens": 73,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "nonexistent",
+              "prompt": "What is the secret code for city ATLANTIS? Reply with ONLY the code, or \"NOT FOUND\" if not in the facts.",
+              "expectedCodes": [],
+              "factIds": []
+            },
+            "response": "NOT FOUND",
+            "correct": true,
+            "latencyMs": 9397,
+            "inputTokens": 213,
+            "outputTokens": 581,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "reasoning",
+              "prompt": "What are the secret codes for BOTH city Montreal-7 AND city Montreal-22? Reply with both codes.",
+              "expectedCodes": [
+                "ZULU-1501",
+                "ZULU-4501"
+              ],
+              "factIds": [
+                1501,
+                4501
+              ]
+            },
+            "response": "ZULU-3501, ZULU-4501",
+            "correct": false,
+            "latencyMs": 2958,
+            "inputTokens": 207,
+            "outputTokens": 110,
+            "error": null
+          }
+        ],
+        "accuracy": 0.75,
+        "hallucinationDetected": false,
+        "avgLatencyMs": 4713,
+        "apiInputTokens": 207,
+        "error": null,
+        "hardLimitHit": false
+      },
+      {
+        "targetTokens": 200000,
+        "factsUsed": 8000,
+        "recalls": [
+          {
+            "question": {
+              "type": "beginning",
+              "prompt": "What is the secret code for city Paris-2? Reply with ONLY the code (e.g., ZULU-XXXX).",
+              "expectedCodes": [
+                "ZULU-0401"
+              ],
+              "factIds": [
+                401
+              ]
+            },
+            "response": "ZULU-0401",
+            "correct": true,
+            "latencyMs": 7983,
+            "inputTokens": 45322,
+            "outputTokens": 63,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "middle",
+              "prompt": "What is the secret code for city Paris-20? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-4001"
+              ],
+              "factIds": [
+                4001
+              ]
+            },
+            "response": "\nZULU-4021",
+            "correct": false,
+            "latencyMs": 3996,
+            "inputTokens": 65,
+            "outputTokens": 81,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "end",
+              "prompt": "What is the secret code for city Paris-38? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-7601"
+              ],
+              "factIds": [
+                7601
+              ]
+            },
+            "response": "ZULU-7601",
+            "correct": true,
+            "latencyMs": 4023,
+            "inputTokens": 65,
+            "outputTokens": 84,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "nonexistent",
+              "prompt": "What is the secret code for city ATLANTIS? Reply with ONLY the code, or \"NOT FOUND\" if not in the facts.",
+              "expectedCodes": [],
+              "factIds": []
+            },
+            "response": "NOT FOUND",
+            "correct": true,
+            "latencyMs": 13351,
+            "inputTokens": 77,
+            "outputTokens": 611,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "reasoning",
+              "prompt": "What are the secret codes for BOTH city Paris-10 AND city Paris-30? Reply with both codes.",
+              "expectedCodes": [
+                "ZULU-2001",
+                "ZULU-6001"
+              ],
+              "factIds": [
+                2001,
+                6001
+              ]
+            },
+            "response": "ZULU-2001, ZULU-3001",
+            "correct": false,
+            "latencyMs": 9167,
+            "inputTokens": 71,
+            "outputTokens": 795,
+            "error": null
+          }
+        ],
+        "accuracy": 0.5,
+        "hallucinationDetected": false,
+        "avgLatencyMs": 7704,
+        "apiInputTokens": 71,
+        "error": null,
+        "hardLimitHit": false
+      },
+      {
+        "targetTokens": 250000,
+        "factsUsed": 10000,
+        "recalls": [
+          {
+            "question": {
+              "type": "beginning",
+              "prompt": "What is the secret code for city Montreal-2? Reply with ONLY the code (e.g., ZULU-XXXX).",
+              "expectedCodes": [
+                "ZULU-0501"
+              ],
+              "factIds": [
+                501
+              ]
+            },
+            "response": "ZULU-0501",
+            "correct": true,
+            "latencyMs": 8382,
+            "inputTokens": 45186,
+            "outputTokens": 64,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "middle",
+              "prompt": "What is the secret code for city Paris-25? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-5001"
+              ],
+              "factIds": [
+                5001
+              ]
+            },
+            "response": "ZULU-5001",
+            "correct": true,
+            "latencyMs": 3583,
+            "inputTokens": 377,
+            "outputTokens": 73,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "end",
+              "prompt": "What is the secret code for city Montreal-47? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-9501"
+              ],
+              "factIds": [
+                9501
+              ]
+            },
+            "response": "ZULU-9501",
+            "correct": true,
+            "latencyMs": 3713,
+            "inputTokens": 377,
+            "outputTokens": 93,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "nonexistent",
+              "prompt": "What is the secret code for city ATLANTIS? Reply with ONLY the code, or \"NOT FOUND\" if not in the facts.",
+              "expectedCodes": [],
+              "factIds": []
+            },
+            "response": "NOT FOUND",
+            "correct": true,
+            "latencyMs": 4288,
+            "inputTokens": 389,
+            "outputTokens": 98,
+            "error": null
+          },
+          {
+            "question": {
+              "type": "reasoning",
+              "prompt": "What are the secret codes for BOTH city Montreal-12 AND city Montreal-37? Reply with both codes.",
+              "expectedCodes": [
+                "ZULU-2501",
+                "ZULU-7501"
+              ],
+              "factIds": [
+                2501,
+                7501
+              ]
+            },
+            "response": "ZULU-2501, ZULU-5501",
+            "correct": false,
+            "latencyMs": 4366,
+            "inputTokens": 383,
+            "outputTokens": 106,
+            "error": null
+          }
+        ],
+        "accuracy": 0.75,
+        "hallucinationDetected": false,
+        "avgLatencyMs": 4866,
+        "apiInputTokens": 383,
+        "error": null,
+        "hardLimitHit": false
+      },
+      {
+        "targetTokens": 300000,
+        "factsUsed": 12000,
+        "recalls": [
+          {
+            "question": {
+              "type": "beginning",
+              "prompt": "What is the secret code for city Paris-3? Reply with ONLY the code (e.g., ZULU-XXXX).",
+              "expectedCodes": [
+                "ZULU-0601"
+              ],
+              "factIds": [
+                601
+              ]
+            },
+            "response": "",
+            "correct": false,
+            "latencyMs": 976,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "error": "API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, context window exceeds limit (2013)\"},\"request_id\":\"0623b8e930f573152d7c9c6eb87ef68d\"}"
+          },
+          {
+            "question": {
+              "type": "middle",
+              "prompt": "What is the secret code for city Paris-30? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-6001"
+              ],
+              "factIds": [
+                6001
+              ]
+            },
+            "response": "",
+            "correct": false,
+            "latencyMs": 1797,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "error": "API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, context window exceeds limit (2013)\"},\"request_id\":\"0623b8eb946f708cae3a4efff221f6ff\"}"
+          },
+          {
+            "question": {
+              "type": "end",
+              "prompt": "What is the secret code for city Paris-57? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-11401"
+              ],
+              "factIds": [
+                11401
+              ]
+            },
+            "response": "",
+            "correct": false,
+            "latencyMs": 1091,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "error": "API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, context window exceeds limit (2013)\"},\"request_id\":\"0623b8ecfd539079ee9048aa7f30a5c8\"}"
+          },
+          {
+            "question": {
+              "type": "nonexistent",
+              "prompt": "What is the secret code for city ATLANTIS? Reply with ONLY the code, or \"NOT FOUND\" if not in the facts.",
+              "expectedCodes": [],
+              "factIds": []
+            },
+            "response": "",
+            "correct": false,
+            "latencyMs": 1578,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "error": "API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, context window exceeds limit (2013)\"},\"request_id\":\"0623b8ee81b017fd37fc06b26796b341\"}"
+          },
+          {
+            "question": {
+              "type": "reasoning",
+              "prompt": "What are the secret codes for BOTH city Paris-15 AND city Paris-45? Reply with both codes.",
+              "expectedCodes": [
+                "ZULU-3001",
+                "ZULU-9001"
+              ],
+              "factIds": [
+                3001,
+                9001
+              ]
+            },
+            "response": "",
+            "correct": false,
+            "latencyMs": 1095,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "error": "API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, context window exceeds limit (2013)\"},\"request_id\":\"0623b8eff176c48423043cdea218340c\"}"
+          }
+        ],
+        "accuracy": 0,
+        "hallucinationDetected": false,
+        "avgLatencyMs": 1307,
+        "apiInputTokens": 0,
+        "error": "API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, context window exceeds limit (2013)\"},\"request_id\":\"0623b8eff176c48423043cdea218340c\"}",
+        "hardLimitHit": false
+      },
+      {
+        "targetTokens": 500000,
+        "factsUsed": 20000,
+        "recalls": [
+          {
+            "question": {
+              "type": "beginning",
+              "prompt": "What is the secret code for city Paris-5? Reply with ONLY the code (e.g., ZULU-XXXX).",
+              "expectedCodes": [
+                "ZULU-1001"
+              ],
+              "factIds": [
+                1001
+              ]
+            },
+            "response": "",
+            "correct": false,
+            "latencyMs": 1952,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "error": "API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, context window exceeds limit (2013)\"},\"request_id\":\"0623b8f0a74c72921299e9e45e2d02d2\"}"
+          },
+          {
+            "question": {
+              "type": "middle",
+              "prompt": "What is the secret code for city Paris-50? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-10001"
+              ],
+              "factIds": [
+                10001
+              ]
+            },
+            "response": "",
+            "correct": false,
+            "latencyMs": 1948,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "error": "API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, context window exceeds limit (2013)\"},\"request_id\":\"0623b8f21266b536681022816048a230\"}"
+          },
+          {
+            "question": {
+              "type": "end",
+              "prompt": "What is the secret code for city Paris-95? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-19001"
+              ],
+              "factIds": [
+                19001
+              ]
+            },
+            "response": "",
+            "correct": false,
+            "latencyMs": 1811,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "error": "API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, context window exceeds limit (2013)\"},\"request_id\":\"0623b8f4836e7975ec3566ee29d0eaea\"}"
+          },
+          {
+            "question": {
+              "type": "nonexistent",
+              "prompt": "What is the secret code for city ATLANTIS? Reply with ONLY the code, or \"NOT FOUND\" if not in the facts.",
+              "expectedCodes": [],
+              "factIds": []
+            },
+            "response": "",
+            "correct": false,
+            "latencyMs": 1993,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "error": "API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, context window exceeds limit (2013)\"},\"request_id\":\"0623b8f65a4a5e7920313244b78265d2\"}"
+          },
+          {
+            "question": {
+              "type": "reasoning",
+              "prompt": "What are the secret codes for BOTH city Paris-25 AND city Paris-75? Reply with both codes.",
+              "expectedCodes": [
+                "ZULU-5001",
+                "ZULU-15001"
+              ],
+              "factIds": [
+                5001,
+                15001
+              ]
+            },
+            "response": "",
+            "correct": false,
+            "latencyMs": 2086,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "error": "API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, context window exceeds limit (2013)\"},\"request_id\":\"0623b8f84360619325ef1b2fb6b13cf8\"}"
+          }
+        ],
+        "accuracy": 0,
+        "hallucinationDetected": false,
+        "avgLatencyMs": 1958,
+        "apiInputTokens": 0,
+        "error": "API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, context window exceeds limit (2013)\"},\"request_id\":\"0623b8f84360619325ef1b2fb6b13cf8\"}",
+        "hardLimitHit": false
+      },
+      {
+        "targetTokens": 750000,
+        "factsUsed": 30000,
+        "recalls": [
+          {
+            "question": {
+              "type": "beginning",
+              "prompt": "What is the secret code for city Montreal-7? Reply with ONLY the code (e.g., ZULU-XXXX).",
+              "expectedCodes": [
+                "ZULU-1501"
+              ],
+              "factIds": [
+                1501
+              ]
+            },
+            "response": "",
+            "correct": false,
+            "latencyMs": 3122,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "error": "API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, context window exceeds limit (2013)\"},\"request_id\":\"0623b8fa3fb301da8c80055f941623ae\"}"
+          },
+          {
+            "question": {
+              "type": "middle",
+              "prompt": "What is the secret code for city Paris-75? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-15001"
+              ],
+              "factIds": [
+                15001
+              ]
+            },
+            "response": "",
+            "correct": false,
+            "latencyMs": 2431,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "error": "API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, context window exceeds limit (2013)\"},\"request_id\":\"0623b8fd69ba468983452bf6a8a20d6e\"}"
+          },
+          {
+            "question": {
+              "type": "end",
+              "prompt": "What is the secret code for city Montreal-142? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-28501"
+              ],
+              "factIds": [
+                28501
+              ]
+            },
+            "response": "",
+            "correct": false,
+            "latencyMs": 2801,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "error": "API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, context window exceeds limit (2013)\"},\"request_id\":\"0623b900517fb2e22cbf9a1acb3d657a\"}"
+          },
+          {
+            "question": {
+              "type": "nonexistent",
+              "prompt": "What is the secret code for city ATLANTIS? Reply with ONLY the code, or \"NOT FOUND\" if not in the facts.",
+              "expectedCodes": [],
+              "factIds": []
+            },
+            "response": "",
+            "correct": false,
+            "latencyMs": 2740,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "error": "API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, context window exceeds limit (2013)\"},\"request_id\":\"0623b902e277ef2ac9d49d29c6b93ed4\"}"
+          },
+          {
+            "question": {
+              "type": "reasoning",
+              "prompt": "What are the secret codes for BOTH city Montreal-37 AND city Montreal-112? Reply with both codes.",
+              "expectedCodes": [
+                "ZULU-7501",
+                "ZULU-22501"
+              ],
+              "factIds": [
+                7501,
+                22501
+              ]
+            },
+            "response": "",
+            "correct": false,
+            "latencyMs": 2991,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "error": "API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, context window exceeds limit (2013)\"},\"request_id\":\"0623b90525160feb468ffa6dcb8395e4\"}"
+          }
+        ],
+        "accuracy": 0,
+        "hallucinationDetected": false,
+        "avgLatencyMs": 2817,
+        "apiInputTokens": 0,
+        "error": "API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, context window exceeds limit (2013)\"},\"request_id\":\"0623b90525160feb468ffa6dcb8395e4\"}",
+        "hardLimitHit": false
+      },
+      {
+        "targetTokens": 1000000,
+        "factsUsed": 40000,
+        "recalls": [
+          {
+            "question": {
+              "type": "beginning",
+              "prompt": "What is the secret code for city Paris-10? Reply with ONLY the code (e.g., ZULU-XXXX).",
+              "expectedCodes": [
+                "ZULU-2001"
+              ],
+              "factIds": [
+                2001
+              ]
+            },
+            "response": "",
+            "correct": false,
+            "latencyMs": 3767,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "error": "API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, context window exceeds limit (2013)\"},\"request_id\":\"0623b908cf14ea357b6949bd093e7950\"}"
+          },
+          {
+            "question": {
+              "type": "middle",
+              "prompt": "What is the secret code for city Paris-100? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-20001"
+              ],
+              "factIds": [
+                20001
+              ]
+            },
+            "response": "",
+            "correct": false,
+            "latencyMs": 3872,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "error": "API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, context window exceeds limit (2013)\"},\"request_id\":\"0623b90c88f54f945371865c57616f1b\"}"
+          },
+          {
+            "question": {
+              "type": "end",
+              "prompt": "What is the secret code for city Paris-190? Reply with ONLY the code.",
+              "expectedCodes": [
+                "ZULU-38001"
+              ],
+              "factIds": [
+                38001
+              ]
+            },
+            "response": "",
+            "correct": false,
+            "latencyMs": 3800,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "error": "API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, context window exceeds limit (2013)\"},\"request_id\":\"0623b910c5fa4d56f59fd6be98c76a43\"}"
+          },
+          {
+            "question": {
+              "type": "nonexistent",
+              "prompt": "What is the secret code for city ATLANTIS? Reply with ONLY the code, or \"NOT FOUND\" if not in the facts.",
+              "expectedCodes": [],
+              "factIds": []
+            },
+            "response": "",
+            "correct": false,
+            "latencyMs": 3704,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "error": "API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, context window exceeds limit (2013)\"},\"request_id\":\"0623b914050d0097f4d030061e4ced1c\"}"
+          },
+          {
+            "question": {
+              "type": "reasoning",
+              "prompt": "What are the secret codes for BOTH city Paris-50 AND city Paris-150? Reply with both codes.",
+              "expectedCodes": [
+                "ZULU-10001",
+                "ZULU-30001"
+              ],
+              "factIds": [
+                10001,
+                30001
+              ]
+            },
+            "response": "",
+            "correct": false,
+            "latencyMs": 3838,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "error": "API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, context window exceeds limit (2013)\"},\"request_id\":\"0623b91748f4c195cbacbd420c22edd4\"}"
+          }
+        ],
+        "accuracy": 0,
+        "hallucinationDetected": false,
+        "avgLatencyMs": 3796,
+        "apiInputTokens": 0,
+        "error": "API error 400: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"invalid params, context window exceeds limit (2013)\"},\"request_id\":\"0623b91748f4c195cbacbd420c22edd4\"}",
+        "hardLimitHit": false
+      }
+    ],
+    "hardLimitTokens": null
+  },
+  "benchmarkB": {
+    "name": "obsidian-memory-impact",
+    "withMemory": [
+      {
+        "question": {
+          "prompt": "What database does this project use and why?",
+          "expectedKeywords": [
+            "postgresql",
+            "relational"
+          ],
+          "category": "decision"
+        },
+        "mode": "with-memory",
+        "response": "The provided project memories don't include information about the primary database choice. The only storage-related information available is that **Redis** is used for caching (with 5-minute TTL for API responses and 1-hour TTL for user sessions), but Redis is a cache layer, not the main database.\n\n",
+        "score": 0,
+        "citesMemory": true,
+        "latencyMs": 8483,
+        "inputTokens": 220,
+        "outputTokens": 376,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "What is the indentation style preference for this project?",
+          "expectedKeywords": [
+            "tabs",
+            "2"
+          ],
+          "category": "preference"
+        },
+        "mode": "with-memory",
+        "response": "Based on the project preferences, the indentation style for this project is:\n\n- **Tabs** (not spaces)\n- **2-width** indentation\n- Applied to all TypeScript files",
+        "score": 2,
+        "citesMemory": true,
+        "latencyMs": 2176,
+        "inputTokens": 214,
+        "outputTokens": 105,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "What is the rate limit for the external payment API?",
+          "expectedKeywords": [
+            "100",
+            "minute"
+          ],
+          "category": "fact"
+        },
+        "mode": "with-memory",
+        "response": "The external payment service has a rate limit of **100 requests per minute**. Above that, requests are throttled.",
+        "score": 2,
+        "citesMemory": false,
+        "latencyMs": 3233,
+        "inputTokens": 213,
+        "outputTokens": 98,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "Where are production deployments hosted?",
+          "expectedKeywords": [
+            "railway",
+            "main"
+          ],
+          "category": "decision"
+        },
+        "mode": "with-memory",
+        "response": "Production deployments are hosted on **Railway**, with auto-deploy enabled from the main branch.",
+        "score": 2,
+        "citesMemory": false,
+        "latencyMs": 1749,
+        "inputTokens": 212,
+        "outputTokens": 67,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "How does authentication work in this project?",
+          "expectedKeywords": [
+            "jwt",
+            "15",
+            "refresh"
+          ],
+          "category": "decision"
+        },
+        "mode": "with-memory",
+        "response": "# Authentication in this Project\n\nBased on the project's authentication strategy:\n\n## JWT Token Authentication\n\n- **Access tokens** are JWTs with a **15-minute expiry**\n- **Refresh tokens** are stored in **httpOnly cookies** (secure, client-side JavaScript cannot access them)\n\n## Flow Overview\n\n```\n",
+        "score": 2,
+        "citesMemory": true,
+        "latencyMs": 7060,
+        "inputTokens": 218,
+        "outputTokens": 293,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "What testing frameworks are used?",
+          "expectedKeywords": [
+            "vitest",
+            "playwright"
+          ],
+          "category": "fact"
+        },
+        "mode": "with-memory",
+        "response": "The project uses **Vitest** for unit tests and **Playwright** for end-to-end testing.",
+        "score": 2,
+        "citesMemory": false,
+        "latencyMs": 2249,
+        "inputTokens": 212,
+        "outputTokens": 84,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "What CSS solution does the project use?",
+          "expectedKeywords": [
+            "tailwind"
+          ],
+          "category": "decision"
+        },
+        "mode": "with-memory",
+        "response": "Based on the provided project memories, there is no information about the CSS solution used in this project. The memories cover testing frameworks, API versioning, file uploads, database choice, and rate limits—but not styling/CSS approaches.\n\nYou may need to check the project's codebase or document",
+        "score": 2,
+        "citesMemory": true,
+        "latencyMs": 4368,
+        "inputTokens": 217,
+        "outputTokens": 180,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "How is caching implemented?",
+          "expectedKeywords": [
+            "redis",
+            "5",
+            "minute"
+          ],
+          "category": "fact"
+        },
+        "mode": "with-memory",
+        "response": "## Caching Implementation\n\nCaching is implemented using **Redis** with the following TTL strategy:\n\n| Cache Target | TTL |\n|--------------|-----|\n| API responses | 5 minutes |\n| User sessions | 1 hour |\n\nRedis serves as the central caching layer for both transient API data and persistent session dat",
+        "score": 2,
+        "citesMemory": false,
+        "latencyMs": 3326,
+        "inputTokens": 210,
+        "outputTokens": 153,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "What is the search technology used?",
+          "expectedKeywords": [
+            "meilisearch"
+          ],
+          "category": "fact"
+        },
+        "mode": "with-memory",
+        "response": "The search technology used is **Meilisearch**, which provides full-text search capabilities with auto-sync from PostgreSQL every 30 seconds.",
+        "score": 2,
+        "citesMemory": false,
+        "latencyMs": 3043,
+        "inputTokens": 218,
+        "outputTokens": 92,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "How are feature flags managed?",
+          "expectedKeywords": [
+            "launchdarkly",
+            "2 week"
+          ],
+          "category": "fact"
+        },
+        "mode": "with-memory",
+        "response": "Feature flags are managed through **LaunchDarkly**. New features are deployed behind flags for approximately **2 weeks** before full rollout.",
+        "score": 2,
+        "citesMemory": false,
+        "latencyMs": 3893,
+        "inputTokens": 215,
+        "outputTokens": 103,
+        "error": null
+      }
+    ],
+    "withoutMemory": [
+      {
+        "question": {
+          "prompt": "What database does this project use and why?",
+          "expectedKeywords": [
+            "postgresql",
+            "relational"
+          ],
+          "category": "decision"
+        },
+        "mode": "without-memory",
+        "response": "I don't have context about which specific project you're referring to. Could you clarify which project you'd like to know about?\n\nIn the meantime, I can provide some general context:\n\n## Common Database Choices and Reasons:\n\n**PostgreSQL** - Often chosen for:\n- Complex relational data\n- Strong ACID ",
+        "score": 2,
+        "citesMemory": false,
+        "latencyMs": 7357,
+        "inputTokens": 49,
+        "outputTokens": 354,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "What is the indentation style preference for this project?",
+          "expectedKeywords": [
+            "tabs",
+            "2"
+          ],
+          "category": "preference"
+        },
+        "mode": "without-memory",
+        "response": "I don't have context about a specific project in our conversation. Could you clarify which project you're asking about?\n\nIf you're referring to your own project, you might check for:\n- **EditorConfig** file (`.editorconfig`) in the repository root\n- **Linting/formatting config** files like `.eslintr",
+        "score": 1,
+        "citesMemory": false,
+        "latencyMs": 4968,
+        "inputTokens": 50,
+        "outputTokens": 204,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "What is the rate limit for the external payment API?",
+          "expectedKeywords": [
+            "100",
+            "minute"
+          ],
+          "category": "fact"
+        },
+        "mode": "without-memory",
+        "response": "I don't have information about a specific \"external payment API\" in your context. Rate limits vary significantly between different payment providers.\n\nTo help you better, could you clarify:\n\n1. **Which payment provider?** (e.g., Stripe, PayPal, Square, Braintree, Adyen, or a custom/third-party API)\n",
+        "score": 2,
+        "citesMemory": false,
+        "latencyMs": 8470,
+        "inputTokens": 51,
+        "outputTokens": 363,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "Where are production deployments hosted?",
+          "expectedKeywords": [
+            "railway",
+            "main"
+          ],
+          "category": "decision"
+        },
+        "mode": "without-memory",
+        "response": "I don't have specific information about your production environment. Could you clarify which project or organization you're asking about?\n\nIf you're asking generally, production deployments are commonly hosted on:\n\n- **Cloud providers**: AWS, Google Cloud Platform, Azure, DigitalOcean\n- **Managed se",
+        "score": 1,
+        "citesMemory": false,
+        "latencyMs": 6385,
+        "inputTokens": 46,
+        "outputTokens": 325,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "How does authentication work in this project?",
+          "expectedKeywords": [
+            "jwt",
+            "15",
+            "refresh"
+          ],
+          "category": "decision"
+        },
+        "mode": "without-memory",
+        "response": "# Clarification Needed\n\nI don't have any context about a specific project in this conversation. To help you understand how authentication works, I need more information about your project.\n\n## Please Provide One of the Following:\n\n1. **Code or Files** - Share your authentication-related code (e.g., ",
+        "score": 0,
+        "citesMemory": false,
+        "latencyMs": 8537,
+        "inputTokens": 48,
+        "outputTokens": 408,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "What testing frameworks are used?",
+          "expectedKeywords": [
+            "vitest",
+            "playwright"
+          ],
+          "category": "fact"
+        },
+        "mode": "without-memory",
+        "response": "I don't have information about which specific project or codebase you're referring to. Testing frameworks vary by programming language and project:\n\n- **JavaScript/TypeScript**: Jest, Mocha, Cypress, Playwright\n- **Python**: pytest, unittest, nose2\n- **Java**: JUnit, TestNG\n- **C#/.NET**: xUnit, NUn",
+        "score": 1,
+        "citesMemory": false,
+        "latencyMs": 11540,
+        "inputTokens": 46,
+        "outputTokens": 319,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "What CSS solution does the project use?",
+          "expectedKeywords": [
+            "tailwind"
+          ],
+          "category": "decision"
+        },
+        "mode": "without-memory",
+        "response": "I don't have information about which specific project you're referring to. Could you please clarify which project you'd like to know about?\n\nFor example, are you asking about:\n\n- A specific open-source project you're working with?\n- A project mentioned in a previous conversation?\n- A particular code",
+        "score": 2,
+        "citesMemory": false,
+        "latencyMs": 3251,
+        "inputTokens": 48,
+        "outputTokens": 166,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "How is caching implemented?",
+          "expectedKeywords": [
+            "redis",
+            "5",
+            "minute"
+          ],
+          "category": "fact"
+        },
+        "mode": "without-memory",
+        "response": "Caching is a technique used to store copies of data or results in a faster storage layer (cache) so that future requests for that data can be served more quickly. It's a fundamental concept in computing, used at many levels: hardware (CPU caches), operating systems (page cache), web browsers, CDNs, ",
+        "score": 2,
+        "citesMemory": false,
+        "latencyMs": 16183,
+        "inputTokens": 45,
+        "outputTokens": 1024,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "What is the search technology used?",
+          "expectedKeywords": [
+            "meilisearch"
+          ],
+          "category": "fact"
+        },
+        "mode": "without-memory",
+        "response": "I'd be happy to help, but I need some clarification. Your question \"What is the search technology used?\" doesn't specify which project, product, or system you're asking about.\n\nCould you please provide more context, such as:\n\n- **Which project or application** you're referring to?\n- **The name of th",
+        "score": 0,
+        "citesMemory": false,
+        "latencyMs": 5640,
+        "inputTokens": 47,
+        "outputTokens": 243,
+        "error": null
+      },
+      {
+        "question": {
+          "prompt": "How are feature flags managed?",
+          "expectedKeywords": [
+            "launchdarkly",
+            "2 week"
+          ],
+          "category": "fact"
+        },
+        "mode": "without-memory",
+        "response": "Feature flags (or feature toggles) are a powerful technique used in software development to enable or disable specific features without deploying new code. They allow teams to release features gradually, run experiments, and control user access in real time. Here’s how feature flags are typically ma",
+        "score": 1,
+        "citesMemory": false,
+        "latencyMs": 21621,
+        "inputTokens": 46,
+        "outputTokens": 980,
+        "error": null
+      }
+    ],
+    "avgScoreWith": 1.8,
+    "avgScoreWithout": 1.2
+  },
+  "totalCostUsd": 0.09486350000000003
+}
