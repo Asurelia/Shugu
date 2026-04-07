@@ -81,13 +81,19 @@ You coordinate — you don't just execute. Plan, delegate, verify.`;
 
 // ─── Full System Prompt Builder ─────────────────────────
 
+export interface PromptBuildResult {
+  prompt: string;
+  warnings: string[];
+}
+
 export async function buildSystemPrompt(
   cwd: string,
   skillRegistry?: SkillRegistry,
   precomputedAdapters?: Awaited<ReturnType<typeof discoverTools>>,
   memoryAgent?: MemoryAgent,
-): Promise<string> {
+): Promise<PromptBuildResult> {
   const parts = [BASE_SYSTEM_PROMPT];
+  const warnings: string[] = [];
 
   // Workspace context (sync — instant)
   parts.push('\n\n# Environment');
@@ -118,7 +124,7 @@ export async function buildSystemPrompt(
       parts.push(projectResult.customInstructions);
     }
   } else {
-    logger.warn('Project context failed to load — custom instructions will be missing');
+    warnings.push('Project context failed to load — custom instructions will be missing');
   }
 
   // CLI tool hints
@@ -144,7 +150,7 @@ export async function buildSystemPrompt(
     parts.push('\n' + getCompanionPrompt(companion));
   } catch { /* non-critical */ }
 
-  return parts.join('\n');
+  return { prompt: parts.join('\n'), warnings };
 }
 
 // ─── Volatile Per-Turn Prompt Parts ─────────────────────

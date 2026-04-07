@@ -305,14 +305,24 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
       if (event.type === 'assistant_message') {
         result = event.message.content.filter(isTextBlock).map(b => b.text).join('');
       }
+      if (event.type === 'history_sync') {
+        messages.length = 0;
+        messages.push(...event.messages);
+      }
     }
     return result;
   }));
 
   // Build system prompt
   const adapters = await discoverTools(cwd);
-  builtSystemPrompt = await buildSystemPrompt(cwd, skillRegistry, adapters, memoryAgent);
+  const promptResult = await buildSystemPrompt(cwd, skillRegistry, adapters, memoryAgent);
+  builtSystemPrompt = promptResult.prompt;
   const systemPrompt = builtSystemPrompt;
+
+  // Surface prompt-build warnings to the user
+  for (const warning of promptResult.warnings) {
+    renderer.error(`  ⚠ ${warning}`);
+  }
 
   // Banner for single-shot mode
   if (cliArgs.prompt) {

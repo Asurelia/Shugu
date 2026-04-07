@@ -19,7 +19,7 @@ import type { ThinkingConfig } from '../protocol/thinking.js';
 import type { StreamEvent } from '../protocol/events.js';
 import { resolveAuth, type AuthConfig } from './auth.js';
 import { parseSSEStream, accumulateStream, type AccumulatedResponse, type StreamCallbacks } from './stream.js';
-import { classifyHttpError, withRetry, ModelNotFoundError, type RetryConfig, DEFAULT_RETRY_CONFIG } from './errors.js';
+import { classifyHttpError, withRetry, ModelNotFoundError, ModelFallbackError, type RetryConfig, DEFAULT_RETRY_CONFIG } from './errors.js';
 
 // ─── Models ─────────────────────────────────────────────
 
@@ -99,7 +99,10 @@ export class MiniMaxClient {
   /**
    * Stream a message completion from MiniMax.
    * Returns an async generator of raw SSE events.
-   * On ModelNotFoundError, tries the next model in the fallback chain.
+   *
+   * Fallback chain: on ModelNotFoundError (404) or ModelFallbackError
+   * (3 consecutive 529 overloads), downgrades to the next model in
+   * best → balanced → fast order.
    */
   async *stream(
     messages: Message[],
@@ -114,24 +117,8 @@ export class MiniMaxClient {
         this.config.retryConfig,
       );
     } catch (err) {
-      if (err instanceof ModelNotFoundError) {
-        // Try fallback: find next model in chain after current
-        const currentModel = body.model;
-        const chainIdx = MiniMaxClient.FALLBACK_CHAIN.indexOf(currentModel);
-        const nextModel = chainIdx >= 0 && chainIdx < MiniMaxClient.FALLBACK_CHAIN.length - 1
-          ? MiniMaxClient.FALLBACK_CHAIN[chainIdx + 1]
-          : undefined;
-
-        if (nextModel) {
-          this.setModel(nextModel);
-          body.model = nextModel;
-          response = await withRetry(
-            (_attempt) => this.makeRequest(body, options.abortSignal),
-            this.config.retryConfig,
-          );
-        } else {
-          throw err; // No more fallbacks
-        }
+      if (err instanceof ModelNotFoundError || err instanceof ModelFallbackError) {
+        response = await this.attemptFallback(body, err, options.abortSignal);
       } else {
         throw err;
       }
@@ -142,6 +129,33 @@ export class MiniMaxClient {
     }
 
     yield* parseSSEStream(response.body, options.abortSignal);
+  }
+
+  /**
+   * Try the next model in the fallback chain after a model error.
+   * Throws the original error if no fallback is available.
+   */
+  private async attemptFallback(
+    body: MessagesRequest,
+    originalError: Error,
+    abortSignal?: AbortSignal,
+  ): Promise<Response> {
+    const currentModel = body.model;
+    const chainIdx = MiniMaxClient.FALLBACK_CHAIN.indexOf(currentModel);
+    const nextModel = chainIdx >= 0 && chainIdx < MiniMaxClient.FALLBACK_CHAIN.length - 1
+      ? MiniMaxClient.FALLBACK_CHAIN[chainIdx + 1]
+      : undefined;
+
+    if (!nextModel) {
+      throw originalError;
+    }
+
+    this.setModel(nextModel);
+    body.model = nextModel;
+    return withRetry(
+      (_attempt) => this.makeRequest(body, abortSignal),
+      this.config.retryConfig,
+    );
   }
 
   /**
