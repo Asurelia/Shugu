@@ -17,6 +17,17 @@ import { InterruptController } from '../engine/interrupts.js';
 import type { Message, AssistantMessage } from '../protocol/messages.js';
 import type { Tool, ToolContext } from '../protocol/tools.js';
 import { isTextBlock } from '../protocol/messages.js';
+import { createWorktree, removeWorktree, worktreeHasChanges, type Worktree, type WorktreeCleanupResult } from './worktree.js';
+import { resolveGitRoot, relativeToCwd } from '../utils/git.js';
+import { join } from 'node:path';
+
+// ─── Agent Limits ──────────────────────────────────────
+
+/** Maximum recursion depth for nested agent spawning */
+export const MAX_AGENT_DEPTH = 3;
+
+/** Maximum concurrent active agents across all depths */
+export const MAX_ACTIVE_AGENTS = 15;
 
 // ─── Agent Definition ───────────────────────────────────
 
@@ -80,6 +91,10 @@ export interface AgentResult {
   costUsd: number;
   /** Number of turns the agent took */
   turns: number;
+  /** If isolation='worktree' was used and changes were made, the worktree metadata */
+  worktree?: import('./worktree.js').Worktree;
+  /** Warnings from worktree cleanup (e.g., branch deletion failed) */
+  cleanupWarnings?: string[];
 }
 
 // ─── Orchestrator ───────────────────────────────────────
@@ -109,22 +124,48 @@ export class AgentOrchestrator {
     agentType: string = 'general',
     options: SpawnOptions = {},
   ): Promise<AgentResult> {
+    const depth = options.depth ?? 0;
+
+    // Fan-out guard: prevent runaway agent proliferation
+    if (this.activeAgents.size >= MAX_ACTIVE_AGENTS) {
+      return {
+        response: `Agent spawn rejected: ${this.activeAgents.size} agents already active (max ${MAX_ACTIVE_AGENTS}). Wait for existing agents to complete.`,
+        events: [],
+        success: false,
+        endReason: 'fan_out_limit',
+        costUsd: 0,
+        turns: 0,
+      };
+    }
+
     const definition = BUILTIN_AGENTS[agentType] ?? BUILTIN_AGENTS['general']!;
     const agentId = `agent-${++this.agentCounter}`;
     const interrupt = new InterruptController();
     this.activeAgents.set(agentId, interrupt);
 
+    let worktree: Worktree | null = null;
+    let effectiveCwd = options.cwd ?? this.parentToolContext.cwd;
+    let cleanupWarnings: string[] = [];
+
     try {
-      // Build restricted tool set
-      const agentTools = this.buildToolSet(definition, options.allowedTools);
+      // Worktree isolation: create a git worktree for this agent
+      if (options.isolation === 'worktree') {
+        const gitRoot = await resolveGitRoot(this.parentToolContext.cwd);
+        const relCwd = relativeToCwd(gitRoot, effectiveCwd);
+        worktree = await createWorktree(gitRoot);
+        effectiveCwd = relCwd ? join(worktree.path, relCwd) : worktree.path;
+      }
+
+      // Build restricted tool set (depth-aware: keeps Agent tool if depth < MAX)
+      const agentTools = this.buildToolSet(definition, options.allowedTools, depth);
       const agentToolDefs = Array.from(agentTools.values()).map((t) => t.definition);
 
       // Build system prompt with role
-      const systemPrompt = this.buildAgentPrompt(definition, options.context);
+      const systemPrompt = this.buildAgentPrompt(definition, options.context, depth, effectiveCwd);
 
-      // Create tool context for sub-agent (same cwd, fresh abort)
+      // Create tool context for sub-agent (worktree-aware cwd, fresh abort)
       const agentToolContext: ToolContext = {
-        cwd: options.cwd ?? this.parentToolContext.cwd,
+        cwd: effectiveCwd,
         abortSignal: interrupt.signal,
         permissionMode: this.parentToolContext.permissionMode,
         askPermission: this.parentToolContext.askPermission,
@@ -178,6 +219,21 @@ export class AgentOrchestrator {
             .join('')
         : '[Agent produced no text response]';
 
+      // Worktree cleanup: only auto-remove if no changes remain
+      let resultWorktree: Worktree | undefined;
+      if (worktree) {
+        const hasChanges = await worktreeHasChanges(worktree);
+        if (!hasChanges) {
+          const gitRoot = await resolveGitRoot(this.parentToolContext.cwd);
+          const cleanup: WorktreeCleanupResult = await removeWorktree(gitRoot, worktree);
+          cleanupWarnings = cleanup.warnings;
+        } else {
+          // Keep worktree in result so caller can merge/inspect
+          resultWorktree = worktree;
+        }
+        worktree = null; // Handled — don't re-run in finally
+      }
+
       return {
         response,
         events,
@@ -185,9 +241,21 @@ export class AgentOrchestrator {
         endReason,
         costUsd,
         turns,
+        worktree: resultWorktree,
+        cleanupWarnings: cleanupWarnings.length > 0 ? cleanupWarnings : undefined,
       };
     } finally {
       this.activeAgents.delete(agentId);
+      // If worktree was not cleaned up in the try block (e.g. exception path), attempt cleanup
+      if (worktree) {
+        try {
+          const gitRoot = await resolveGitRoot(this.parentToolContext.cwd);
+          const cleanup = await removeWorktree(gitRoot, worktree);
+          cleanupWarnings.push(...cleanup.warnings);
+        } catch {
+          // Best effort in finally — don't mask the original error
+        }
+      }
     }
   }
 
@@ -210,25 +278,39 @@ export class AgentOrchestrator {
   private buildToolSet(
     definition: AgentDefinition,
     overrideAllowed?: string[],
+    depth: number = 0,
   ): Map<string, Tool> {
     const allowed = overrideAllowed ?? definition.allowedTools;
 
+    let tools: Map<string, Tool>;
     if (!allowed) {
-      // All tools except Agent (prevent recursive spawning by default)
-      const tools = new Map(this.availableTools);
-      tools.delete('Agent');
-      return tools;
+      tools = new Map(this.availableTools);
+    } else {
+      tools = new Map<string, Tool>();
+      for (const name of allowed) {
+        const tool = this.availableTools.get(name);
+        if (tool) tools.set(name, tool);
+      }
     }
 
-    const tools = new Map<string, Tool>();
-    for (const name of allowed) {
-      const tool = this.availableTools.get(name);
-      if (tool) tools.set(name, tool);
+    // Depth-aware Agent tool handling:
+    // - At max depth: remove Agent tool entirely (prevent further nesting)
+    // - Below max depth: keep Agent tool but mark depth for propagation
+    if (depth >= MAX_AGENT_DEPTH) {
+      tools.delete('Agent');
+    } else if (tools.has('Agent')) {
+      // Clone the parent AgentTool with incremented depth
+      // We use the createChildAgentTool factory which avoids circular imports
+      const parentAgent = tools.get('Agent')! as import('../tools/agents/AgentTool.js').AgentTool;
+      const childAgent = parentAgent.createChild(depth + 1, this);
+      tools.set('Agent', childAgent);
     }
+
     return tools;
   }
 
-  private buildAgentPrompt(definition: AgentDefinition, additionalContext?: string): string {
+  private buildAgentPrompt(definition: AgentDefinition, additionalContext?: string, depth: number = 0, effectiveCwd?: string): string {
+    const cwd = effectiveCwd ?? this.parentToolContext.cwd;
     const parts: string[] = [
       // Shared base prompt for all agents
       `You are a Shugu sub-agent. Complete your task thoroughly, then stop.`,
@@ -244,9 +326,11 @@ export class AgentOrchestrator {
       definition.rolePrompt,
       ``,
       `# Environment`,
-      `Working directory: ${this.parentToolContext.cwd}`,
+      `Working directory: ${cwd}`,
       `Platform: ${process.platform}`,
       `Max turns: ${definition.maxTurns}`,
+      `Agent depth: ${depth}/${MAX_AGENT_DEPTH}`,
+      `Active agents: ${this.activeAgents.size}/${MAX_ACTIVE_AGENTS}`,
     ];
 
     if (additionalContext) {
@@ -272,4 +356,8 @@ export interface SpawnOptions {
   maxBudgetUsd?: number;
   /** Callback for each event from the sub-agent */
   onEvent?: (event: LoopEvent) => void;
+  /** Current recursion depth (0 = top-level). Orchestrator increments on spawn. */
+  depth?: number;
+  /** Isolation mode. 'worktree' creates a git worktree for the agent. */
+  isolation?: 'worktree';
 }

@@ -20,7 +20,7 @@
  */
 
 import { readFile, writeFile, mkdir, readdir, stat, access, unlink, rename, copyFile } from 'node:fs/promises';
-import { join, relative, basename, dirname } from 'node:path';
+import { join, relative, basename, dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { slugify } from '../../utils/strings.js';
 
@@ -63,6 +63,22 @@ export class ObsidianVault {
   }
 
   /**
+   * Safely resolve a user-provided path within the vault root.
+   * Returns the resolved absolute path if it stays within the vault, null otherwise.
+   */
+  private resolveSafe(userPath: string): string | null {
+    const joined = join(this.config.path, userPath);
+    const resolved = resolve(joined);
+    const vaultResolved = resolve(this.config.path);
+    const normalizedResolved = resolved.replace(/\\/g, '/').toLowerCase();
+    const normalizedVault = vaultResolved.replace(/\\/g, '/').toLowerCase();
+    if (normalizedResolved !== normalizedVault && !normalizedResolved.startsWith(normalizedVault + '/')) {
+      return null;
+    }
+    return resolved;
+  }
+
+  /**
    * Invalidate the notes cache (called after write/delete/archive operations).
    */
   invalidateCache(): void {
@@ -87,7 +103,8 @@ export class ObsidianVault {
    * Read a single note by path (relative to vault root).
    */
   async readNote(notePath: string): Promise<ObsidianNote | null> {
-    const absPath = join(this.config.path, notePath);
+    const absPath = this.resolveSafe(notePath);
+    if (absPath === null) return null;
     try {
       const content = await readFile(absPath, 'utf-8');
       return parseNote(notePath, content);
@@ -239,7 +256,11 @@ export class ObsidianVault {
     body: string,
     frontmatter: Record<string, unknown> = {},
   ): Promise<string> {
-    const folderPath = join(this.config.path, folder);
+    const safeFolderPath = this.resolveSafe(folder);
+    if (safeFolderPath === null) {
+      throw new Error(`Path traversal detected: folder "${folder}" escapes vault boundary`);
+    }
+    const folderPath = safeFolderPath;
     await mkdir(folderPath, { recursive: true });
 
     const filename = slugify(title) + '.md';
@@ -265,6 +286,10 @@ export class ObsidianVault {
     notePath: string,
     updates: { body?: string; frontmatter?: Record<string, unknown>; appendBody?: string },
   ): Promise<boolean> {
+    const absPath = this.resolveSafe(notePath);
+    if (absPath === null) {
+      throw new Error(`Path traversal detected: notePath "${notePath}" escapes vault boundary`);
+    }
     const existing = await this.readNote(notePath);
     if (!existing) return false;
 
@@ -282,7 +307,6 @@ export class ObsidianVault {
       newBody = newBody.trimEnd() + '\n\n' + updates.appendBody;
     }
 
-    const absPath = join(this.config.path, notePath);
     await writeFile(absPath, formatNote(mergedFm, newBody), 'utf-8');
     this.invalidateCache();
     return true;
@@ -292,7 +316,10 @@ export class ObsidianVault {
    * Delete a note from the vault.
    */
   async deleteNote(notePath: string): Promise<boolean> {
-    const absPath = join(this.config.path, notePath);
+    const absPath = this.resolveSafe(notePath);
+    if (absPath === null) {
+      throw new Error(`Path traversal detected: notePath "${notePath}" escapes vault boundary`);
+    }
     try {
       await unlink(absPath);
       this.invalidateCache();
@@ -625,6 +652,13 @@ export async function discoverVault(cwd: string): Promise<string | null> {
   for (const configPath of [join(cwd, '.pcc', 'vault.path'), join(cwd, 'pcc-vault.path')]) {
     try {
       const vaultPath = (await readFile(configPath, 'utf-8')).trim();
+      const resolved = resolve(vaultPath);
+      const home = homedir();
+      const project = resolve(cwd);
+      if (!resolved.startsWith(project) && !resolved.startsWith(home)) {
+        // Reject — vault path is outside trusted locations
+        return null;
+      }
       await access(vaultPath);
       return vaultPath;
     } catch {

@@ -9,6 +9,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { resolve, isAbsolute } from 'node:path';
 import type { Tool, ToolCall, ToolResult, ToolContext, ToolDefinition } from '../../protocol/tools.js';
 import { validateWorkspacePath } from '../../policy/workspace.js';
+import { isSpillPath } from '../outputLimits.js';
 
 export const FileReadToolDefinition: ToolDefinition = {
   name: 'Read',
@@ -57,11 +58,14 @@ export class FileReadTool implements Tool {
     if (context.permissionMode !== 'bypass') {
       const validation = await validateWorkspacePath(filePath, context.cwd);
       if (!validation.valid) {
-        return {
-          tool_use_id: call.id,
-          content: `Error: ${validation.reason}`,
-          is_error: true,
-        };
+        // Allow reads of spilled output files even outside workspace
+        if (!isSpillPath(absPath)) {
+          return {
+            tool_use_id: call.id,
+            content: `Error: ${validation.reason}`,
+            is_error: true,
+          };
+        }
       }
     }
 

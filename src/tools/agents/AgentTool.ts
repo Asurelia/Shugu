@@ -63,6 +63,7 @@ export class AgentTool implements Tool {
   definition = AgentToolDefinition;
   private orchestrator: AgentOrchestrator | null = null;
   private onAgentEvent?: (event: AgentEvent) => void;
+  private depth = 0;
 
   setOrchestrator(orchestrator: AgentOrchestrator): void {
     this.orchestrator = orchestrator;
@@ -70,6 +71,22 @@ export class AgentTool implements Tool {
 
   setEventCallback(callback: (event: AgentEvent) => void): void {
     this.onAgentEvent = callback;
+  }
+
+  setDepth(depth: number): void {
+    this.depth = depth;
+  }
+
+  /**
+   * Create a child AgentTool with incremented depth.
+   * Used by the orchestrator to propagate depth through nested agent spawns.
+   */
+  createChild(childDepth: number, orchestrator: AgentOrchestrator): AgentTool {
+    const child = new AgentTool();
+    child.setOrchestrator(orchestrator);
+    child.setDepth(childDepth);
+    child.setEventCallback(() => {}); // Sub-agents don't bubble events to parent UI
+    return child;
   }
 
   validateInput(input: Record<string, unknown>): string | null {
@@ -94,6 +111,7 @@ export class AgentTool implements Tool {
 
     const options: SpawnOptions = {
       context: additionalContext,
+      depth: this.depth,
       onEvent: (event) => {
         if (event.type === 'tool_executing') {
           // Extract detail from tool input
@@ -130,11 +148,13 @@ export class AgentTool implements Tool {
       this.onAgentEvent?.({ agentType, event: 'start', message: prompt.slice(0, 80) });
       const agentSpanId = tracer.startSpan();
       const agentStartMs = Date.now();
-      tracer.log('agent_spawn', { agentType, prompt: prompt.slice(0, 150) }, agentSpanId);
+      tracer.log('agent_spawn', { agentType, depth: this.depth, prompt: prompt.slice(0, 150) }, agentSpanId);
       let result = await this.orchestrator.spawn(prompt, agentType, options);
 
       // Self-repair: retry once if agent failed or produced no response
-      if (!result.success || !result.response) {
+      // Disabled near max depth to prevent exponential fan-out (depth 0 → retry → 2 agents at depth 1 → 4 at depth 2 → ...)
+      const { MAX_AGENT_DEPTH } = await import('../../agents/orchestrator.js');
+      if ((!result.success || !result.response) && this.depth < MAX_AGENT_DEPTH - 1) {
         // Sanitize error info: truncate, strip potential secrets/paths
         const rawError = result.response || result.endReason || 'unknown error';
         const errorInfo = rawError.slice(0, 200).replace(/[A-Za-z0-9_\-]{20,}/g, '[REDACTED]');

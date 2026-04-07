@@ -19,11 +19,45 @@ export interface Task {
   updatedAt: string;
 }
 
-const tasks = new Map<string, Task>();
-let nextId = 1;
+export class TaskStore {
+  private tasks = new Map<string, Task>();
+  private nextId = 1;
 
-export function getTaskStore(): Map<string, Task> {
-  return tasks;
+  create(subject: string, description?: string): Task {
+    const id = String(this.nextId++);
+    const task: Task = {
+      id,
+      subject,
+      description: description ?? '',
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    this.tasks.set(id, task);
+    return task;
+  }
+
+  get(id: string): Task | undefined {
+    return this.tasks.get(id);
+  }
+
+  list(): Task[] {
+    return Array.from(this.tasks.values());
+  }
+
+  update(id: string, updates: Partial<Task>): Task | undefined {
+    const task = this.tasks.get(id);
+    if (!task) return undefined;
+    Object.assign(task, updates, { updatedAt: new Date().toISOString() });
+    return task;
+  }
+}
+
+// Default instance for backward compatibility
+const defaultStore = new TaskStore();
+
+export function getTaskStore(): TaskStore {
+  return defaultStore;
 }
 
 // ─── TaskCreate ─────────────────────────────────────────
@@ -44,19 +78,18 @@ export const TaskCreateDefinition: ToolDefinition = {
 
 export class TaskCreateTool implements Tool {
   definition = TaskCreateDefinition;
+  private store: TaskStore;
+
+  constructor(store: TaskStore = defaultStore) {
+    this.store = store;
+  }
 
   async execute(call: ToolCall): Promise<ToolResult> {
-    const id = String(nextId++);
-    const task: Task = {
-      id,
-      subject: call.input['subject'] as string,
-      description: call.input['description'] as string,
-      status: 'pending',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    tasks.set(id, task);
-    return { tool_use_id: call.id, content: `Task #${id} created: ${task.subject}` };
+    const task = this.store.create(
+      call.input['subject'] as string,
+      call.input['description'] as string,
+    );
+    return { tool_use_id: call.id, content: `Task #${task.id} created: ${task.subject}` };
   }
 }
 
@@ -78,18 +111,21 @@ export const TaskUpdateDefinition: ToolDefinition = {
 
 export class TaskUpdateTool implements Tool {
   definition = TaskUpdateDefinition;
+  private store: TaskStore;
+
+  constructor(store: TaskStore = defaultStore) {
+    this.store = store;
+  }
 
   async execute(call: ToolCall): Promise<ToolResult> {
     const taskId = call.input['taskId'] as string;
     const status = call.input['status'] as Task['status'];
-    const task = tasks.get(taskId);
+    const task = this.store.update(taskId, { status });
 
     if (!task) {
       return { tool_use_id: call.id, content: `Task #${taskId} not found`, is_error: true };
     }
 
-    task.status = status;
-    task.updatedAt = new Date().toISOString();
     return { tool_use_id: call.id, content: `Task #${taskId} updated to ${status}` };
   }
 }
@@ -108,13 +144,19 @@ export const TaskListDefinition: ToolDefinition = {
 
 export class TaskListTool implements Tool {
   definition = TaskListDefinition;
+  private store: TaskStore;
+
+  constructor(store: TaskStore = defaultStore) {
+    this.store = store;
+  }
 
   async execute(call: ToolCall): Promise<ToolResult> {
-    if (tasks.size === 0) {
+    const tasks = this.store.list();
+    if (tasks.length === 0) {
       return { tool_use_id: call.id, content: 'No tasks.' };
     }
 
-    const lines = Array.from(tasks.values()).map((t) => {
+    const lines = tasks.map((t) => {
       const icon = t.status === 'completed' ? 'done' : t.status === 'in_progress' ? 'working' : 'todo';
       return `#${t.id} [${icon}] ${t.subject}`;
     });

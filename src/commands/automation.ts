@@ -8,7 +8,6 @@
 
 import type { Command, CommandContext, CommandResult } from './registry.js';
 import type { BackgroundManager } from '../automation/background.js';
-import type { ProactiveLoop } from '../automation/proactive.js';
 import type { LoopConfig } from '../engine/loop.js';
 
 // ─── /bg — Background Sessions ─────────────────────────
@@ -106,8 +105,6 @@ export function createBgCommand(
 export function createProactiveCommand(
   runAgentLoop: (prompt: string) => Promise<string>,
 ): Command {
-  let activeLoop: ProactiveLoop | null = null;
-
   return {
     name: 'proactive',
     aliases: ['auto'],
@@ -117,22 +114,12 @@ export function createProactiveCommand(
       const trimmed = args.trim();
 
       if (trimmed === 'stop') {
-        if (activeLoop) {
-          activeLoop.abort();
-          activeLoop = null;
-          ctx.info('Proactive loop stopped.');
-        } else {
-          ctx.info('No proactive loop running.');
-        }
+        ctx.info('Use Ctrl+C to stop the current proactive loop.');
         return { type: 'handled' };
       }
 
       if (!trimmed) {
-        if (activeLoop?.isRunning) {
-          ctx.info('Proactive loop is running. Use /proactive stop to stop.');
-        } else {
-          ctx.info('Usage: /proactive <goal>\nExample: /proactive "Fix all TODO comments in src/"');
-        }
+        ctx.info('Usage: /proactive <goal>\nExample: /proactive "Fix all TODO comments in src/"');
         return { type: 'handled' };
       }
 

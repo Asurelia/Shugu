@@ -144,12 +144,26 @@ export function truncateBashOutput(
 
 let spillDir: string | null = null;
 
-async function getSpillDir(): Promise<string> {
+/**
+ * Returns the spill directory path (creates it if needed).
+ */
+export async function getSpillDir(): Promise<string> {
   if (!spillDir) {
     spillDir = join(tmpdir(), 'pcc-spill');
     await mkdir(spillDir, { recursive: true });
   }
   return spillDir;
+}
+
+/**
+ * Check whether a file path is inside the spill directory.
+ * Synchronous check using the known spill dir pattern.
+ */
+export function isSpillPath(filePath: string): boolean {
+  const expectedSpillDir = join(tmpdir(), 'pcc-spill');
+  const normalized = filePath.replace(/\\/g, '/').toLowerCase();
+  const normalizedSpill = expectedSpillDir.replace(/\\/g, '/').toLowerCase();
+  return normalized === normalizedSpill || normalized.startsWith(normalizedSpill + '/');
 }
 
 async function spillToDisk(content: string, toolId: string): Promise<string> {

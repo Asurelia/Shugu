@@ -12,6 +12,9 @@ export { initCommand } from './init.js';
 export { doctorCommand } from './doctor.js';
 export { modelCommand, fastCommand, diffCommand, exportCommand, rewindCommand } from './config.js';
 export { traceCommand, healthCommand } from './trace.js';
+export { createTeamCommand } from './team.js';
+export { createReviewCommand } from './review.js';
+export { createBatchCommand } from './batch.js';
 
 import { CommandRegistry } from './registry.js';
 import {

@@ -249,6 +249,18 @@ export class TerminalRenderer {
     console.log(`${D}  Reason: ${reason}${R}`);
   }
 
+  async confirm(message: string): Promise<boolean> {
+    console.log(`\n${YELLOW}${B}confirm${R} ${D}→${R} ${message}`);
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    return new Promise((resolve) => {
+      rl.question(`${YELLOW}  [y/N] ${R}`, (answer) => {
+        rl.close();
+        const trimmed = answer.trim().toLowerCase();
+        resolve(trimmed === 'y' || trimmed === 'yes');
+      });
+    });
+  }
+
   async permissionPrompt(tool: string, action: string, reason: string): Promise<boolean> {
     const truncAction = action.length > 120 ? action.slice(0, 120) + '...' : action;
     console.log(`\n${YELLOW}${B}permission${R} ${D}→${R} ${B}${tool}${R}: ${truncAction}`);

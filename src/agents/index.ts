@@ -26,3 +26,11 @@ export {
   mergeWorktree,
   type Worktree,
 } from './worktree.js';
+
+export {
+  AgentTeam,
+  TEAM_TEMPLATES,
+  type TeamMember,
+  type TeamConfig,
+  type TeamResult,
+} from './teams.js';

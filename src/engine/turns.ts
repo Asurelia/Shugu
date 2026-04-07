@@ -112,26 +112,26 @@ export function ensureToolResultPairing(messages: Message[]): Message[] {
 
     const missingBlocks = toolUseBlocks.filter((b) => !existingResultIds.has(b.id));
     if (missingBlocks.length > 0) {
-      // Append missing results to the existing user message
+      // Append missing results — create a modified copy, do NOT mutate the original
       const syntheticResults = missingBlocks.map(
         (b): ToolResultBlock => ({
           type: 'tool_result',
           tool_use_id: b.id,
-          content: '[Tool result missing due to internal error]',
+          content: '[Tool execution was interrupted — no result available]',
           is_error: true,
         }),
       );
 
       const existingContent = Array.isArray(nextMsg.content)
-        ? nextMsg.content
+        ? [...nextMsg.content]
         : [{ type: 'text' as const, text: nextMsg.content }];
 
-      result[result.length - 1] = { // Replace the nextMsg we haven't pushed yet
+      // Push a modified copy of nextMsg and skip it in the next iteration
+      result.push({
         ...nextMsg,
-      };
-      // Actually, nextMsg hasn't been pushed yet - it will be pushed in the next iteration
-      // We need to modify it in place for the next push
-      (messages[i + 1] as UserMessage).content = [...existingContent, ...syntheticResults];
+        content: [...existingContent, ...syntheticResults],
+      } as UserMessage);
+      i++; // Skip the original nextMsg since we pushed a modified copy
     }
   }
 
@@ -169,7 +169,7 @@ function buildSyntheticToolResults(toolUseBlocks: ToolUseBlock[]): UserMessage {
     content: toolUseBlocks.map((block) => ({
       type: 'tool_result' as const,
       tool_use_id: block.id,
-      content: '[Tool result missing due to internal error]',
+      content: '[Tool execution was interrupted — no result available]',
       is_error: true,
     })),
   };
