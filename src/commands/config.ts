@@ -8,9 +8,13 @@ import { writeFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { isTextBlock } from '../protocol/messages.js';
+import { MINIMAX_MODELS } from '../transport/client.js';
 import type { Command, CommandContext, CommandResult } from './registry.js';
 
 const execAsync = promisify(execFile);
+
+/** All known model names for validation */
+const VALID_MODELS = new Set(Object.values(MINIMAX_MODELS));
 
 // ─── /model ───────────────────────────────────────────
 
@@ -20,16 +24,37 @@ export const modelCommand: Command = {
   description: 'Show or change the active model',
   async execute(args: string, ctx: CommandContext): Promise<CommandResult> {
     if (!args.trim()) {
+      const current = ctx.client?.model ?? 'unknown';
+      ctx.info(`  Current model: ${current}`);
       ctx.info('  Available models:');
-      ctx.info('    MiniMax-M2.7-highspeed  (best, default)');
-      ctx.info('    MiniMax-M2.7            (balanced)');
-      ctx.info('    MiniMax-M2.5-highspeed  (fast, cheaper)');
+      for (const [tier, name] of Object.entries(MINIMAX_MODELS)) {
+        const marker = name === current ? ' ←' : '';
+        ctx.info(`    ${name}  (${tier})${marker}`);
+      }
       ctx.info('  Usage: /model <name>');
       return { type: 'handled' };
     }
-    ctx.info(`  Model switching is not wired mid-session in this build.`);
-    ctx.info(`  Requested model: ${args.trim()}`);
-    ctx.info('  Restart after updating the configured default model.');
+
+    const requested = args.trim();
+
+    // Accept tier aliases: best, balanced, fast
+    const tierModel = MINIMAX_MODELS[requested as keyof typeof MINIMAX_MODELS];
+    const resolvedModel = tierModel ?? requested;
+
+    if (!VALID_MODELS.has(resolvedModel)) {
+      ctx.error(`  Unknown model: ${requested}`);
+      ctx.info(`  Valid: ${[...VALID_MODELS].join(', ')}`);
+      return { type: 'handled' };
+    }
+
+    if (!ctx.client) {
+      ctx.error('  Client not available for model switching.');
+      return { type: 'handled' };
+    }
+
+    const previous = ctx.client.model;
+    ctx.client.setModel(resolvedModel);
+    ctx.info(`  Model: ${previous} → ${resolvedModel}`);
     return { type: 'handled' };
   },
 };
@@ -39,10 +64,20 @@ export const modelCommand: Command = {
 export const fastCommand: Command = {
   name: 'fast',
   aliases: [],
-  description: 'Toggle fast mode (M2.5-highspeed)',
+  description: 'Toggle between best and fast model',
   async execute(_args: string, ctx: CommandContext): Promise<CommandResult> {
-    ctx.info('  Fast mode alias exists, but model switching from the REPL is not wired in this build.');
-    ctx.info('  Restart after updating the configured default model.');
+    if (!ctx.client) {
+      ctx.error('  Client not available for model switching.');
+      return { type: 'handled' };
+    }
+
+    const current = ctx.client.model;
+    const target = current === MINIMAX_MODELS.fast
+      ? MINIMAX_MODELS.best
+      : MINIMAX_MODELS.fast;
+
+    ctx.client.setModel(target);
+    ctx.info(`  Model: ${current} → ${target}`);
     return { type: 'handled' };
   },
 };

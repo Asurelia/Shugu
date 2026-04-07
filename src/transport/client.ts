@@ -19,7 +19,7 @@ import type { ThinkingConfig } from '../protocol/thinking.js';
 import type { StreamEvent } from '../protocol/events.js';
 import { resolveAuth, type AuthConfig } from './auth.js';
 import { parseSSEStream, accumulateStream, type AccumulatedResponse, type StreamCallbacks } from './stream.js';
-import { classifyHttpError, withRetry, type RetryConfig, DEFAULT_RETRY_CONFIG } from './errors.js';
+import { classifyHttpError, withRetry, ModelNotFoundError, ModelFallbackError, type RetryConfig, DEFAULT_RETRY_CONFIG } from './errors.js';
 
 // ─── Models ─────────────────────────────────────────────
 
@@ -89,9 +89,20 @@ export class MiniMaxClient {
     };
   }
 
+  /** Model fallback chain: best → balanced → fast */
+  private static readonly FALLBACK_CHAIN: string[] = [
+    MINIMAX_MODELS.best,
+    MINIMAX_MODELS.balanced,
+    MINIMAX_MODELS.fast,
+  ];
+
   /**
    * Stream a message completion from MiniMax.
    * Returns an async generator of raw SSE events.
+   *
+   * Fallback chain: on ModelNotFoundError (404) or ModelFallbackError
+   * (3 consecutive 529 overloads), downgrades to the next model in
+   * best → balanced → fast order.
    */
   async *stream(
     messages: Message[],
@@ -99,16 +110,52 @@ export class MiniMaxClient {
   ): AsyncGenerator<StreamEvent> {
     const body = this.buildRequestBody(messages, options);
 
-    const response = await withRetry(
-      (_attempt) => this.makeRequest(body, options.abortSignal),
-      this.config.retryConfig,
-    );
+    let response: Response;
+    try {
+      response = await withRetry(
+        (_attempt) => this.makeRequest(body, options.abortSignal),
+        this.config.retryConfig,
+      );
+    } catch (err) {
+      if (err instanceof ModelNotFoundError || err instanceof ModelFallbackError) {
+        response = await this.attemptFallback(body, err, options.abortSignal);
+      } else {
+        throw err;
+      }
+    }
 
     if (!response.body) {
       throw new Error('Response body is null — streaming not supported?');
     }
 
     yield* parseSSEStream(response.body, options.abortSignal);
+  }
+
+  /**
+   * Try the next model in the fallback chain after a model error.
+   * Throws the original error if no fallback is available.
+   */
+  private async attemptFallback(
+    body: MessagesRequest,
+    originalError: Error,
+    abortSignal?: AbortSignal,
+  ): Promise<Response> {
+    const currentModel = body.model;
+    const chainIdx = MiniMaxClient.FALLBACK_CHAIN.indexOf(currentModel);
+    const nextModel = chainIdx >= 0 && chainIdx < MiniMaxClient.FALLBACK_CHAIN.length - 1
+      ? MiniMaxClient.FALLBACK_CHAIN[chainIdx + 1]
+      : undefined;
+
+    if (!nextModel) {
+      throw originalError;
+    }
+
+    this.setModel(nextModel);
+    body.model = nextModel;
+    return withRetry(
+      (_attempt) => this.makeRequest(body, abortSignal),
+      this.config.retryConfig,
+    );
   }
 
   /**
@@ -191,6 +238,16 @@ export class MiniMaxClient {
     } finally {
       clearTimeout(timeoutId);
     }
+  }
+
+  // ─── Model Switching ────────────────────────────────
+
+  /**
+   * Change the active model mid-session.
+   * Used by /model and /fast commands, and by the fallback chain.
+   */
+  setModel(model: string): void {
+    this.config.model = model;
   }
 
   // ─── Getters ────────────────────────────────────────

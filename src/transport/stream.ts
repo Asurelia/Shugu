@@ -84,7 +84,12 @@ export async function accumulateStream(
   events: AsyncGenerator<StreamEvent>,
   callbacks?: StreamCallbacks,
 ): Promise<AccumulatedResponse> {
-  const blocks: AccumulatingBlock[] = [];
+  // Indexed content blocks (keyed by SSE index) — used by content_block_start/delta/stop
+  const indexedBlocks: AccumulatingBlock[] = [];
+  // Reasoning blocks from MiniMax (reasoning_details on message_start or reasoning.text events)
+  // Stored separately so content_block_start doesn't overwrite them
+  const reasoningBlocks: AccumulatingBlock[] = [];
+
   let messageId = '';
   let model = '';
   let stopReason: string | null = null;
@@ -103,18 +108,26 @@ export async function accumulateStream(
         if (event.message.usage.cache_read_input_tokens) {
           usage.cache_read_input_tokens = event.message.usage.cache_read_input_tokens;
         }
+        // MiniMax may include pre-computed reasoning on message_start
+        if (event.message.reasoning_details) {
+          for (const detail of event.message.reasoning_details) {
+            const block = createAccumulatingBlock({ type: 'thinking' });
+            block.thinking = detail.text;
+            reasoningBlocks.push(block);
+          }
+        }
         break;
       }
 
       case 'content_block_start': {
         const block = createAccumulatingBlock(event.content_block);
-        blocks[event.index] = block;
+        indexedBlocks[event.index] = block;
         callbacks?.onContentBlockStart?.(event.index, event.content_block.type);
         break;
       }
 
       case 'content_block_delta': {
-        const block = blocks[event.index];
+        const block = indexedBlocks[event.index];
         if (!block) break;
         applyDelta(block, event.delta);
         callbacks?.onDelta?.(event.index, event.delta);
@@ -122,7 +135,7 @@ export async function accumulateStream(
       }
 
       case 'content_block_stop': {
-        const block = blocks[event.index];
+        const block = indexedBlocks[event.index];
         if (!block) break;
         const completed = finalizeBlock(block);
         callbacks?.onContentBlockComplete?.(event.index, completed);
@@ -141,10 +154,25 @@ export async function accumulateStream(
         // Stream complete
         break;
       }
+
+      case 'reasoning.text': {
+        // MiniMax streaming reasoning — accumulate into the streaming reasoning block
+        const re = event as import('../protocol/events.js').ReasoningDelta;
+        let streamBlock = reasoningBlocks.find((b) => b.toolId === '_reasoning_stream');
+        if (!streamBlock) {
+          streamBlock = createAccumulatingBlock({ type: 'thinking' });
+          streamBlock.toolId = '_reasoning_stream';
+          reasoningBlocks.push(streamBlock);
+        }
+        streamBlock.thinking += re.text;
+        break;
+      }
     }
   }
 
-  const contentBlocks = blocks.map(finalizeBlock);
+  // Merge: reasoning blocks first, then indexed content blocks
+  const allBlocks = [...reasoningBlocks, ...indexedBlocks.filter(Boolean)];
+  const contentBlocks = allBlocks.map(finalizeBlock);
   const message: AssistantMessage = {
     role: 'assistant',
     content: contentBlocks,

@@ -37,6 +37,11 @@ export async function runSingleQuery(
   let totalCost = 0;
   for await (const event of runLoop(messages, config, interrupt)) {
     handleEvent(event, renderer);
+    if (event.type === 'history_sync') {
+      // Capture canonical history for potential session persistence
+      messages.length = 0;
+      messages.push(...event.messages);
+    }
     if (event.type === 'turn_end') lastUsage = event.usage;
     if (event.type === 'loop_end') totalCost = event.totalCost;
   }

@@ -75,16 +75,25 @@ export async function getProjectContext(cwd: string): Promise<ProjectContext> {
     }
   }
 
-  // Load custom instructions from CLAUDE.md or PCC.md
-  let customInstructions: string | undefined;
-  for (const instructionFile of ['SHUGU.md', 'CLAUDE.md', 'PCC.md', '.claude/CLAUDE.md', '.pcc/instructions.md']) {
+  // Load and merge ALL instruction files (not first-match-wins)
+  const instructionFiles = ['SHUGU.md', 'AGENTS.md', 'CLAUDE.md', 'PCC.md', '.claude/CLAUDE.md', '.pcc/instructions.md'];
+  const instructionParts: string[] = [];
+  for (const file of instructionFiles) {
     try {
-      const content = await readFile(join(cwd, instructionFile), 'utf-8');
-      customInstructions = content.slice(0, 5000); // Cap at 5K chars
-      break;
+      const content = await readFile(join(cwd, file), 'utf-8');
+      instructionParts.push(`# ${file}\n${content.slice(0, 3000)}`);
     } catch {
-      // Not found, try next
+      // Not found, skip
     }
+  }
+  // Cap total to ~10K chars
+  let customInstructions: string | undefined;
+  if (instructionParts.length > 0) {
+    let merged = instructionParts.join('\n\n---\n\n');
+    if (merged.length > 10_000) {
+      merged = merged.slice(0, 10_000) + '\n\n[... truncated]';
+    }
+    customInstructions = merged;
   }
 
   return { name, type: projectType, configFiles, customInstructions };

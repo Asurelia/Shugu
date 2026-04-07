@@ -83,6 +83,8 @@ export interface AgentResult {
   response: string;
   /** All events emitted during the agent's execution */
   events: LoopEvent[];
+  /** Canonical message history at loop end (from history_sync) */
+  messages?: Message[];
   /** Whether the agent completed successfully */
   success: boolean;
   /** Reason for termination */
@@ -189,6 +191,7 @@ export class AgentOrchestrator {
 
       const events: LoopEvent[] = [];
       let lastAssistantMessage: AssistantMessage | null = null;
+      let canonicalMessages: Message[] | undefined;
       let endReason = 'unknown';
       let costUsd = 0;
       let turns = 0;
@@ -198,6 +201,9 @@ export class AgentOrchestrator {
 
         if (event.type === 'assistant_message') {
           lastAssistantMessage = event.message;
+        }
+        if (event.type === 'history_sync') {
+          canonicalMessages = [...event.messages];
         }
         if (event.type === 'turn_end') {
           turns++;
@@ -237,6 +243,7 @@ export class AgentOrchestrator {
       return {
         response,
         events,
+        messages: canonicalMessages,
         success: endReason === 'end_turn',
         endReason,
         costUsd,

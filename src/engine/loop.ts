@@ -63,7 +63,9 @@ export type LoopEvent =
   | { type: 'assistant_message'; message: AssistantMessage }
   | { type: 'tool_executing'; call: ToolCall; triggeredBy: ActionTriggerBy }
   | { type: 'tool_result'; result: ToolResult; durationMs?: number }
+  | { type: 'tool_result_message'; message: UserMessage }
   | { type: 'turn_end'; turnIndex: number; usage: Usage }
+  | { type: 'history_sync'; messages: Message[] }
   | { type: 'loop_end'; reason: string; totalUsage: Usage; totalCost: number }
   | { type: 'error'; error: Error };
 
@@ -188,6 +190,7 @@ export async function* runLoop(
 
       // Budget check
       if (budget.isOverBudget()) {
+        yield { type: 'history_sync', messages: [...messages] };
         yield {
           type: 'loop_end',
           reason: 'budget_exceeded',
@@ -207,6 +210,7 @@ export async function* runLoop(
 
       const decision = shouldContinue(turnResult, turnIndex, maxTurns, budgetAllows);
       if (!decision.continue) {
+        yield { type: 'history_sync', messages: [...messages] };
         yield {
           type: 'loop_end',
           reason: decision.reason ?? 'end_turn',
@@ -390,12 +394,16 @@ export async function* runLoop(
         // Append tool results as user message
         const toolResultMessage = buildToolResultMessage(limitedResults);
         messages.push(toolResultMessage);
+
+        // Yield tool_result_message so consumers can track incremental history
+        yield { type: 'tool_result_message', message: toolResultMessage };
       }
 
       turnIndex++;
     }
   } catch (error) {
     if (isAbortError(error)) {
+      yield { type: 'history_sync', messages: [...messages] };
       yield {
         type: 'loop_end',
         reason: 'aborted',
@@ -407,6 +415,7 @@ export async function* runLoop(
 
     tracer.log('error', { message: (error as Error).message, stack: (error as Error).stack?.slice(0, 500) });
     yield { type: 'error', error: error as Error };
+    yield { type: 'history_sync', messages: [...messages] };
     yield {
       type: 'loop_end',
       reason: 'error',

@@ -15,7 +15,7 @@
 import { EventEmitter } from 'node:events';
 import { runLoop, type LoopConfig, type LoopEvent } from '../engine/loop.js';
 import { InterruptController } from '../engine/interrupts.js';
-import type { Message, AssistantMessage } from '../protocol/messages.js';
+import type { Message } from '../protocol/messages.js';
 import type { Tool, ToolContext } from '../protocol/tools.js';
 import { isTextBlock } from '../protocol/messages.js';
 import { logger } from '../utils/logger.js';
@@ -208,6 +208,11 @@ export class BackgroundManager extends EventEmitter {
             this.logLine(id, block.text);
           }
         }
+        break;
+
+      case 'history_sync':
+        // Persist canonical history for session resume
+        (session as BackgroundSession & { messages?: Message[] }).messages = [...event.messages];
         break;
 
       case 'tool_executing':

@@ -10,7 +10,7 @@ import { isTextBlock } from '../protocol/messages.js';
 import { runLoop, type LoopConfig } from '../engine/loop.js';
 import { InterruptController } from '../engine/interrupts.js';
 import { BudgetTracker } from '../engine/budget.js';
-import { TokenBudgetTracker } from '../context/tokenBudget.js';
+import { TokenBudgetTracker, estimateTokens } from '../context/tokenBudget.js';
 import { compactConversation } from '../context/compactor.js';
 import type { ToolContext } from '../protocol/tools.js';
 import type { CommandContext } from '../commands/index.js';
@@ -42,6 +42,12 @@ export async function runREPL(
   const conversationMessages: Message[] = resumedMessages ? [...resumedMessages] : [];
   const budget = new BudgetTracker(client.model);
   const tokenTracker = new TokenBudgetTracker({ model: client.model });
+
+  // Seed token tracker from resumed session so context bar shows accurate usage
+  if (resumedMessages && resumedMessages.length > 0) {
+    const estimated = estimateTokens(resumedMessages);
+    tokenTracker.updateFromUsage({ input_tokens: estimated, output_tokens: 0 });
+  }
   const session = sessionMgr.createSession(toolContext.cwd, client.model);
   let correctionCount = 0;
   let turnCount = 0;
@@ -217,6 +223,7 @@ export async function runREPL(
     messages: conversationMessages,
     info: (msg) => renderer.info(msg),
     error: (msg) => renderer.error(msg),
+    client,
   };
 
   // Repl state for inline command handlers
@@ -451,8 +458,11 @@ export async function runREPL(
         }
       }
 
-      if (event.type === 'assistant_message') {
-        conversationMessages.push(event.message);
+      if (event.type === 'history_sync') {
+        // Replace conversation with canonical loop history
+        // This ensures tool_result messages are persisted between REPL turns
+        conversationMessages.length = 0;
+        conversationMessages.push(...event.messages);
       }
       if (event.type === 'turn_end') {
         tokenTracker.updateFromUsage(event.usage);
