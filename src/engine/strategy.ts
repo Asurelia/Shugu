@@ -38,13 +38,13 @@ export interface TaskStrategy {
 // ─── Heuristic Classifier (zero tokens) ──────────────
 
 /** Action verbs that indicate work complexity */
-const ACTION_VERBS = /\b(fix|add|create|update|remove|refactor|test|search|find|implement|build|write|check|migrate|deploy|design|optimize|debug|review|analyze)\b/gi;
+const ACTION_VERBS = /\b(fix|add|create|update|remove|refactor|test|search|find|implement|build|write|check|migrate|deploy|design|optimize|debug|review|analyze|analyse|analyser|développer|ajouter|créer|corriger|tester)\b/gi;
 
 /** Keywords that strongly signal epic-scale work */
 const EPIC_KEYWORDS = /\b(application|app|système|system|platform|from scratch|entire|full[- ]stack|complet|architecture|projet|project)\b/i;
 
 /** Keywords that signal exploration, not execution */
-const EXPLORE_KEYWORDS = /\b(explain|what is|how does|show me|list|describe|help me understand)\b/i;
+const EXPLORE_KEYWORDS = /\b(explain|what is|how does|show me|list|describe|help me understand|explique|qu'est-ce que|montre-moi|c'est quoi)\b/i;
 
 /** Multi-step connectors */
 const MULTI_STEP = /\b(and then|then|also|additionally|after that|ensuite|puis|et aussi)\b/i;
@@ -57,10 +57,10 @@ export function classifyByHeuristics(input: string): Complexity | null {
   if (EXPLORE_KEYWORDS.test(lower) && words < 20) return 'trivial';
 
   // Very short, no complex verbs → trivial
-  if (words < 8 && !lower.match(/build|create|implement|refactor|migrate|design|develop/)) return 'trivial';
+  if (words < 8 && !lower.match(/build|create|implement|refactor|migrate|design|develop|analy[sz]e|analyser|développer/)) return 'trivial';
 
   // Epic-scale keywords → epic
-  if (EPIC_KEYWORDS.test(lower) && words > 15) return 'epic';
+  if (EPIC_KEYWORDS.test(lower) && words > 8) return 'epic';
 
   // Count action verbs
   const actionMatches = lower.match(ACTION_VERBS);

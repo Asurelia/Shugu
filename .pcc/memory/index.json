@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "lastSync": "2026-04-06T21:09:57.243Z",
+  "lastSync": "2026-04-07T04:20:41.409Z",
   "items": [
     {
       "title": "User prefers detailed reviews with code examples",
@@ -49,6 +49,229 @@
       ],
       "timestamp": "2026-04-06T21:09:57.236Z",
       "vaultPath": "Agent\\architecture-multi-agents.md"
+    },
+    {
+      "title": "Database choice",
+      "content": "The team decided to use PostgreSQL over MongoDB for the main database because of complex relational queries needed.",
+      "type": "decision",
+      "confidence": 0.95,
+      "source": "manual",
+      "tags": [
+        "database",
+        "architecture"
+      ],
+      "timestamp": "2026-04-07T04:20:41.407Z"
+    },
+    {
+      "title": "Indentation preference",
+      "content": "User prefers tabs over spaces with 2-width indentation in all TypeScript files.",
+      "type": "preference",
+      "confidence": 0.95,
+      "source": "manual",
+      "tags": [
+        "formatting"
+      ],
+      "timestamp": "2026-04-07T04:20:41.407Z"
+    },
+    {
+      "title": "API rate limit",
+      "content": "The external payment service has a rate limit of 100 requests per minute. Above that, requests are throttled.",
+      "type": "project_fact",
+      "confidence": 0.95,
+      "source": "manual",
+      "tags": [
+        "api",
+        "limits"
+      ],
+      "timestamp": "2026-04-07T04:20:41.407Z"
+    },
+    {
+      "title": "Deploy target",
+      "content": "Production deployments go to Railway with auto-deploy from the main branch. Staging uses preview deploys.",
+      "type": "decision",
+      "confidence": 0.95,
+      "source": "manual",
+      "tags": [
+        "deployment"
+      ],
+      "timestamp": "2026-04-07T04:20:41.407Z"
+    },
+    {
+      "title": "Auth strategy",
+      "content": "Authentication uses JWT tokens with 15-minute expiry and refresh tokens stored in httpOnly cookies.",
+      "type": "decision",
+      "confidence": 0.95,
+      "source": "manual",
+      "tags": [
+        "auth",
+        "security"
+      ],
+      "timestamp": "2026-04-07T04:20:41.407Z"
+    },
+    {
+      "title": "Testing framework",
+      "content": "The project uses Vitest for unit tests and Playwright for end-to-end testing.",
+      "type": "project_fact",
+      "confidence": 0.95,
+      "source": "manual",
+      "tags": [
+        "testing"
+      ],
+      "timestamp": "2026-04-07T04:20:41.407Z"
+    },
+    {
+      "title": "CSS approach",
+      "content": "Styling uses Tailwind CSS v4 with a custom design system. No CSS modules or styled-components.",
+      "type": "decision",
+      "confidence": 0.95,
+      "source": "manual",
+      "tags": [
+        "styling"
+      ],
+      "timestamp": "2026-04-07T04:20:41.407Z"
+    },
+    {
+      "title": "Error monitoring",
+      "content": "Sentry is configured for error monitoring in production with a 10% sample rate for performance traces.",
+      "type": "project_fact",
+      "confidence": 0.95,
+      "source": "manual",
+      "tags": [
+        "monitoring"
+      ],
+      "timestamp": "2026-04-07T04:20:41.407Z"
+    },
+    {
+      "title": "Branch naming",
+      "content": "Git branches follow the pattern type/description-YYYYMMDD where type is feat, fix, refactor, or chore.",
+      "type": "preference",
+      "confidence": 0.95,
+      "source": "manual",
+      "tags": [
+        "git"
+      ],
+      "timestamp": "2026-04-07T04:20:41.407Z"
+    },
+    {
+      "title": "API versioning",
+      "content": "The REST API uses URL-based versioning with /api/v1/ prefix. GraphQL is at /graphql with schema versioning.",
+      "type": "decision",
+      "confidence": 0.95,
+      "source": "manual",
+      "tags": [
+        "api"
+      ],
+      "timestamp": "2026-04-07T04:20:41.408Z"
+    },
+    {
+      "title": "Cache strategy",
+      "content": "Redis is used for caching with a 5-minute TTL for API responses and 1-hour TTL for user sessions.",
+      "type": "project_fact",
+      "confidence": 0.95,
+      "source": "manual",
+      "tags": [
+        "caching"
+      ],
+      "timestamp": "2026-04-07T04:20:41.408Z"
+    },
+    {
+      "title": "Image processing",
+      "content": "User uploads are processed through Sharp for resizing, stored in S3 with CloudFront CDN in front.",
+      "type": "project_fact",
+      "confidence": 0.95,
+      "source": "manual",
+      "tags": [
+        "images"
+      ],
+      "timestamp": "2026-04-07T04:20:41.408Z"
+    },
+    {
+      "title": "Logging format",
+      "content": "Structured JSON logging via Pino. Log levels: error→warn→info→debug. Logs shipped to Datadog.",
+      "type": "decision",
+      "confidence": 0.95,
+      "source": "manual",
+      "tags": [
+        "logging"
+      ],
+      "timestamp": "2026-04-07T04:20:41.408Z"
+    },
+    {
+      "title": "Email provider",
+      "content": "Transactional emails sent via Resend. Marketing emails via Mailchimp. Templates in React Email.",
+      "type": "project_fact",
+      "confidence": 0.95,
+      "source": "manual",
+      "tags": [
+        "email"
+      ],
+      "timestamp": "2026-04-07T04:20:41.408Z"
+    },
+    {
+      "title": "State management",
+      "content": "Frontend uses Zustand for global state and TanStack Query for server state. No Redux.",
+      "type": "decision",
+      "confidence": 0.95,
+      "source": "manual",
+      "tags": [
+        "frontend"
+      ],
+      "timestamp": "2026-04-07T04:20:41.408Z"
+    },
+    {
+      "title": "Search engine",
+      "content": "Full-text search powered by Meilisearch with auto-sync from PostgreSQL every 30 seconds.",
+      "type": "project_fact",
+      "confidence": 0.95,
+      "source": "manual",
+      "tags": [
+        "search"
+      ],
+      "timestamp": "2026-04-07T04:20:41.408Z"
+    },
+    {
+      "title": "CI pipeline",
+      "content": "GitHub Actions runs lint, typecheck, unit tests, and e2e tests on every PR. Deploys on merge to main.",
+      "type": "project_fact",
+      "confidence": 0.95,
+      "source": "manual",
+      "tags": [
+        "ci"
+      ],
+      "timestamp": "2026-04-07T04:20:41.408Z"
+    },
+    {
+      "title": "Timezone handling",
+      "content": "All dates stored in UTC. User timezone detected client-side via Intl API. Display uses date-fns-tz.",
+      "type": "decision",
+      "confidence": 0.95,
+      "source": "manual",
+      "tags": [
+        "dates"
+      ],
+      "timestamp": "2026-04-07T04:20:41.408Z"
+    },
+    {
+      "title": "File uploads limit",
+      "content": "Maximum file upload size is 50MB. Accepted formats: PNG, JPG, WebP, PDF, DOCX. Others rejected.",
+      "type": "project_fact",
+      "confidence": 0.95,
+      "source": "manual",
+      "tags": [
+        "uploads"
+      ],
+      "timestamp": "2026-04-07T04:20:41.408Z"
+    },
+    {
+      "title": "Feature flags",
+      "content": "Feature flags managed through LaunchDarkly. New features behind flags for 2 weeks before full rollout.",
+      "type": "project_fact",
+      "confidence": 0.95,
+      "source": "manual",
+      "tags": [
+        "features"
+      ],
+      "timestamp": "2026-04-07T04:20:41.408Z"
     }
   ]
 }

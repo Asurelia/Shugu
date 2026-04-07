@@ -303,9 +303,28 @@ export async function* runLoop(
               }
             }
 
-            // Execute
+            // Execute with timeout (5 minutes)
+            const TOOL_TIMEOUT_MS = 300_000;
             const execStart = Date.now();
-            let result = await tool.execute(call, config.toolContext!);
+            let result: import('../protocol/tools.js').ToolResult;
+            try {
+              const execPromise = tool.execute(call, config.toolContext!);
+              const timeoutPromise = new Promise<never>((_, reject) => {
+                const timer = setTimeout(
+                  () => reject(new Error(`Tool "${call.name}" timed out after ${TOOL_TIMEOUT_MS / 1000}s`)),
+                  TOOL_TIMEOUT_MS,
+                );
+                // Don't block Node exit
+                if (typeof timer === 'object' && 'unref' in timer) timer.unref();
+              });
+              result = await Promise.race([execPromise, timeoutPromise]);
+            } catch (timeoutErr) {
+              result = {
+                tool_use_id: call.id,
+                content: `Error: ${timeoutErr instanceof Error ? timeoutErr.message : String(timeoutErr)}`,
+                is_error: true,
+              };
+            }
 
             // PostToolUse hook — can modify the result
             if (config.hookRegistry) {

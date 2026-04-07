@@ -132,7 +132,7 @@ export const BUILTIN_RULES: PermissionRule[] = [
     source: 'builtin',
     reason: 'Prevents raw disk writes',
   },
-  // Always deny writing to sensitive paths
+  // Always deny writing/editing sensitive paths
   {
     id: 'deny-env-write',
     toolPattern: 'Write',
@@ -140,6 +140,14 @@ export const BUILTIN_RULES: PermissionRule[] = [
     inputMatch: { filePattern: '**/.env*' },
     source: 'builtin',
     reason: 'Prevents overwriting environment files',
+  },
+  {
+    id: 'deny-env-edit',
+    toolPattern: 'Edit',
+    decision: 'deny',
+    inputMatch: { filePattern: '**/.env*' },
+    source: 'builtin',
+    reason: 'Prevents editing environment files',
   },
 ];
 

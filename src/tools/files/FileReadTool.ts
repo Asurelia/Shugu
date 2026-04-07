@@ -8,6 +8,7 @@
 import { readFile, stat } from 'node:fs/promises';
 import { resolve, isAbsolute } from 'node:path';
 import type { Tool, ToolCall, ToolResult, ToolContext, ToolDefinition } from '../../protocol/tools.js';
+import { validateWorkspacePath } from '../../policy/workspace.js';
 
 export const FileReadToolDefinition: ToolDefinition = {
   name: 'Read',
@@ -51,6 +52,18 @@ export class FileReadTool implements Tool {
     const limit = (call.input['limit'] as number) ?? DEFAULT_LINE_LIMIT;
 
     const absPath = isAbsolute(filePath) ? filePath : resolve(context.cwd, filePath);
+
+    // Workspace boundary check (skip in bypass mode for reads)
+    if (context.permissionMode !== 'bypass') {
+      const validation = await validateWorkspacePath(filePath, context.cwd);
+      if (!validation.valid) {
+        return {
+          tool_use_id: call.id,
+          content: `Error: ${validation.reason}`,
+          is_error: true,
+        };
+      }
+    }
 
     try {
       // Check file exists and get stats

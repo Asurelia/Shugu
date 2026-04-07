@@ -45,6 +45,49 @@ interface MemoryIndex {
   items: MemoryItem[];
 }
 
+// ─── Query Expansion (synonym/concept mapping) ──────
+
+/**
+ * Expand query terms with related concepts so "database" also matches
+ * "postgresql", "mongodb", etc. Bidirectional: if query contains "postgres",
+ * it also searches for "database".
+ */
+const TERM_GROUPS: string[][] = [
+  ['database', 'db', 'sql', 'postgresql', 'postgres', 'mongodb', 'mongo', 'mysql', 'sqlite', 'supabase', 'prisma', 'drizzle'],
+  ['auth', 'authentication', 'login', 'jwt', 'oauth', 'session', 'token', 'password', 'credential'],
+  ['deploy', 'deployment', 'hosting', 'vercel', 'railway', 'netlify', 'aws', 'docker', 'ci/cd', 'pipeline'],
+  ['test', 'testing', 'vitest', 'jest', 'playwright', 'cypress', 'e2e', 'unit test', 'coverage'],
+  ['style', 'css', 'styling', 'tailwind', 'sass', 'scss', 'styled-components', 'design system'],
+  ['cache', 'caching', 'redis', 'memcached', 'ttl', 'cdn', 'cloudfront'],
+  ['search', 'searching', 'meilisearch', 'elasticsearch', 'algolia', 'full-text', 'fuzzy'],
+  ['state', 'state management', 'zustand', 'redux', 'jotai', 'recoil', 'tanstack', 'context'],
+  ['api', 'endpoint', 'rest', 'graphql', 'route', 'versioning', 'rate limit'],
+  ['monitor', 'monitoring', 'logging', 'sentry', 'datadog', 'pino', 'observability', 'error tracking'],
+  ['email', 'mail', 'resend', 'sendgrid', 'mailchimp', 'smtp', 'transactional'],
+  ['upload', 'file upload', 'storage', 's3', 'blob', 'sharp', 'image processing'],
+  ['feature flag', 'feature toggle', 'launchdarkly', 'unleash', 'rollout'],
+  ['git', 'branch', 'commit', 'merge', 'pr', 'pull request', 'workflow'],
+  ['format', 'formatting', 'indent', 'indentation', 'tabs', 'spaces', 'prettier', 'eslint', 'linter'],
+  ['timezone', 'date', 'time', 'utc', 'date-fns', 'dayjs', 'moment'],
+];
+
+function expandQueryTerms(queryWords: string[]): string[] {
+  const expanded = new Set(queryWords);
+
+  for (const word of queryWords) {
+    for (const group of TERM_GROUPS) {
+      if (group.some(term => term.includes(word) || word.includes(term))) {
+        // Add all terms from this group
+        for (const term of group) {
+          expanded.add(term);
+        }
+      }
+    }
+  }
+
+  return [...expanded];
+}
+
 // ─── Memory Agent ─────────────────────────────────────
 
 export class MemoryAgent {
@@ -327,21 +370,48 @@ export class MemoryAgent {
     const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
     if (queryWords.length === 0) return this.index.items.slice(0, limit);
 
+    // Expand query with related terms (synonyms, tools, concepts)
+    const expanded = expandQueryTerms(queryWords);
+
     const scored = this.index.items.map(item => {
-      const text = `${item.title} ${item.content} ${item.tags.join(' ')}`.toLowerCase();
+      const titleLower = item.title.toLowerCase();
+      const contentLower = item.content.toLowerCase();
+      const tagsLower = item.tags.join(' ').toLowerCase();
       let score = 0;
-      for (const word of queryWords) {
-        if (text.includes(word)) score += 1;
+
+      for (const word of expanded) {
+        // Title match (strongest signal — title IS the summary)
+        if (titleLower.includes(word)) score += 3;
+        // Tag match (structured metadata)
+        if (tagsLower.includes(word)) score += 2;
+        // Content match
+        if (contentLower.includes(word)) score += 1;
       }
+
+      // Prefix/substring matching: "auth" matches "authentication", "db" matches "database"
+      for (const word of queryWords) {
+        if (word.length >= 3) {
+          if (titleLower.includes(word) || contentLower.includes(word)) {
+            // Already counted above, but boost partial matches in content
+          }
+          // Check if any content word STARTS with the query word (prefix match)
+          const contentWords = contentLower.split(/\s+/);
+          for (const cw of contentWords) {
+            if (cw.startsWith(word) && cw !== word) score += 0.5;
+          }
+        }
+      }
+
       // Boost recent items
       const ageMs = Date.now() - new Date(item.timestamp).getTime();
-      const recencyBoost = Math.max(0, 1 - ageMs / (30 * 86_400_000)); // 0-1, decays over 30 days
+      const recencyBoost = Math.max(0, 1 - ageMs / (30 * 86_400_000));
       score += recencyBoost * 0.5;
+
       return { item, score };
     });
 
     return scored
-      .filter(s => s.score > 0)
+      .filter(s => s.score > 0.5) // Require meaningful match
       .sort((a, b) => b.score - a.score)
       .slice(0, limit)
       .map(s => s.item);

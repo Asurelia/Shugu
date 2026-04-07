@@ -59,7 +59,7 @@ export function classifyHttpError(status: number, body: string): TransportError 
     return new RateLimitError(retryAfter);
   }
 
-  if (status === 400 && body.includes('prompt is too long')) {
+  if (status === 400 && (body.includes('prompt is too long') || body.includes('context window exceeds limit'))) {
     return new ContextTooLongError(body);
   }
 

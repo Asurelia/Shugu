@@ -100,9 +100,10 @@ async function main(): Promise<void> {
         'ink',
         'ink-text-input',
         'yoga-wasm-web',
+        'yaml',
       ],
       define: {
-        'process.env.PCC_VERSION': '"1.0.0"',
+        'process.env.PCC_VERSION': '"0.2.0"',
       },
       logLevel: verbose ? 'info' : 'warning',
     });

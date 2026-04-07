@@ -1,7 +1,7 @@
 {
-  "name": "project-cc",
-  "version": "0.1.0",
-  "description": "Claude Code reimagined — MiniMax M2.7 first, mono-provider, all capabilities unlocked",
+  "name": "shugu",
+  "version": "0.2.0",
+  "description": "Shugu — AI coding agent for MiniMax M2.7",
   "type": "module",
   "bin": {
     "pcc": "./bin/pcc.mjs",
@@ -15,7 +15,8 @@
     "start": "node dist/entrypoints/cli.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "benchmark": "tsx scripts/benchmark-context.ts"
   },
   "engines": {
     "node": ">=20.0.0"
