@@ -37,7 +37,7 @@ import type { CredentialProvider } from '../credentials/provider.js';
 /**
  * Create a registry with all tools registered.
  */
-export function createDefaultRegistry(credentialProvider?: CredentialProvider): {
+export function createDefaultRegistry(credentialProvider: CredentialProvider): {
   registry: ToolRegistryImpl;
   agentTool: AgentTool;
   webFetchTool: WebFetchTool;
@@ -55,9 +55,7 @@ export function createDefaultRegistry(credentialProvider?: CredentialProvider): 
 
   // Web tools
   const webFetchTool = new WebFetchTool();
-  if (credentialProvider) {
-    webFetchTool.setCredentialProvider(credentialProvider);
-  }
+  webFetchTool.setCredentialProvider(credentialProvider);
   registry.register(webFetchTool);
   registry.register(new WebSearchTool());
 

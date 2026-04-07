@@ -18,11 +18,14 @@ import { MemoryAgent } from '../context/memory/agent.js';
 import { ObsidianVault, discoverVault } from '../context/memory/obsidian.js';
 import { CredentialVault } from '../credentials/vault.js';
 import { CredentialProvider } from '../credentials/provider.js';
+import { WrongPasswordError } from '../credentials/errors.js';
+import { promptPassword } from '../credentials/prompt.js';
 import { createDefaultSkillRegistry } from '../skills/index.js';
 import { PluginRegistry } from '../plugins/registry.js';
 import { BackgroundManager } from '../automation/background.js';
 import { Scheduler } from '../automation/scheduler.js';
 import { createBgCommand, createProactiveCommand } from '../commands/automation.js';
+import { createVaultCommand } from '../commands/vault.js';
 import { createDefaultCommands } from '../commands/index.js';
 import { registerBehaviorHooks } from '../plugins/builtin/behavior-hooks.js';
 import { registerVerificationHook } from '../plugins/builtin/verification-hook.js';
@@ -175,22 +178,26 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
 
   const cwd = process.cwd();
 
-  // Initialize credential vault (optional)
+  // ─── Mandatory Vault ─────────────────────────────────
   const vault = new CredentialVault();
-  let credentialProvider: CredentialProvider | undefined;
-  if (await vault.exists()) {
-    const vaultPassword = process.env['PCC_VAULT_PASSWORD'];
-    if (vaultPassword) {
-      const unlocked = await vault.unlock(vaultPassword);
-      if (unlocked) {
-        credentialProvider = new CredentialProvider(vault);
-        renderer.info('  Vault: unlocked');
-      } else {
-        renderer.info('  Vault: wrong password, running without credentials');
-      }
+  let credentialProvider: CredentialProvider;
+
+  try {
+    if (await vault.exists()) {
+      credentialProvider = await unlockExistingVault(vault, renderer);
     } else {
-      renderer.info('  Vault: locked (set PCC_VAULT_PASSWORD to unlock)');
+      credentialProvider = await initializeNewVault(vault, renderer);
     }
+    renderer.info('  Vault: unlocked');
+  } catch (err: unknown) {
+    const { isVaultError } = await import('../credentials/errors.js');
+    if (isVaultError(err)) {
+      renderer.error(`  Vault [${err.code}]: ${err.message}`);
+    } else {
+      renderer.error(`  Vault: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    renderer.error('  Cannot proceed without vault. Exiting.');
+    process.exit(1);
   }
 
   const { registry, agentTool, webFetchTool, obsidianTool } = createDefaultRegistry(credentialProvider);
@@ -250,16 +257,19 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
   agentTool.setOrchestrator(orchestrator);
   agentTool.setEventCallback(() => {});
 
+  let builtSystemPrompt = '';
+
   // Register automation commands
   const loopConfigFactory = (): LoopConfig => ({
     client,
-    systemPrompt: '',
+    systemPrompt: builtSystemPrompt,
     tools: new Map(registry.getAll().map(t => [t.definition.name, t])),
     toolDefinitions: registry.getDefinitions(),
     toolContext,
     hookRegistry,
     maxTurns: 15,
   });
+  commands.register(createVaultCommand(vault));
   commands.register(createBgCommand(bgManager, loopConfigFactory));
   commands.register(createProactiveCommand(async (prompt) => {
     const messages: Message[] = [{ role: 'user', content: prompt }];
@@ -274,7 +284,8 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
 
   // Build system prompt
   const adapters = await discoverTools(cwd);
-  const systemPrompt = await buildSystemPrompt(cwd, skillRegistry, adapters, memoryAgent);
+  builtSystemPrompt = await buildSystemPrompt(cwd, skillRegistry, adapters, memoryAgent);
+  const systemPrompt = builtSystemPrompt;
 
   // Banner for single-shot mode
   if (cliArgs.prompt) {
@@ -369,4 +380,60 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
   };
 
   return { services, systemPrompt, needsHatchCeremony, resumedMessages };
+}
+
+// ─── Vault Setup Helpers ────────────────────────────────
+
+async function unlockExistingVault(
+  vault: CredentialVault,
+  renderer: TerminalRenderer,
+): Promise<CredentialProvider> {
+  // Priority 1: Environment variable (headless/CI)
+  const envPassword = process.env['PCC_VAULT_PASSWORD'];
+  if (envPassword) {
+    await vault.unlock(envPassword);
+    return new CredentialProvider(vault);
+  }
+
+  // Priority 2: Interactive prompt (3 attempts)
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const password = await promptPassword({ prompt: '  Vault password: ' });
+      await vault.unlock(password);
+      return new CredentialProvider(vault);
+    } catch (err: unknown) {
+      if (err instanceof WrongPasswordError) {
+        renderer.error(`  Wrong password (attempt ${attempt}/${MAX_ATTEMPTS})`);
+        if (attempt === MAX_ATTEMPTS) {
+          throw err;
+        }
+        continue;
+      }
+      throw err; // Non-password errors propagate immediately
+    }
+  }
+  throw new WrongPasswordError(); // Unreachable but satisfies TypeScript
+}
+
+async function initializeNewVault(
+  vault: CredentialVault,
+  renderer: TerminalRenderer,
+): Promise<CredentialProvider> {
+  renderer.info('');
+  renderer.info('  ╔══════════════════════════════════════════════╗');
+  renderer.info('  ║  First-time setup: Credential Vault           ║');
+  renderer.info('  ║  Choose a master password for encrypting       ║');
+  renderer.info('  ║  your API keys and tokens (AES-256-GCM).      ║');
+  renderer.info('  ╚══════════════════════════════════════════════╝');
+  renderer.info('');
+
+  const password = await promptPassword({
+    prompt: '  New vault password: ',
+    confirm: true,
+  });
+
+  await vault.init(password);
+  renderer.info(`  Vault created: ${vault.path}`);
+  return new CredentialProvider(vault);
 }

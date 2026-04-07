@@ -34,7 +34,7 @@ export interface RuntimeServices {
   readonly scheduler: Scheduler;
   readonly memoryAgent: MemoryAgent;
   readonly obsidianVault: ObsidianVault | null;
-  readonly credentialProvider: CredentialProvider | undefined;
+  readonly credentialProvider: CredentialProvider;
   readonly kairos: Kairos;
   readonly renderer: TerminalRenderer;
 

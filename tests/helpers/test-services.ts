@@ -86,7 +86,14 @@ export function createTestServices(overrides?: Partial<RuntimeServices>): Runtim
     } as unknown as RuntimeServices['memoryAgent'],
 
     obsidianVault: null,
-    credentialProvider: undefined,
+    credentialProvider: {
+      getToken: () => null,
+      getCredential: () => null,
+      getAuthHeaders: () => ({}),
+      hasCredential: () => false,
+      getVPSConfig: () => null,
+      isAvailable: false,
+    } as unknown as RuntimeServices['credentialProvider'],
 
     kairos: {
       onUserInput: () => null,

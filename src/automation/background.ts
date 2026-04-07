@@ -176,18 +176,6 @@ export class BackgroundManager extends EventEmitter {
         this.processEvent(id, event);
       }
 
-      // Extract response from the last assistant message
-      const lastAssistant = messages
-        .filter((m): m is AssistantMessage => m.role === 'assistant')
-        .pop();
-
-      if (lastAssistant) {
-        session.response = lastAssistant.content
-          .filter(isTextBlock)
-          .map((b) => b.text)
-          .join('');
-      }
-
       if (session.status === 'running') {
         session.status = 'completed';
       }
@@ -211,6 +199,10 @@ export class BackgroundManager extends EventEmitter {
         break;
 
       case 'assistant_message':
+        session.response = event.message.content
+          .filter(isTextBlock)
+          .map((b) => b.text)
+          .join('');
         for (const block of event.message.content) {
           if (isTextBlock(block)) {
             this.logLine(id, block.text);

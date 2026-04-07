@@ -5,7 +5,7 @@
  * for injection into the system prompt.
  */
 
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 import { fileExists } from '../../utils/fs.js';
 
@@ -41,7 +41,6 @@ export async function getProjectContext(cwd: string): Promise<ProjectContext> {
     { file: 'go.mod', type: 'go' },
     { file: 'pom.xml', type: 'java' },
     { file: 'build.gradle', type: 'java' },
-    { file: '*.csproj', type: 'dotnet' },
     { file: 'Gemfile', type: 'ruby' },
   ];
 
@@ -51,6 +50,17 @@ export async function getProjectContext(cwd: string): Promise<ProjectContext> {
       projectType = type;
       configFiles.push(file);
     }
+  }
+
+  try {
+    const dotnetProjects = (await readdir(cwd))
+      .filter((file) => file.endsWith('.csproj'));
+    if (dotnetProjects.length > 0) {
+      projectType = 'dotnet';
+      configFiles.push(...dotnetProjects);
+    }
+  } catch {
+    // Ignore unreadable directories
   }
 
   // Check for other common config files
@@ -93,4 +103,3 @@ export function formatProjectContext(project: ProjectContext): string {
 
   return lines.join('\n');
 }
-

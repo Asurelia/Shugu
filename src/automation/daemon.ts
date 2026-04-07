@@ -13,7 +13,7 @@
  */
 
 import { fork, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { createServer, type Server } from 'node:net';
 import { EventEmitter } from 'node:events';
@@ -287,7 +287,6 @@ export class DaemonController extends EventEmitter {
     const timestamp = new Date().toISOString();
     const line = `[${timestamp}] ${text.trimEnd()}\n`;
     try {
-      const { appendFileSync } = require('node:fs') as typeof import('node:fs');
       appendFileSync(logPath, line);
     } catch {
       // Log write failure is non-critical

@@ -27,11 +27,10 @@ export const modelCommand: Command = {
       ctx.info('  Usage: /model <name>');
       return { type: 'handled' };
     }
-    // Model switching requires client reconfiguration — delegate to the model
-    return {
-      type: 'prompt',
-      prompt: `The user wants to switch to model "${args.trim()}". Note: model switching mid-session requires restarting. Inform the user they can restart with: shugu --model=${args.trim()}`,
-    };
+    ctx.info(`  Model switching is not wired mid-session in this build.`);
+    ctx.info(`  Requested model: ${args.trim()}`);
+    ctx.info('  Restart after updating the configured default model.');
+    return { type: 'handled' };
   },
 };
 
@@ -42,7 +41,8 @@ export const fastCommand: Command = {
   aliases: [],
   description: 'Toggle fast mode (M2.5-highspeed)',
   async execute(_args: string, ctx: CommandContext): Promise<CommandResult> {
-    ctx.info('  Fast mode toggled. Restart shugu to apply: shugu --model=fast');
+    ctx.info('  Fast mode alias exists, but model switching from the REPL is not wired in this build.');
+    ctx.info('  Restart after updating the configured default model.');
     return { type: 'handled' };
   },
 };

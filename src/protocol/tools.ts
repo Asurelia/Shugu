@@ -5,8 +5,6 @@
  * Tools are decoupled from transport — they never see MiniMax directly.
  */
 
-import type { z } from 'zod';
-
 // ─── Tool Definition ────────────────────────────────────
 
 export interface ToolDefinition {
