@@ -33,89 +33,9 @@ import type { UIMessage } from './components/Messages.js';
 import { CompanionSprite } from './companion/CompanionSprite.js';
 import type { Companion } from './companion/types.js';
 import { createPasteHandler } from './paste.js';
-
-// ─── Syntax Coloring (lightweight, no deps) ─────────────
-
-const KW_REGEX = /\b(const|let|var|function|class|import|export|from|return|if|else|for|while|switch|case|break|default|new|this|type|interface|async|await|try|catch|throw|extends|implements|typeof|instanceof|in|of|as|is|void|null|undefined|true|false)\b/g;
-const STRING_REGEX = /('[^']*'|"[^"]*"|`[^`]*`)/g;
-const COMMENT_REGEX = /(\/\/.*$|\/\*[\s\S]*?\*\/)/gm;
-const NUMBER_REGEX = /\b(\d+\.?\d*)\b/g;
-const DECORATOR_REGEX = /(@\w+)/g;
-
-function colorizeCode(line: string): React.ReactElement {
-  // Simple approach: split line into colored segments
-  // Priority: comments > strings > keywords > numbers > decorators
-  if (line.match(/^\s*\/\//)) {
-    return <Text color="gray" italic>{line}</Text>;
-  }
-  if (line.match(/^\s*#/)) {
-    return <Text color="gray" italic>{line}</Text>;
-  }
-
-  // Build segments by replacing patterns with markers, then rendering
-  // For simplicity, just colorize the whole line based on dominant pattern
-  const parts: React.ReactElement[] = [];
-  let remaining = line;
-  let idx = 0;
-
-  // Tokenize: find strings first (they shouldn't be keyword-highlighted)
-  const tokens: Array<{ start: number; end: number; type: 'string' | 'keyword' | 'number' | 'decorator' | 'comment' }> = [];
-
-  // Strings
-  for (const m of line.matchAll(STRING_REGEX)) {
-    if (m.index !== undefined) tokens.push({ start: m.index, end: m.index + m[0].length, type: 'string' });
-  }
-  // Inline comments
-  for (const m of line.matchAll(COMMENT_REGEX)) {
-    if (m.index !== undefined) tokens.push({ start: m.index, end: m.index + m[0].length, type: 'comment' });
-  }
-  // Keywords (only if not inside a string/comment)
-  for (const m of line.matchAll(KW_REGEX)) {
-    if (m.index !== undefined) {
-      const inOther = tokens.some(t => m.index! >= t.start && m.index! < t.end);
-      if (!inOther) tokens.push({ start: m.index, end: m.index + m[0].length, type: 'keyword' });
-    }
-  }
-  // Numbers
-  for (const m of line.matchAll(NUMBER_REGEX)) {
-    if (m.index !== undefined) {
-      const inOther = tokens.some(t => m.index! >= t.start && m.index! < t.end);
-      if (!inOther) tokens.push({ start: m.index, end: m.index + m[0].length, type: 'number' });
-    }
-  }
-  // Decorators
-  for (const m of line.matchAll(DECORATOR_REGEX)) {
-    if (m.index !== undefined) {
-      const inOther = tokens.some(t => m.index! >= t.start && m.index! < t.end);
-      if (!inOther) tokens.push({ start: m.index, end: m.index + m[0].length, type: 'decorator' });
-    }
-  }
-
-  // Sort by position
-  tokens.sort((a, b) => a.start - b.start);
-
-  // Render segments
-  let pos = 0;
-  for (const token of tokens) {
-    if (token.start > pos) {
-      parts.push(<Text key={idx++} color="white">{line.slice(pos, token.start)}</Text>);
-    }
-    const text = line.slice(token.start, token.end);
-    switch (token.type) {
-      case 'keyword': parts.push(<Text key={idx++} color="magenta">{text}</Text>); break;
-      case 'string': parts.push(<Text key={idx++} color="green">{text}</Text>); break;
-      case 'number': parts.push(<Text key={idx++} color="yellow">{text}</Text>); break;
-      case 'comment': parts.push(<Text key={idx++} color="gray" italic>{text}</Text>); break;
-      case 'decorator': parts.push(<Text key={idx++} color="yellow">{text}</Text>); break;
-    }
-    pos = token.end;
-  }
-  if (pos < line.length) {
-    parts.push(<Text key={idx++} color="white">{line.slice(pos)}</Text>);
-  }
-
-  return parts.length > 0 ? <>{parts}</> : <Text color="white">{line}</Text>;
-}
+import { colorizeCode, detectLanguage } from './highlight.js';
+import { renderMarkdown, renderInline } from './markdown.js';
+import { parseReadOutput, parseGrepOutput, parseWebFetchOutput, parseGlobOutput } from './parsers.js';
 
 // ─── Message Rendering (for Static items) ──────────────
 
@@ -125,46 +45,44 @@ function StaticMessage({ message, expandThinking = false }: { message: UIMessage
       const termWidth = process.stdout.columns ?? 120;
       const lines = message.text.split('\n');
 
-      // Short message (< 5 lines): single line with gray background
+      // Short message (5 lines or fewer): compact with inline formatting
       if (lines.length <= 5) {
-        const content = `> ${message.text}`;
-        const pad = Math.max(0, termWidth - content.length);
         return (
-          <Box marginTop={1}>
-            <Text bold color="green" backgroundColor="gray">{'> '}</Text>
-            <Text bold color="white" backgroundColor="gray">{message.text}{' '.repeat(pad)}</Text>
+          <Box marginTop={1} flexDirection="column">
+            {lines.map((line, i) => (
+              <Box key={i}>
+                <Text bold color="green" backgroundColor="gray">{i === 0 ? '> ' : '  '}</Text>
+                <Text bold backgroundColor="gray">{renderInline(line)}</Text>
+              </Box>
+            ))}
           </Box>
         );
       }
 
-      // Long paste (> 5 lines): formatted block with markdown rendering
+      // Long paste (> 5 lines): formatted block with code highlighting
       const firstLine = lines[0] ?? '';
+      let inCodeBlock = false;
+      let codeLang = '';
       return (
         <Box flexDirection="column" marginTop={1}>
           <Box>
             <Text bold color="green" backgroundColor="gray">{'> '}</Text>
-            <Text bold color="white" backgroundColor="gray">{firstLine}{' '.repeat(Math.max(0, termWidth - firstLine.length - 2))}</Text>
+            <Text bold backgroundColor="gray">{renderInline(firstLine)}{' '.repeat(Math.max(0, termWidth - firstLine.length - 2))}</Text>
           </Box>
           <Box flexDirection="column" paddingLeft={2}>
             {lines.slice(1, 40).map((line, i) => {
-              // Basic markdown coloring for pasted content
               if (line.startsWith('```')) {
-                const lang = line.slice(3).trim();
-                return <Text key={i} dimColor>{'┌─ '}{lang || 'code'}{' ────────'}</Text>;
+                inCodeBlock = !inCodeBlock;
+                if (inCodeBlock) {
+                  codeLang = detectLanguage(line.slice(3).trim());
+                  return <Text key={i} dimColor>{'┌─ '}{line.slice(3).trim() || 'code'}{' ────────'}</Text>;
+                }
+                return <Text key={i} dimColor>{'└──────────────────────────────'}</Text>;
               }
-              if (line.startsWith('# ') || line.startsWith('## ') || line.startsWith('### ')) {
-                return <Text key={i} bold color="cyan">{line.replace(/^#+\s/, '')}</Text>;
+              if (inCodeBlock) {
+                return <Text key={i}><Text dimColor>{'│ '}</Text>{colorizeCode(line, codeLang)}</Text>;
               }
-              if (line.startsWith('- ') || line.startsWith('* ')) {
-                return <Text key={i}>{line}</Text>;
-              }
-              if (line.startsWith('| ')) {
-                return <Text key={i} dimColor>{line}</Text>;
-              }
-              if (line.startsWith('---') || line.startsWith('***')) {
-                return <Text key={i} dimColor>{'────────────────────────────────'}</Text>;
-              }
-              return <Text key={i} color="white">{line}</Text>;
+              return <Box key={i}>{renderInline(line)}</Box>;
             })}
             {lines.length > 40 && <Text dimColor>{'  ... +'}{lines.length - 40}{' more lines'}</Text>}
           </Box>
@@ -181,62 +99,29 @@ function StaticMessage({ message, expandThinking = false }: { message: UIMessage
         </Box>
       );
 
-    case 'assistant_text': {
-      const lines = message.text.split('\n');
-      let inCodeBlock = false;
-      return (
-        <Box flexDirection="column" paddingLeft={2}>
-          {lines.map((line, i) => {
-            // Toggle code block state
-            if (line.startsWith('```')) {
-              inCodeBlock = !inCodeBlock;
-              const lang = line.slice(3).trim();
-              return inCodeBlock
-                ? <Text key={i} dimColor>{'┌─ '}{lang || 'code'}{' ────────────────────────'}</Text>
-                : <Text key={i} dimColor>{'└──────────────────────────────'}</Text>;
-            }
-            // Inside code block — syntax-colored with border
-            if (inCodeBlock) {
-              return <Text key={i}>
-                <Text dimColor>{'│ '}</Text>
-                {colorizeCode(line)}
-              </Text>;
-            }
-            // Markdown formatting
-            if (line.startsWith('### ')) return <Text key={i} bold color="cyan">{line.slice(4)}</Text>;
-            if (line.startsWith('## ')) return <Text key={i} bold color="cyan">{line.slice(3)}</Text>;
-            if (line.startsWith('# ')) return <Text key={i} bold color="cyan">{line.slice(2)}</Text>;
-            if (line.startsWith('- ') || line.startsWith('* ')) return <Text key={i}>{'  '}{line}</Text>;
-            if (/^\d+\.\s/.test(line)) return <Text key={i}>{'  '}{line}</Text>;
-            if (line.startsWith('| ') && line.endsWith(' |')) return <Text key={i} dimColor>{line}</Text>;
-            if (/^[|\-:]+$/.test(line.replace(/\s/g, ''))) return <Text key={i} dimColor>{line}</Text>; // table separator
-            if (line.startsWith('---') || line.startsWith('***')) return <Text key={i} dimColor>{'────────────────────────────────────────'}</Text>;
-            if (line.startsWith('>')) return <Text key={i} dimColor italic>{'  │ '}{line.slice(1).trim()}</Text>;
-            // Bold: **text** → render with bold
-            if (line.includes('**')) {
-              // Simple bold rendering — just strip the ** markers
-              return <Text key={i}>{line.replace(/\*\*([^*]+)\*\*/g, '$1')}</Text>;
-            }
-            return <Text key={i}>{line}</Text>;
-          })}
-        </Box>
-      );
-    }
+    case 'assistant_text':
+      return renderMarkdown(message.text);
 
     case 'thinking': {
       if (expandThinking) {
-        // Full thinking block (ctrl+r toggled)
         const lines = message.text.split('\n');
+        let inCodeBlock = false;
         return (
           <Box flexDirection="column" paddingLeft={2}>
             <Text dimColor italic>{'∴ [THINKING — '}{lines.length}{' lines]'}</Text>
-            {lines.map((line, i) => (
-              <Text key={i} dimColor italic>{'  '}{line}</Text>
-            ))}
+            {lines.map((line, i) => {
+              if (line.startsWith('```')) {
+                inCodeBlock = !inCodeBlock;
+                return <Text key={i} dimColor italic>{'  '}{line}</Text>;
+              }
+              if (inCodeBlock || /^\s{4,}\S/.test(line)) {
+                return <Text key={i} dimColor>{'  '}{colorizeCode(line, 'generic')}</Text>;
+              }
+              return <Text key={i} dimColor italic>{'  '}{line}</Text>;
+            })}
           </Box>
         );
       }
-      // Collapsed by default — single line
       const preview = message.text.replace(/\n/g, ' ').slice(0, 120);
       return (
         <Box paddingLeft={2}>
@@ -246,13 +131,25 @@ function StaticMessage({ message, expandThinking = false }: { message: UIMessage
     }
 
     case 'tool_call': {
-      // Compact: tool name + detail on one line
       const detail = message.detail || '';
+      const tn = message.name;
+      let detailEl: React.ReactElement | null = null;
+      if (detail) {
+        if (tn === 'Bash') {
+          detailEl = <Text>{' '}{colorizeCode(detail, 'shell')}</Text>;
+        } else if (tn === 'Read' || tn === 'Write' || tn === 'Edit') {
+          detailEl = <Text color="cyan">{' '}{detail}</Text>;
+        } else if (tn === 'Grep' || tn === 'Glob') {
+          detailEl = <Text color="yellow">{' '}{detail}</Text>;
+        } else {
+          detailEl = <Text dimColor>{' '}{detail}</Text>;
+        }
+      }
       return (
         <Box>
           <Text color="yellow">{'╭── '}</Text>
           <Text bold color="yellow">{message.name}</Text>
-          {detail ? <Text dimColor>{' '}{detail}</Text> : null}
+          {detailEl}
         </Box>
       );
     }
@@ -262,58 +159,95 @@ function StaticMessage({ message, expandThinking = false }: { message: UIMessage
       const iconColor = message.isError ? 'red' : 'green';
       const totalLines = message.content.split('\n').length;
       const sizeInfo = totalLines > 1 ? ` (${totalLines} lines)` : '';
-      const isFileOp = message.toolName === 'Write' || message.toolName === 'Edit';
-      const isBash = message.toolName === 'Bash';
-      const termWidth = process.stdout.columns ?? 120;
+      const toolName = message.toolName ?? '';
+      const detail = (message as { detail?: string }).detail ?? '';
 
-      // For file operations: show diff-style colored output
-      if (isFileOp && !message.isError) {
-        const lines = message.content.split('\n').slice(0, 30);
+      // ── Read: line numbers + language-aware highlighting ──
+      if (toolName === 'Read' && !message.isError) {
+        const parsed = parseReadOutput(message.content);
+        const lang = detectLanguage(undefined, detail);
+        const displayLines = parsed.lines.slice(0, 30);
         return (
           <Box flexDirection="column">
-            <Box>
-              <Text color="yellow">{'╰'}</Text>
-              <Text color={iconColor}>{icon}</Text>
-              <Text color="yellow">{'─ '}</Text>
-              <Text dimColor>{message.toolName}{sizeInfo}</Text>
-            </Box>
+            <Box><Text color="yellow">{'╰'}</Text><Text color={iconColor}>{icon}</Text><Text color="yellow">{'─ '}</Text><Text dimColor>Read{sizeInfo}</Text></Box>
             <Box flexDirection="column" paddingLeft={2}>
-              {lines.map((line, i) => {
-                if (line.startsWith('+') || line.startsWith('> ')) {
-                  return <Text key={i} backgroundColor="green" color="white">{line}{' '.repeat(Math.max(0, termWidth - line.length - 2))}</Text>;
-                }
-                if (line.startsWith('-') || line.startsWith('< ')) {
-                  return <Text key={i} backgroundColor="red" color="white">{line}{' '.repeat(Math.max(0, termWidth - line.length - 2))}</Text>;
-                }
-                if (line.startsWith('@@') || line.match(/^[0-9]+[,:]/) || line.startsWith('---') || line.startsWith('+++')) {
-                  return <Text key={i} color="cyan">{line}</Text>;
-                }
-                return <Text key={i}>{colorizeCode(line)}</Text>;
-              })}
-              {totalLines > 30 && <Text dimColor>{'  ... '}{totalLines - 30}{' more lines'}</Text>}
+              {displayLines.map((l, i) => (
+                <Text key={i}>
+                  <Text color="yellow">{String(l.lineNum).padStart(4)}</Text>
+                  <Text dimColor>{'\t'}</Text>
+                  {colorizeCode(l.code, lang)}
+                </Text>
+              ))}
+              {parsed.lines.length > 30 && <Text dimColor>{'  ... '}{parsed.lines.length - 30}{' more lines'}</Text>}
+              {parsed.footer && <Text dimColor>{parsed.footer}</Text>}
             </Box>
           </Box>
         );
       }
 
-      // For bash: colorize output
-      if (isBash && !message.isError) {
-        const lines = message.content.split('\n').slice(0, 20);
+      // ── Grep: file:line:content with per-file language ──
+      if (toolName === 'Grep' && !message.isError) {
+        const grepLines = parseGrepOutput(message.content);
+        const displayLines = grepLines.slice(0, 30);
         return (
           <Box flexDirection="column">
-            <Box>
-              <Text color="yellow">{'╰'}</Text>
-              <Text color={iconColor}>{icon}</Text>
-              <Text color="yellow">{'─ '}</Text>
-              <Text dimColor>Bash{sizeInfo}</Text>
-            </Box>
+            <Box><Text color="yellow">{'╰'}</Text><Text color={iconColor}>{icon}</Text><Text color="yellow">{'─ '}</Text><Text dimColor>Grep{sizeInfo}</Text></Box>
             <Box flexDirection="column" paddingLeft={2}>
-              {lines.map((line, i) => {
-                if (line.match(/^(PASS|PASSED|OK|✓|✔|success)/i)) return <Text key={i} color="green">{line}</Text>;
-                if (line.match(/^(FAIL|FAILED|ERROR|✗|✘)/i)) return <Text key={i} color="red">{line}</Text>;
-                if (line.match(/^(WARN|WARNING)/i)) return <Text key={i} color="yellow">{line}</Text>;
+              {displayLines.map((gl, i) => {
+                if (gl.type === 'separator') return <Text key={i} dimColor>{'--'}</Text>;
+                if (gl.type === 'plain') return <Text key={i}>{gl.text}</Text>;
+                const lineLang = detectLanguage(undefined, gl.file);
+                return (
+                  <Text key={i} dimColor={gl.type === 'context'}>
+                    <Text color="cyan">{gl.file}</Text><Text dimColor>{':'}</Text>
+                    <Text color="yellow">{gl.lineNum}</Text><Text dimColor>{':'}</Text>
+                    {colorizeCode(gl.content, lineLang)}
+                  </Text>
+                );
+              })}
+              {grepLines.length > 30 && <Text dimColor>{'  ... '}{grepLines.length - 30}{' more'}</Text>}
+            </Box>
+          </Box>
+        );
+      }
+
+      // ── Glob: colored file paths ──
+      if (toolName === 'Glob' && !message.isError) {
+        const entries = parseGlobOutput(message.content);
+        const displayEntries = entries.slice(0, 30);
+        const EC: Record<string, string> = {
+          '.ts': 'green', '.tsx': 'green', '.js': 'green', '.jsx': 'green',
+          '.json': 'yellow', '.yaml': 'yellow', '.yml': 'yellow',
+          '.py': 'blue', '.md': 'cyan', '.sh': 'magenta',
+        };
+        return (
+          <Box flexDirection="column">
+            <Box><Text color="yellow">{'╰'}</Text><Text color={iconColor}>{icon}</Text><Text color="yellow">{'─ '}</Text><Text dimColor>Glob{sizeInfo}</Text></Box>
+            <Box flexDirection="column" paddingLeft={2}>
+              {displayEntries.map((e, i) => (
+                <Text key={i} color={e.ext === '' ? 'blue' : (EC[e.ext] ?? 'white')}>{e.path}</Text>
+              ))}
+              {entries.length > 30 && <Text dimColor>{'  ... '}{entries.length - 30}{' more'}</Text>}
+            </Box>
+          </Box>
+        );
+      }
+
+      // ── Bash: PASS/FAIL + JSON detection + shell highlighting ──
+      if (toolName === 'Bash' && !message.isError) {
+        const bLines = message.content.split('\n').slice(0, 20);
+        const firstNonEmpty = bLines.find(l => l.trim().length > 0) ?? '';
+        const bashLang = (firstNonEmpty.startsWith('{') || firstNonEmpty.startsWith('[')) ? 'json' : 'shell';
+        return (
+          <Box flexDirection="column">
+            <Box><Text color="yellow">{'╰'}</Text><Text color={iconColor}>{icon}</Text><Text color="yellow">{'─ '}</Text><Text dimColor>Bash{sizeInfo}</Text></Box>
+            <Box flexDirection="column" paddingLeft={2}>
+              {bLines.map((line, i) => {
+                if (/^(PASS|PASSED|OK|✓|✔|success)/i.test(line)) return <Text key={i} color="green">{line}</Text>;
+                if (/^(FAIL|FAILED|ERROR|✗|✘)/i.test(line)) return <Text key={i} color="red">{line}</Text>;
+                if (/^(WARN|WARNING)/i.test(line)) return <Text key={i} color="yellow">{line}</Text>;
                 if (line.startsWith('$') || line.startsWith('>')) return <Text key={i} bold>{line}</Text>;
-                return <Text key={i}>{colorizeCode(line)}</Text>;
+                return <Text key={i}>{colorizeCode(line, bashLang)}</Text>;
               })}
               {totalLines > 20 && <Text dimColor>{'  ... '}{totalLines - 20}{' more lines'}</Text>}
             </Box>
@@ -321,15 +255,45 @@ function StaticMessage({ message, expandThinking = false }: { message: UIMessage
         );
       }
 
-      // Default: collapsed single-line summary
+      // ── WebFetch: parse envelope, detect content type ──
+      if (toolName === 'WebFetch' && !message.isError) {
+        const parsed = parseWebFetchOutput(message.content);
+        const fetchLang = detectLanguage(undefined, undefined, parsed.body ? [parsed.body.split('\n')[0] ?? ''] : undefined);
+        const bodyLines = parsed.body.split('\n').slice(0, 20);
+        return (
+          <Box flexDirection="column">
+            <Box><Text color="yellow">{'╰'}</Text><Text color={iconColor}>{icon}</Text><Text color="yellow">{'─ '}</Text><Text dimColor>WebFetch{sizeInfo}</Text></Box>
+            <Box flexDirection="column" paddingLeft={2}>
+              <Text dimColor>{parsed.status}</Text>
+              {bodyLines.map((line, i) => (
+                <Text key={i}>{colorizeCode(line, fetchLang)}</Text>
+              ))}
+              {parsed.body.split('\n').length > 20 && <Text dimColor>{'  ... more'}</Text>}
+            </Box>
+          </Box>
+        );
+      }
+
+      // ── Write/Edit: success message with colored file path ──
+      if ((toolName === 'Write' || toolName === 'Edit') && !message.isError) {
+        const pathMatch = /:\s*(.+?)\s*\(/.exec(message.content);
+        const filePath = pathMatch?.[1] ?? '';
+        return (
+          <Box>
+            <Text color="yellow">{'╰'}</Text><Text color={iconColor}>{icon}</Text><Text color="yellow">{'─ '}</Text>
+            <Text dimColor>{toolName}{' '}</Text>
+            {filePath ? <Text color="cyan">{filePath}</Text> : <Text dimColor>{message.content}</Text>}
+          </Box>
+        );
+      }
+
+      // ── Default: collapsed single-line summary ──
       const firstLine = message.content.split('\n').find(l => l.trim().length > 0) ?? '';
       const summary = firstLine.length > 100 ? firstLine.slice(0, 97) + '...' : firstLine;
       return (
         <Box>
-          <Text color="yellow">{'╰'}</Text>
-          <Text color={iconColor}>{icon}</Text>
-          <Text color="yellow">{'─ '}</Text>
-          <Text dimColor>{summary}{sizeInfo}</Text>
+          <Text color="yellow">{'╰'}</Text><Text color={iconColor}>{icon}</Text><Text color="yellow">{'─ '}</Text>
+          <Text dimColor>{toolName ? `${toolName} ` : ''}{summary}{sizeInfo}</Text>
         </Box>
       );
     }

@@ -93,8 +93,8 @@ function renderContentBlock(block: ContentBlock, renderer: TerminalRenderer): vo
 
 // ─── Ink event handler (pushes UIMessages to FullApp) ──
 
-/** Track tool_use_id → tool name for result enrichment */
-const _toolNameMap = new Map<string, string>();
+/** Track tool_use_id → tool context for result enrichment */
+const _toolContextMap = new Map<string, { name: string; detail: string }>();
 
 export function handleEventForApp(
   event: LoopEvent,
@@ -119,7 +119,7 @@ export function handleEventForApp(
 
     case 'tool_executing': {
       const detail = extractToolDetail(event.call.name, event.call.input);
-      _toolNameMap.set(event.call.id, event.call.name);
+      _toolContextMap.set(event.call.id, { name: event.call.name, detail });
       app.pushMessage({ type: 'tool_call', name: event.call.name, id: event.call.id, detail });
       break;
     }
@@ -128,9 +128,15 @@ export function handleEventForApp(
       const content = typeof event.result.content === 'string'
         ? event.result.content
         : JSON.stringify(event.result.content);
-      const toolName = _toolNameMap.get(event.result.tool_use_id);
-      _toolNameMap.delete(event.result.tool_use_id);
-      app.pushMessage({ type: 'tool_result', content, isError: event.result.is_error ?? false, toolName });
+      const ctx = _toolContextMap.get(event.result.tool_use_id);
+      _toolContextMap.delete(event.result.tool_use_id);
+      app.pushMessage({
+        type: 'tool_result',
+        content,
+        isError: event.result.is_error ?? false,
+        toolName: ctx?.name,
+        detail: ctx?.detail,
+      });
       break;
     }
 

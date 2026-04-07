@@ -19,7 +19,7 @@ export type UIMessage =
   | { type: 'assistant_text'; text: string }
   | { type: 'thinking'; text: string }
   | { type: 'tool_call'; name: string; id: string; detail?: string }
-  | { type: 'tool_result'; content: string; isError: boolean; toolName?: string }
+  | { type: 'tool_result'; content: string; isError: boolean; toolName?: string; detail?: string }
   | { type: 'error'; text: string }
   | { type: 'info'; text: string }
   | { type: 'brew'; durationMs: number; tokens?: number };
