@@ -36,6 +36,7 @@ export const scheduleSkill: Skill = {
 
   async execute(ctx: SkillContext): Promise<SkillResult> {
     const scheduler = getSharedScheduler();
+    scheduler.setExecutor((job) => ctx.runAgent(job.prompt));
     const args = ctx.args.trim();
     const parts = args.split(/\s+/);
     const subcommand = parts[0]?.toLowerCase() ?? '';

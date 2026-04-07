@@ -29,16 +29,28 @@ export function registerVerificationHook(hookRegistry: HookRegistry): void {
       if (!filePath.endsWith('.ts') && !filePath.endsWith('.tsx')) return {};
 
       try {
-        // Run quick typecheck on the specific file
-        const { stderr } = await execAsync('npx', ['tsc', '--noEmit', '--pretty', 'false', filePath], {
-          timeout: 15_000,
-          cwd: process.cwd(),
-        });
+        let output = '';
 
-        // If stderr has errors, append warning
-        if (stderr && stderr.includes('error TS')) {
-          const errorCount = (stderr.match(/error TS/g) ?? []).length;
-          const firstErrors = stderr.split('\n').filter(l => l.includes('error TS')).slice(0, 3).join('\n');
+        // Run quick typecheck on the specific file
+        try {
+          const { stdout, stderr } = await execAsync('npx', ['tsc', '--noEmit', '--pretty', 'false', filePath], {
+            timeout: 15_000,
+            cwd: process.cwd(),
+          });
+          output = [stdout, stderr].filter(Boolean).join('\n');
+        } catch (err) {
+          const execError = err as Error & { stdout?: string; stderr?: string };
+          output = [execError.stdout, execError.stderr].filter(Boolean).join('\n');
+          if (!output) {
+            logger.debug('verification hook: tsc check skipped', execError.message);
+            return {};
+          }
+        }
+
+        // tsc typically prints diagnostics to stdout and exits non-zero on errors.
+        if (output.includes('error TS')) {
+          const errorCount = (output.match(/error TS/g) ?? []).length;
+          const firstErrors = output.split('\n').filter(l => l.includes('error TS')).slice(0, 3).join('\n');
           const content = typeof payload.result.content === 'string'
             ? payload.result.content
             : JSON.stringify(payload.result.content);
@@ -51,8 +63,7 @@ export function registerVerificationHook(hookRegistry: HookRegistry): void {
           };
         }
       } catch (err) {
-        // tsc not found or timeout — non-critical, skip silently
-        logger.debug('verification hook: tsc check skipped', err instanceof Error ? err.message : String(err));
+        logger.debug('verification hook: unexpected failure', err instanceof Error ? err.message : String(err));
       }
 
       return {};

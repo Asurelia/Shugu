@@ -28,7 +28,7 @@ async function runChecks(cwd: string): Promise<CheckResult[]> {
   checks.push({
     name: 'API Key',
     ok: apiKey.length > 10,
-    detail: apiKey.length > 10 ? `Configured (${apiKey.slice(0, 6)}...${apiKey.slice(-4)})` : 'NOT SET — set MINIMAX_API_KEY',
+    detail: apiKey.length > 10 ? 'Configured (hidden)' : 'NOT SET — set MINIMAX_API_KEY',
   });
 
   // 2. API Connectivity

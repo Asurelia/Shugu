@@ -250,10 +250,12 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
   agentTool.setOrchestrator(orchestrator);
   agentTool.setEventCallback(() => {});
 
+  let builtSystemPrompt = '';
+
   // Register automation commands
   const loopConfigFactory = (): LoopConfig => ({
     client,
-    systemPrompt: '',
+    systemPrompt: builtSystemPrompt,
     tools: new Map(registry.getAll().map(t => [t.definition.name, t])),
     toolDefinitions: registry.getDefinitions(),
     toolContext,
@@ -274,7 +276,8 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
 
   // Build system prompt
   const adapters = await discoverTools(cwd);
-  const systemPrompt = await buildSystemPrompt(cwd, skillRegistry, adapters, memoryAgent);
+  builtSystemPrompt = await buildSystemPrompt(cwd, skillRegistry, adapters, memoryAgent);
+  const systemPrompt = builtSystemPrompt;
 
   // Banner for single-shot mode
   if (cliArgs.prompt) {
