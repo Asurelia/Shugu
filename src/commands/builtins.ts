@@ -45,6 +45,12 @@ export const helpCommand: Command = {
     ctx.info('  /trace           Show recent trace events');
     ctx.info('  /health          Show session health dashboard');
     ctx.info('');
+    ctx.info('  Vault');
+    ctx.info('  /vault           Show credential vault status');
+    ctx.info('  /vault list      List stored credentials');
+    ctx.info('  /vault add       Add a credential (guided)');
+    ctx.info('  /vault remove    Remove a credential');
+    ctx.info('');
     ctx.info('  Memory');
     ctx.info('  /memory          Show vault summary');
     ctx.info('  /memory search   Search notes');
@@ -153,7 +159,7 @@ export const reviewCommand: Command = {
 
 export const memoryCommand: Command = {
   name: 'memory',
-  aliases: ['mem', 'vault'],
+  aliases: ['mem'],
   description: 'Search or save to Obsidian vault',
   usage: '/memory [search <query> | save <title> | recent | tags <tag>]',
   async execute(args, ctx) {
