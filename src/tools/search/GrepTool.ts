@@ -9,6 +9,7 @@ import { spawn } from 'node:child_process';
 import { readdir, readFile } from 'node:fs/promises';
 import { join, relative, isAbsolute, resolve } from 'node:path';
 import type { Tool, ToolCall, ToolResult, ToolContext, ToolDefinition } from '../../protocol/tools.js';
+import { validateWorkspacePath } from '../../policy/workspace.js';
 
 export const GrepToolDefinition: ToolDefinition = {
   name: 'Grep',
@@ -73,6 +74,18 @@ export class GrepTool implements Tool {
     const absPath = searchPath
       ? (isAbsolute(searchPath) ? searchPath : resolve(context.cwd, searchPath))
       : context.cwd;
+
+    // Workspace boundary check (skip in bypass mode)
+    if (context.permissionMode !== 'bypass' && searchPath) {
+      const validation = await validateWorkspacePath(searchPath, context.cwd);
+      if (!validation.valid) {
+        return {
+          tool_use_id: call.id,
+          content: `Error: ${validation.reason}`,
+          is_error: true,
+        };
+      }
+    }
 
     // Try ripgrep first
     const rgResult = await tryRipgrep(pattern, absPath, {

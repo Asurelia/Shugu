@@ -60,6 +60,12 @@ export const helpCommand: Command = {
     ctx.info('  /buddy           Show companion sprite');
     ctx.info('  /buddy card      Show full companion stats');
     ctx.info('  /buddy pet       Pet your companion');
+    ctx.info('');
+    ctx.info('  Agent Teams');
+    ctx.info('  /team <task>              Run task with default team (explore→code→review)');
+    ctx.info('  /team --parallel <task>   Run task with 3 parallel workers');
+    ctx.info('  /team --review <task>     Run 3-way parallel review (security/logic/arch)');
+    ctx.info('  /team list                List available team templates');
     return { type: 'handled' };
   },
 };
@@ -203,15 +209,15 @@ export const memoryCommand: Command = {
           ctx.error('Usage: /memory save <title> — then type the note content');
           return { type: 'handled' };
         }
-        // Delegate to the model to gather content and save
+        // Delegate to the model to gather content and save via Obsidian tool
         return {
           type: 'prompt',
-          prompt: `The user wants to save a note titled "${rest}" to their Obsidian vault at ${vaultPath}/Agent/.
-Create the file using Write with:
-- YAML frontmatter (title, created date, type: agent-memory, relevant tags)
-- The note content based on our conversation context
-- Any relevant [[wikilinks]] to related concepts
-Save it to: ${vaultPath}/Agent/${slugify(rest)}.md`,
+          prompt: `The user wants to save a note titled "${rest}" to their Obsidian vault.
+Use the Obsidian tool with:
+- operation: "create"
+- folder: "Agent"
+- title: "${slugify(rest)}"
+- content: YAML frontmatter (title, created date, type: agent-memory, relevant tags) followed by the note content based on our conversation context and any relevant [[wikilinks]] to related concepts`,
         };
       }
 

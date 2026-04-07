@@ -303,7 +303,23 @@ export async function* runLoop(
               }
             }
 
-            // Execute with timeout (5 minutes)
+            // Permission check — consult the resolver via toolContext.askPermission
+            if (config.toolContext?.askPermission) {
+              const actionSummary = summarizeToolAction(call);
+              const granted = await config.toolContext.askPermission(call.name, actionSummary);
+              if (!granted) {
+                const result: ToolResult = {
+                  tool_use_id: call.id,
+                  content: `Permission denied for ${call.name}. Mode: ${config.toolContext.permissionMode}`,
+                  is_error: true,
+                };
+                toolResults.push(result);
+                yield { type: 'tool_result', result };
+                continue;
+              }
+            }
+
+            // Execute with timeout (5 minutes) and abort signal
             const TOOL_TIMEOUT_MS = 300_000;
             const execStart = Date.now();
             let result: import('../protocol/tools.js').ToolResult;
@@ -317,7 +333,15 @@ export async function* runLoop(
                 // Don't block Node exit
                 if (typeof timer === 'object' && 'unref' in timer) timer.unref();
               });
-              result = await Promise.race([execPromise, timeoutPromise]);
+              // Abort promise — races against tool execution for responsive cancellation
+              const abortPromise = new Promise<never>((_, reject) => {
+                if (interrupt.signal.aborted) {
+                  reject(new Error('Aborted'));
+                  return;
+                }
+                interrupt.signal.addEventListener('abort', () => reject(new Error('Aborted')), { once: true });
+              });
+              result = await Promise.race([execPromise, timeoutPromise, abortPromise]);
             } catch (timeoutErr) {
               result = {
                 tool_use_id: call.id,
@@ -389,6 +413,35 @@ export async function* runLoop(
       totalUsage: budget.getTotalUsage(),
       totalCost: budget.getTotalCostUsd(),
     };
+  }
+}
+
+// ─── Helpers ───────────────────────────────────────────
+
+/**
+ * Extract a human-readable action string from a tool call for permission display.
+ */
+function summarizeToolAction(call: ToolCall): string {
+  const input = call.input as Record<string, unknown>;
+  switch (call.name) {
+    case 'Bash':
+      return String(input.command ?? '');
+    case 'Read':
+    case 'Write':
+    case 'Edit':
+      return String(input.file_path ?? '');
+    case 'Glob':
+      return `pattern: ${input.pattern ?? ''} in ${input.path ?? 'cwd'}`;
+    case 'Grep':
+      return `/${input.pattern ?? ''}/ in ${input.path ?? 'cwd'}`;
+    case 'WebFetch':
+      return String(input.url ?? '');
+    case 'WebSearch':
+      return String(input.query ?? '');
+    case 'Agent':
+      return String(input.prompt ?? '').slice(0, 100);
+    default:
+      return JSON.stringify(input).slice(0, 120);
   }
 }
 

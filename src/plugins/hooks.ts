@@ -19,6 +19,7 @@ import { EventEmitter } from 'node:events';
 import type { ToolCall, ToolResult } from '../protocol/tools.js';
 import type { Message } from '../protocol/messages.js';
 import { tracer } from '../utils/tracer.js';
+import { logger } from '../utils/logger.js';
 
 // ─── Hook Types ────────────────────────────────────────
 
@@ -134,6 +135,7 @@ export class HookRegistry extends EventEmitter {
           currentCall = result.modifiedCall;
         }
       } catch (error) {
+        logger.warn(`Hook PreToolUse from plugin "${hook.pluginName}" threw: ${(error as Error).message}`);
         tracer.log('error', { hook: hook.pluginName, type: 'PreToolUse', error: (error as Error).message });
         this.emit('hook:error', hook.pluginName, 'PreToolUse', error);
       }
@@ -160,6 +162,7 @@ export class HookRegistry extends EventEmitter {
           currentResult = result.modifiedResult;
         }
       } catch (error) {
+        logger.warn(`Hook PostToolUse from plugin "${hook.pluginName}" threw: ${(error as Error).message}`);
         this.emit('hook:error', hook.pluginName, 'PostToolUse', error);
       }
     }

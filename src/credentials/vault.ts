@@ -237,7 +237,7 @@ export class CredentialVault {
   getByDomain(domain: string): Credential | undefined {
     this.ensureUnlocked();
     return this.credentials.find((c) =>
-      c.domains?.some((d) => domain.includes(d)),
+      c.domains?.some((d) => domain === d || domain.endsWith('.' + d)),
     );
   }
 

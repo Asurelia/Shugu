@@ -6,7 +6,7 @@
  */
 
 import { EventEmitter } from 'node:events';
-import type { Plugin, PluginManifest } from './loader.js';
+import type { Plugin, PluginManifest, LoadPluginOptions } from './loader.js';
 import { loadAllPlugins } from './loader.js';
 import { HookRegistry } from './hooks.js';
 import type { ToolRegistry, Tool } from '../protocol/tools.js';
@@ -40,8 +40,9 @@ export class PluginRegistry extends EventEmitter {
     toolRegistry: ToolRegistry,
     commandRegistry: CommandRegistry,
     skillRegistry: SkillRegistry,
+    pluginOptions?: LoadPluginOptions,
   ): Promise<{ loaded: number; failed: number }> {
-    const plugins = await loadAllPlugins(projectDir);
+    const plugins = await loadAllPlugins(projectDir, pluginOptions);
     let loaded = 0;
     let failed = 0;
 

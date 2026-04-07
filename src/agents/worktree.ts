@@ -11,10 +11,10 @@
  * 4. Cleanup worktree
  */
 
-import { spawn } from 'node:child_process';
-import { access, rm } from 'node:fs/promises';
+import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { git, resolveGitRoot } from '../utils/git.js';
 
 // ─── Worktree ───────────────────────────────────────────
 
@@ -26,6 +26,23 @@ export interface Worktree {
   createdAt: Date;
 }
 
+// ─── Cleanup Result ─────────────────────────────────────
+
+export interface WorktreeCleanupResult {
+  removed: boolean;
+  branchDeleted: boolean;
+  warnings: string[];
+}
+
+// ─── Merge Result ───────────────────────────────────────
+
+export interface MergeResult {
+  merged: boolean;
+  conflicts: boolean;
+  error?: string;
+  conflictFiles?: string[];
+}
+
 /**
  * Create a new git worktree for isolated agent work.
  */
@@ -33,22 +50,17 @@ export async function createWorktree(
   repoDir: string,
   prefix: string = 'pcc-agent',
 ): Promise<Worktree> {
-  // Verify we're in a git repo
-  try {
-    await access(join(repoDir, '.git'));
-  } catch {
-    throw new Error('Not a git repository — worktree isolation requires git');
-  }
+  const gitRoot = await resolveGitRoot(repoDir);
 
   const id = randomUUID().slice(0, 8);
   const branch = `${prefix}-${id}`;
-  const worktreePath = join(repoDir, '.pcc-worktrees', branch);
+  const worktreePath = join(gitRoot, '.pcc-worktrees', branch);
 
   // Get current branch
-  const baseBranch = (await git(['rev-parse', '--abbrev-ref', 'HEAD'], repoDir)).trim();
+  const baseBranch = (await git(['rev-parse', '--abbrev-ref', 'HEAD'], gitRoot)).trim();
 
   // Create worktree with new branch
-  await git(['worktree', 'add', '-b', branch, worktreePath], repoDir);
+  await git(['worktree', 'add', '-b', branch, worktreePath], gitRoot);
 
   return {
     id,
@@ -61,31 +73,43 @@ export async function createWorktree(
 
 /**
  * Remove a worktree and optionally its branch.
+ * Returns a structured result with warnings instead of swallowing errors.
  */
 export async function removeWorktree(
   repoDir: string,
   worktree: Worktree,
   deleteBranch: boolean = true,
-): Promise<void> {
+): Promise<WorktreeCleanupResult> {
+  const warnings: string[] = [];
+  let removed = false;
+  let branchDeleted = false;
+
   try {
     await git(['worktree', 'remove', '--force', worktree.path], repoDir);
-  } catch {
+    removed = true;
+  } catch (err) {
     // If worktree remove fails, try manual cleanup
     try {
       await rm(worktree.path, { recursive: true, force: true });
       await git(['worktree', 'prune'], repoDir);
-    } catch {
-      // Best effort cleanup
+      removed = true;
+    } catch (rmErr) {
+      const msg = rmErr instanceof Error ? rmErr.message : String(rmErr);
+      warnings.push(`Failed to remove worktree at ${worktree.path}: ${msg}`);
     }
   }
 
   if (deleteBranch) {
     try {
       await git(['branch', '-D', worktree.branch], repoDir);
-    } catch {
-      // Branch may already be deleted
+      branchDeleted = true;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      warnings.push(`Failed to delete branch ${worktree.branch}: ${msg}`);
     }
   }
+
+  return { removed, branchDeleted, warnings };
 }
 
 /**
@@ -103,15 +127,20 @@ export async function mergeWorktree(
   repoDir: string,
   worktree: Worktree,
   commitMessage?: string,
-): Promise<{ merged: boolean; conflicts: boolean }> {
+): Promise<MergeResult> {
   // First commit any changes in the worktree
   const hasChanges = await worktreeHasChanges(worktree);
   if (hasChanges) {
     await git(['add', '-A'], worktree.path);
-    await git(
-      ['commit', '-m', commitMessage ?? `Agent work from ${worktree.branch}`],
-      worktree.path,
-    );
+    try {
+      await git(
+        ['commit', '-m', commitMessage ?? `Agent work from ${worktree.branch}`],
+        worktree.path,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { merged: false, conflicts: false, error: `Commit failed: ${msg}` };
+    }
   }
 
   // Try to merge into base branch
@@ -119,30 +148,29 @@ export async function mergeWorktree(
     await git(['checkout', worktree.baseBranch], repoDir);
     await git(['merge', '--no-ff', worktree.branch, '-m', `Merge agent work: ${worktree.branch}`], repoDir);
     return { merged: true, conflicts: false };
-  } catch {
-    // Merge conflict
+  } catch (mergeErr) {
+    // Collect conflict files before aborting
+    let conflictFiles: string[] = [];
+    try {
+      const diffOut = await git(['diff', '--name-only', '--diff-filter=U'], repoDir);
+      conflictFiles = diffOut.trim().split('\n').filter(Boolean);
+    } catch {
+      // Best effort — ignore if diff fails
+    }
+
+    // Abort the merge
+    let abortError: string | undefined;
     try {
       await git(['merge', '--abort'], repoDir);
-    } catch {
-      // Already not merging
+    } catch (abortErr) {
+      abortError = abortErr instanceof Error ? abortErr.message : String(abortErr);
     }
-    return { merged: false, conflicts: true };
+
+    const mergeMsg = mergeErr instanceof Error ? mergeErr.message : String(mergeErr);
+    const error = abortError
+      ? `Merge failed: ${mergeMsg}; abort also failed: ${abortError}`
+      : undefined;
+
+    return { merged: false, conflicts: true, error, conflictFiles };
   }
-}
-
-// ─── Git Helper ─────────────────────────────────────────
-
-function git(args: string[], cwd: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('git', args, { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-    child.stdout?.on('data', (d: Buffer) => { stdout += d.toString(); });
-    child.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });
-    child.on('error', reject);
-    child.on('close', (code) => {
-      if (code === 0) resolve(stdout);
-      else reject(new Error(`git ${args.join(' ')} failed (${code}): ${stderr}`));
-    });
-  });
 }

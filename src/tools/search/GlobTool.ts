@@ -8,6 +8,7 @@
 import { readdir, stat } from 'node:fs/promises';
 import { resolve, isAbsolute, relative, join } from 'node:path';
 import type { Tool, ToolCall, ToolResult, ToolContext, ToolDefinition } from '../../protocol/tools.js';
+import { validateWorkspacePath } from '../../policy/workspace.js';
 
 export const GlobToolDefinition: ToolDefinition = {
   name: 'Glob',
@@ -48,6 +49,18 @@ export class GlobTool implements Tool {
     const baseDir = searchPath
       ? (isAbsolute(searchPath) ? searchPath : resolve(context.cwd, searchPath))
       : context.cwd;
+
+    // Workspace boundary check (skip in bypass mode)
+    if (context.permissionMode !== 'bypass' && searchPath) {
+      const validation = await validateWorkspacePath(searchPath, context.cwd);
+      if (!validation.valid) {
+        return {
+          tool_use_id: call.id,
+          content: `Error: ${validation.reason}`,
+          is_error: true,
+        };
+      }
+    }
 
     try {
       const matches = await findFiles(baseDir, pattern);

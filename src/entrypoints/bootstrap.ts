@@ -25,8 +25,11 @@ import { PluginRegistry } from '../plugins/registry.js';
 import { BackgroundManager } from '../automation/background.js';
 import { Scheduler } from '../automation/scheduler.js';
 import { createBgCommand, createProactiveCommand } from '../commands/automation.js';
+import { createTeamCommand } from '../commands/team.js';
 import { createVaultCommand } from '../commands/vault.js';
 import { createDefaultCommands } from '../commands/index.js';
+import { createReviewCommand } from '../commands/review.js';
+import { createBatchCommand } from '../commands/batch.js';
 import { registerBehaviorHooks } from '../plugins/builtin/behavior-hooks.js';
 import { registerVerificationHook } from '../plugins/builtin/verification-hook.js';
 import { AgentOrchestrator } from '../agents/orchestrator.js';
@@ -205,9 +208,18 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
   const skillRegistry = createDefaultSkillRegistry();
   const commands = createDefaultCommands();
 
-  // Load plugins
+  // Load plugins — local (repo-controlled) plugins require user confirmation
   const pluginRegistry = new PluginRegistry();
-  const pluginResult = await pluginRegistry.loadAll(cwd, registry, commands, skillRegistry);
+  const pluginResult = await pluginRegistry.loadAll(cwd, registry, commands, skillRegistry, {
+    onConfirmLocal: cliArgs.mode === 'bypass'
+      ? async () => true  // bypass mode trusts everything
+      : async (manifest) => {
+          // In interactive mode, ask the user
+          return renderer.confirm(
+            `Project-local plugin "${manifest.name}@${manifest.version}" found. Allow loading? [y/N]`,
+          );
+        },
+  });
   const hookRegistry = pluginRegistry.getHookRegistry();
   if (pluginResult.loaded > 0) {
     renderer.info(`  Plugins: ${pluginResult.loaded} loaded`);
@@ -256,6 +268,9 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
   const orchestrator = new AgentOrchestrator(client, toolMap, toolContext);
   agentTool.setOrchestrator(orchestrator);
   agentTool.setEventCallback(() => {});
+  commands.register(createTeamCommand(orchestrator));
+  commands.register(createReviewCommand(orchestrator, cwd));
+  commands.register(createBatchCommand(orchestrator, client, cwd));
 
   let builtSystemPrompt = '';
 

@@ -61,8 +61,13 @@ export async function compactConversation(
     messagesToSummarize.push(...turn.messages);
   }
 
-  // Generate summary
-  const summary = await generateSummary(messagesToSummarize, client, config.summaryMaxTokens);
+  // Generate summary — on failure, preserve original messages instead of losing context
+  let summary: string;
+  try {
+    summary = await generateSummary(messagesToSummarize, client, config.summaryMaxTokens);
+  } catch {
+    return { messages, wasCompacted: false, removedTurns: 0 };
+  }
 
   // Build compacted message array
   const summaryMessage: UserMessage = {
@@ -170,21 +175,21 @@ async function generateSummary(
     return `[${role}]: ${content}`;
   }).join('\n\n');
 
-  try {
-    const result = await client.complete(
-      [{ role: 'user', content: `${COMPACTION_PROMPT}\n\n---\n\n${conversationText}` }],
-      { maxTokens },
-    );
+  const result = await client.complete(
+    [{ role: 'user', content: `${COMPACTION_PROMPT}\n\n---\n\n${conversationText}` }],
+    { maxTokens },
+  );
 
-    const text = result.message.content
-      .filter((b) => b.type === 'text')
-      .map((b) => (b as { text: string }).text)
-      .join('');
+  const text = result.message.content
+    .filter((b) => b.type === 'text')
+    .map((b) => (b as { text: string }).text)
+    .join('');
 
-    return text || '[Summary generation failed — no output]';
-  } catch (error) {
-    return `[Summary generation failed: ${error instanceof Error ? error.message : String(error)}]`;
+  if (!text) {
+    throw new Error('Summary generation produced empty output');
   }
+
+  return text;
 }
 
 function blockToText(block: ContentBlock): string {

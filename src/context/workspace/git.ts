@@ -5,7 +5,6 @@
  */
 
 import { spawn } from 'node:child_process';
-import { access } from 'node:fs/promises';
 import { join } from 'node:path';
 
 export interface GitContext {
@@ -21,7 +20,8 @@ export interface GitContext {
  */
 export async function getGitContext(cwd: string): Promise<GitContext> {
   try {
-    await access(join(cwd, '.git'));
+    const { execSync } = await import('node:child_process');
+    execSync('git rev-parse --git-dir', { cwd, stdio: 'pipe' });
   } catch {
     return { isGitRepo: false };
   }

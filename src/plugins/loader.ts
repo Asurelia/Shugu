@@ -58,6 +58,8 @@ export interface Plugin {
   path: string;
   /** Whether the plugin is loaded and active */
   active: boolean;
+  /** Trust source: global (user-installed) or local (repo-controlled) */
+  source: 'global' | 'local';
   /** Additional tools provided by this plugin */
   tools?: Tool[];
   /** Additional commands provided */
@@ -99,21 +101,29 @@ export type PluginInit = (api: PluginAPI) => Promise<void> | void;
 // ─── Loader ────────────────────────────────────────────
 
 /**
- * Discover plugin directories.
+ * Source of a discovered plugin directory.
  */
-export function discoverPluginDirs(projectDir: string): string[] {
-  const dirs: string[] = [];
+export interface PluginSource {
+  dir: string;
+  source: 'global' | 'local';
+}
 
-  // 1. Global plugins
+/**
+ * Discover plugin directories with their trust source.
+ */
+export function discoverPluginDirs(projectDir: string): PluginSource[] {
+  const dirs: PluginSource[] = [];
+
+  // 1. Global plugins (user-installed, trusted)
   const globalDir = join(homedir(), '.pcc', 'plugins');
   if (existsSync(globalDir)) {
-    dirs.push(globalDir);
+    dirs.push({ dir: globalDir, source: 'global' });
   }
 
-  // 2. Project-local plugins
+  // 2. Project-local plugins (repo-controlled, untrusted)
   const localDir = join(projectDir, '.pcc', 'plugins');
   if (existsSync(localDir)) {
-    dirs.push(localDir);
+    dirs.push({ dir: localDir, source: 'local' });
   }
 
   return dirs;
@@ -144,13 +154,14 @@ export function loadManifest(pluginDir: string): PluginManifest | null {
 /**
  * Load a single plugin from a directory.
  */
-export async function loadPlugin(pluginDir: string): Promise<Plugin> {
+export async function loadPlugin(pluginDir: string, source: 'global' | 'local' = 'global'): Promise<Plugin> {
   const manifest = loadManifest(pluginDir);
   if (!manifest) {
     return {
       manifest: { name: 'unknown', version: '0.0.0', description: '', entry: '' },
       path: pluginDir,
       active: false,
+      source,
       error: `No valid plugin.json found in ${pluginDir}`,
     };
   }
@@ -159,6 +170,7 @@ export async function loadPlugin(pluginDir: string): Promise<Plugin> {
     manifest,
     path: pluginDir,
     active: false,
+    source,
     tools: [],
     commands: [],
     skills: [],
@@ -196,19 +208,62 @@ export async function loadPlugin(pluginDir: string): Promise<Plugin> {
 }
 
 /**
- * Load all plugins from discovered directories.
+ * Options for loading plugins.
  */
-export async function loadAllPlugins(projectDir: string): Promise<Plugin[]> {
-  const pluginDirs = discoverPluginDirs(projectDir);
+export interface LoadPluginOptions {
+  /**
+   * Callback to confirm loading of local (repo-controlled) plugins.
+   * If not provided, local plugins are skipped for safety.
+   * Global (user-installed) plugins are always loaded without confirmation.
+   */
+  onConfirmLocal?: (manifest: PluginManifest, pluginDir: string) => Promise<boolean>;
+}
+
+/**
+ * Load all plugins from discovered directories.
+ * Local (repo-controlled) plugins require explicit confirmation via onConfirmLocal callback.
+ */
+export async function loadAllPlugins(projectDir: string, options: LoadPluginOptions = {}): Promise<Plugin[]> {
+  const pluginSources = discoverPluginDirs(projectDir);
   const plugins: Plugin[] = [];
 
-  for (const dir of pluginDirs) {
+  for (const { dir, source } of pluginSources) {
     const entries = readdirSync(dir);
     for (const entry of entries) {
       const fullPath = join(dir, entry);
       if (!statSync(fullPath).isDirectory()) continue;
 
-      const plugin = await loadPlugin(fullPath);
+      // For local plugins, require confirmation before loading
+      if (source === 'local') {
+        const manifest = loadManifest(fullPath);
+        if (!manifest) continue;
+
+        if (!options.onConfirmLocal) {
+          // No confirmation callback — skip local plugins for safety
+          plugins.push({
+            manifest,
+            path: fullPath,
+            active: false,
+            source: 'local',
+            error: 'Skipped: local plugin requires trust confirmation',
+          });
+          continue;
+        }
+
+        const confirmed = await options.onConfirmLocal(manifest, fullPath);
+        if (!confirmed) {
+          plugins.push({
+            manifest,
+            path: fullPath,
+            active: false,
+            source: 'local',
+            error: 'Skipped: user denied local plugin',
+          });
+          continue;
+        }
+      }
+
+      const plugin = await loadPlugin(fullPath, source);
       plugins.push(plugin);
     }
   }
