@@ -14,7 +14,7 @@ import type { HookRegistry, PostToolUsePayload, PostToolUseResult, PreToolUsePay
 
 // ─── Secret Patterns ───────────────────────────────────
 
-const SECRET_PATTERNS = [
+export const SECRET_PATTERNS = [
   // API Keys
   /(?:api[_-]?key|apikey)\s*[:=]\s*['"]?([a-zA-Z0-9_\-]{20,})/i,
   // AWS

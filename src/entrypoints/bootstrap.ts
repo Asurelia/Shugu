@@ -30,6 +30,7 @@ import { createVaultCommand } from '../commands/vault.js';
 import { createDefaultCommands } from '../commands/index.js';
 import { createReviewCommand } from '../commands/review.js';
 import { createBatchCommand } from '../commands/batch.js';
+import { createMetaCommand } from '../meta/cli.js';
 import { registerBehaviorHooks } from '../plugins/builtin/behavior-hooks.js';
 import { registerVerificationHook } from '../plugins/builtin/verification-hook.js';
 import { AgentOrchestrator } from '../agents/orchestrator.js';
@@ -283,6 +284,7 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
   commands.register(createTeamCommand(orchestrator));
   commands.register(createReviewCommand(orchestrator, cwd));
   commands.register(createBatchCommand(orchestrator, client, cwd));
+  commands.register(createMetaCommand(orchestrator, client, cwd));
 
   let builtSystemPrompt = '';
 

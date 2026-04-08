@@ -107,15 +107,19 @@ export class AgentOrchestrator {
   private parentToolContext: ToolContext;
   private activeAgents = new Map<string, InterruptController>();
   private agentCounter = 0;
+  /** Custom agent definitions that override or extend BUILTIN_AGENTS */
+  private agentRegistry?: Record<string, AgentDefinition>;
 
   constructor(
     client: MiniMaxClient,
     tools: Map<string, Tool>,
     toolContext: ToolContext,
+    agentRegistry?: Record<string, AgentDefinition>,
   ) {
     this.client = client;
     this.availableTools = tools;
     this.parentToolContext = toolContext;
+    this.agentRegistry = agentRegistry;
   }
 
   /**
@@ -140,7 +144,7 @@ export class AgentOrchestrator {
       };
     }
 
-    const definition = BUILTIN_AGENTS[agentType] ?? BUILTIN_AGENTS['general']!;
+    const definition = this.agentRegistry?.[agentType] ?? BUILTIN_AGENTS[agentType] ?? BUILTIN_AGENTS['general']!;
     const agentId = `agent-${++this.agentCounter}`;
     const interrupt = new InterruptController();
     this.activeAgents.set(agentId, interrupt);

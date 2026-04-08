@@ -15,7 +15,15 @@
  * Build a reflection prompt for mid-task self-evaluation.
  * Injected as a user message between turns.
  */
-export function buildReflectionPrompt(turnIndex: number, maxTurns: number): string {
+export function buildReflectionPrompt(turnIndex: number, maxTurns: number, template?: string): string {
+  // If a custom template is provided (e.g., from HarnessConfig), use it
+  if (template) {
+    return template
+      .replace(/\{\{turnIndex\}\}/g, String(turnIndex))
+      .replace(/\{\{maxTurns\}\}/g, String(maxTurns))
+      .replace(/\{\{budgetPercent\}\}/g, String(Math.round((turnIndex / maxTurns) * 100)));
+  }
+
   const budgetPercent = Math.round((turnIndex / maxTurns) * 100);
   const urgency = budgetPercent > 70
     ? '\n⚠️ You have used ' + budgetPercent + '% of your turn budget. Prioritize completing the most important remaining work.'
