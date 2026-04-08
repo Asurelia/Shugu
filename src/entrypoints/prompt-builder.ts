@@ -91,8 +91,15 @@ export async function buildSystemPrompt(
   skillRegistry?: SkillRegistry,
   precomputedAdapters?: Awaited<ReturnType<typeof discoverTools>>,
   memoryAgent?: MemoryAgent,
+  harnessConfig?: import('../meta/types.js').HarnessConfig,
 ): Promise<PromptBuildResult> {
-  const parts = [BASE_SYSTEM_PROMPT];
+  // BASE_SYSTEM_PROMPT is immutable — harness can only append or inject fragments
+  let basePrompt = BASE_SYSTEM_PROMPT;
+  if (harnessConfig?.systemPromptAppend) {
+    basePrompt += '\n\n' + harnessConfig.systemPromptAppend;
+  }
+
+  const parts = [basePrompt];
   const warnings: string[] = [];
 
   // Workspace context (sync — instant)
@@ -149,6 +156,13 @@ export async function buildSystemPrompt(
     const companion = getCompanion();
     parts.push('\n' + getCompanionPrompt(companion));
   } catch { /* non-critical */ }
+
+  // Harness prompt fragments (injected after all dynamic sections)
+  if (harnessConfig?.promptFragments) {
+    for (const [name, content] of Object.entries(harnessConfig.promptFragments)) {
+      parts.push(`\n# ${name}\n${content}`);
+    }
+  }
 
   return { prompt: parts.join('\n'), warnings };
 }

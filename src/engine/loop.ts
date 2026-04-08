@@ -50,6 +50,8 @@ export interface LoopConfig {
   hookRegistry?: HookRegistry;
   /** Inject reflection prompts every N turns (0 = disabled). Set by strategy layer. */
   reflectionInterval?: number;
+  /** Runtime overrides for Meta-Harness. Optional — no effect when absent. */
+  harnessRuntime?: import('../meta/types.js').HarnessRuntime;
 }
 
 // ─── Loop Events ────────────────────────────────────────
@@ -181,8 +183,9 @@ export async function* runLoop(
       tracer.logTimed('model_call', { turnIndex, event: 'turn_end', input_tokens: turnUsage.input_tokens, output_tokens: turnUsage.output_tokens }, turnStartMs);
 
       // ── 2.5. Mid-turn reflection (strategic self-evaluation) ──
-      if (config.reflectionInterval && shouldReflect(turnIndex, config.reflectionInterval, maxTurns)) {
-        const reflection = buildReflectionPrompt(turnIndex, maxTurns);
+      const effectiveReflectionInterval = config.harnessRuntime?.reflectionInterval ?? config.reflectionInterval ?? 0;
+      if (effectiveReflectionInterval && shouldReflect(turnIndex, effectiveReflectionInterval, maxTurns)) {
+        const reflection = buildReflectionPrompt(turnIndex, maxTurns, config.harnessRuntime?.reflectionTemplate);
         messages.push({ role: 'user', content: reflection });
       }
 
@@ -323,8 +326,8 @@ export async function* runLoop(
               }
             }
 
-            // Execute with timeout (5 minutes) and abort signal
-            const TOOL_TIMEOUT_MS = 300_000;
+            // Execute with timeout and abort signal
+            const TOOL_TIMEOUT_MS = config.harnessRuntime?.toolTimeoutMs ?? 300_000;
             const execStart = Date.now();
             let result: import('../protocol/tools.js').ToolResult;
             try {

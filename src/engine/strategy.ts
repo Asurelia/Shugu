@@ -181,11 +181,30 @@ function getReflectionInterval(complexity: Complexity): number {
  * Analyze a user task and produce strategic guidance.
  * Heuristic-first (0 tokens), LLM-fallback (~150 tokens M2.5) for ambiguous tasks.
  */
+/** Overrides for Meta-Harness config injection */
+export interface StrategyOverrides {
+  complexityOverride?: Complexity;
+  strategyPrompts?: Partial<Record<Complexity, string | null>>;
+  reflectionIntervals?: Partial<Record<Complexity, number>>;
+}
+
 export async function analyzeTask(
   input: string,
   _messages: Message[],
   client: MiniMaxClient,
+  overrides?: StrategyOverrides,
 ): Promise<TaskStrategy> {
+  // If complexity is forced via overrides, skip classification
+  if (overrides?.complexityOverride) {
+    const c = overrides.complexityOverride;
+    const strategyPrompt = overrides.strategyPrompts?.[c] !== undefined
+      ? overrides.strategyPrompts[c]!
+      : buildStrategyPrompt(c);
+    const reflectionInterval = overrides.reflectionIntervals?.[c] ?? getReflectionInterval(c);
+    tracer.log('strategy', { complexity: c, classifiedBy: 'override', input: input.slice(0, 100) });
+    return { complexity: c, strategyPrompt, reflectionInterval, classifiedBy: 'heuristic' };
+  }
+
   // Skip analysis for slash commands and very short inputs
   if (input.startsWith('/') || input.length < 5) {
     return {
@@ -199,10 +218,14 @@ export async function analyzeTask(
   // Try heuristic first (free)
   const heuristic = classifyByHeuristics(input);
   if (heuristic) {
+    const sp = overrides?.strategyPrompts?.[heuristic] !== undefined
+      ? overrides.strategyPrompts[heuristic]!
+      : buildStrategyPrompt(heuristic);
+    const ri = overrides?.reflectionIntervals?.[heuristic] ?? getReflectionInterval(heuristic);
     const strategy: TaskStrategy = {
       complexity: heuristic,
-      strategyPrompt: buildStrategyPrompt(heuristic),
-      reflectionInterval: getReflectionInterval(heuristic),
+      strategyPrompt: sp,
+      reflectionInterval: ri,
       classifiedBy: 'heuristic',
     };
     logger.debug(`strategy: ${heuristic} (heuristic)`, input.slice(0, 80));
@@ -212,10 +235,14 @@ export async function analyzeTask(
 
   // LLM fallback for ambiguous tasks
   const { complexity, toolHints } = await classifyByLLM(client, input);
+  const sp2 = overrides?.strategyPrompts?.[complexity] !== undefined
+    ? overrides.strategyPrompts[complexity]!
+    : buildStrategyPrompt(complexity, toolHints);
+  const ri2 = overrides?.reflectionIntervals?.[complexity] ?? getReflectionInterval(complexity);
   const strategy: TaskStrategy = {
     complexity,
-    strategyPrompt: buildStrategyPrompt(complexity, toolHints),
-    reflectionInterval: getReflectionInterval(complexity),
+    strategyPrompt: sp2,
+    reflectionInterval: ri2,
     classifiedBy: 'llm',
   };
   logger.debug(`strategy: ${complexity} (llm)`, input.slice(0, 80));
