@@ -134,7 +134,7 @@ describe('changePassword', () => {
     const cred: Credential = {
       service: 'github',
       label: 'test',
-      values: { token: 'ghp_secret123' },
+      values: { token: 'FAKE_ghp_secret12300000000000000000000' },
       addedAt: new Date().toISOString(),
       domains: ['github.com'],
     };
@@ -146,7 +146,7 @@ describe('changePassword', () => {
     await vault.unlock('new-pass');
     const retrieved = vault.get('github', 'test');
     expect(retrieved).toBeDefined();
-    expect(retrieved!.values['token']).toBe('ghp_secret123');
+    expect(retrieved!.values['token']).toBe('FAKE_ghp_secret12300000000000000000000');
   });
 });
 
@@ -163,11 +163,11 @@ describe('CRUD', () => {
   it('add + get credential', async () => {
     await vault.add({
       service: 'github', label: 'personal',
-      values: { token: 'ghp_xxx' }, addedAt: '2026-01-01',
+      values: { token: 'FAKE_ghp_xxx00000000000000000000000000' }, addedAt: '2026-01-01',
     });
     const cred = vault.get('github', 'personal');
     expect(cred).toBeDefined();
-    expect(cred!.values['token']).toBe('ghp_xxx');
+    expect(cred!.values['token']).toBe('FAKE_ghp_xxx00000000000000000000000000');
   });
 
   it('add overwrites same service+label', async () => {

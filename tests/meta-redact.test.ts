@@ -23,10 +23,10 @@ describe('redactMessages', () => {
 
   it('redacts Bearer tokens', () => {
     const messages: Message[] = [
-      { role: 'user', content: 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.abc' },
+      { role: 'user', content: 'Authorization: Bearer FAKE_eyJhbGciOiJIUzI1NiJ9.FAKE_payload.FAKE_sig' },
     ];
     const redacted = redactMessages(messages);
-    expect(redacted[0]!.content).not.toContain('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.abc');
+    expect(redacted[0]!.content).not.toContain('FAKE_eyJhbGciOiJIUzI1NiJ9.FAKE_payload.FAKE_sig');
   });
 
   it('redacts credential file paths', () => {
@@ -80,13 +80,13 @@ describe('redactTraceEvents', () => {
         type: 'tool_result',
         timestamp: new Date().toISOString(),
         data: {
-          content: 'token=ghp_abcdefghijklmnopqrstuvwxyz1234567890',
+          content: 'token=FAKE_ghp_0000000000000000000000000000000000',
         },
       },
     ];
     const redacted = redactTraceEvents(events);
     expect(redacted[0]!.data.content).toContain('[REDACTED]');
-    expect(redacted[0]!.data.content).not.toContain('ghp_abcdefghijklmnopqrstuvwxyz1234567890');
+    expect(redacted[0]!.data.content).not.toContain('FAKE_ghp_0000000000000000000000000000000000');
   });
 
   it('preserves non-string data values', () => {

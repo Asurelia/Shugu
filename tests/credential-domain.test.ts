@@ -22,7 +22,7 @@ beforeEach(async () => {
   const cred: Credential = {
     service: 'github',
     label: 'default',
-    values: { token: 'ghp_test' },
+    values: { token: 'FAKE_ghp_test000000000000000000000000' },
     addedAt: '2026-04-07',
     domains: ['github.com'],
   };
