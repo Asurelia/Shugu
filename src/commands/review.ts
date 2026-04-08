@@ -6,8 +6,7 @@ import type { Command, CommandContext, CommandResult } from './registry.js';
 import type { AgentOrchestrator } from '../agents/orchestrator.js';
 import { delegateParallel, type ParallelTask, type ParallelResults } from '../agents/delegation.js';
 import { git } from '../utils/git.js';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { loadReviewRules } from '../context/workspace/project.js';
 
 export function createReviewCommand(orchestrator: AgentOrchestrator, cwd: string): Command {
   return {
@@ -38,17 +37,8 @@ export function createReviewCommand(orchestrator: AgentOrchestrator, cwd: string
         diffContext = diffContext.slice(0, 15000) + '\n\n[... truncated — diff too large for full review]';
       }
 
-      // 2. Load repo review rules
-      let repoRules = '';
-      for (const rulesFile of ['SHUGU.md', '.pcc/review-rules.md', 'CLAUDE.md']) {
-        try {
-          const content = await readFile(join(ctx.cwd, rulesFile), 'utf-8');
-          repoRules = `\n\n# Project Review Rules (from ${rulesFile}):\n${content.slice(0, 3000)}`;
-          break;
-        } catch {
-          // File doesn't exist, try next
-        }
-      }
+      // 2. Load repo review rules (merged from all instruction files)
+      const repoRules = await loadReviewRules(ctx.cwd);
 
       ctx.info('Running 3 parallel review agents (security, logic, architecture)...');
 

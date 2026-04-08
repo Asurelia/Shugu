@@ -139,7 +139,9 @@ export async function buildSystemPrompt(
     try {
       const hints = generateHints(precomputedAdapters);
       if (hints) parts.push(hints);
-    } catch { /* non-critical */ }
+    } catch (e) {
+      warnings.push(`CLI hints failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   if (vaultResult) parts.push(vaultResult);
@@ -155,7 +157,9 @@ export async function buildSystemPrompt(
   try {
     const companion = getCompanion();
     parts.push('\n' + getCompanionPrompt(companion));
-  } catch { /* non-critical */ }
+  } catch (e) {
+    warnings.push(`Companion failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
 
   // Harness prompt fragments (injected after all dynamic sections)
   if (harnessConfig?.promptFragments) {

@@ -175,6 +175,9 @@ const MEMORY_EXTRACTION_PROMPT = `You are the memory extraction agent. Analyze t
 - Git history or recent changes (git log is authoritative)
 - Ephemeral task details or conversation flow
 - Anything already documented in project files
+- Secrets, credentials, API keys, tokens, passwords, connection strings, PII (emails, phone numbers)
+- Raw .env values, Bearer tokens, authorization headers
+- Anything that looks like: sk-*, ghp_*, ghu_*, glpat-*, xoxb-*, AKIA*, password=*, secret=*
 
 ## Format
 For each item, output one line:

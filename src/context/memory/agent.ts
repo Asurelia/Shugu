@@ -88,6 +88,32 @@ function expandQueryTerms(queryWords: string[]): string[] {
   return [...expanded];
 }
 
+// ─── Sensitive Data Redaction ────────────────────────
+
+const SECRET_PATTERNS: RegExp[] = [
+  /\b(sk-[a-zA-Z0-9]{20,})/g,
+  /\b(ghp_[a-zA-Z0-9]{36})/g,
+  /\b(ghu_[a-zA-Z0-9]{36})/g,
+  /\b(glpat-[a-zA-Z0-9\-]{20,})/g,
+  /\b(xoxb-[a-zA-Z0-9\-]{20,})/g,
+  /\b(AKIA[A-Z0-9]{16})/g,
+  /Bearer\s+[a-zA-Z0-9._\-]{20,}/gi,
+  /(?:mongodb|postgres|mysql|redis):\/\/[^\s"']+/gi,
+  /(?:password|passwd|pwd|secret|token)\s*[=:]\s*['"]?[^\s'"]{8,}/gi,
+];
+
+export function redactSensitive(text: string): string {
+  let result = text;
+  for (const pattern of SECRET_PATTERNS) {
+    result = result.replace(new RegExp(pattern.source, pattern.flags), '[REDACTED]');
+  }
+  return result;
+}
+
+export function isSuspiciousMemory(content: string): boolean {
+  return redactSensitive(content) !== content;
+}
+
 // ─── Memory Agent ─────────────────────────────────────
 
 export class MemoryAgent {
@@ -162,6 +188,12 @@ export class MemoryAgent {
         tags: ['auto-extracted'],
         timestamp: new Date().toISOString(),
       };
+
+      // Guard: reject memories containing secrets/PII
+      if (isSuspiciousMemory(mem.content)) {
+        logger.warn(`memory rejected — contains sensitive data: "${mem.title}"`);
+        continue;
+      }
 
       if (await this.save(item)) saved++;
     }

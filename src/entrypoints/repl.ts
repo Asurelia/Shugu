@@ -56,6 +56,7 @@ export async function runREPL(
   // Vault refresh tracking
   let lastVaultRefresh = Date.now();
   let dynamicVaultContext = '';
+  let latestVolatileParts: string[] = [];
 
   // Skill execution helpers
   const queryModel = async (prompt: string): Promise<string> => {
@@ -70,7 +71,12 @@ export async function runREPL(
     const messages: Message[] = [{ role: 'user', content: prompt }];
     const agentConfig: LoopConfig = {
       client,
-      systemPrompt,
+      systemPrompt: [
+        { type: 'text' as const, text: systemPrompt as string, cache_control: { type: 'ephemeral' as const } },
+        ...(latestVolatileParts.length > 0
+          ? [{ type: 'text' as const, text: latestVolatileParts.join('\n\n') }]
+          : []),
+      ],
       tools: new Map(registry.getAll().map(t => [t.definition.name, t])),
       toolDefinitions: registry.getDefinitions(),
       toolContext,
@@ -388,6 +394,7 @@ export async function runREPL(
       kairosContext: kairos.shouldInjectTimeContext() ? kairos.getTimeContext() : undefined,
       memoryContext,
     });
+    latestVolatileParts = volatileParts;
 
     // ── Auto-compaction ──
     if (tokenTracker.shouldAutoCompact()) {

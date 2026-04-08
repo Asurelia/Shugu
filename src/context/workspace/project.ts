@@ -100,6 +100,31 @@ export async function getProjectContext(cwd: string): Promise<ProjectContext> {
 }
 
 /**
+ * Load and merge ALL instruction files relevant for code review.
+ * Unlike the old first-match-wins approach, this merges all sources
+ * so review agents see the full picture (SHUGU.md + AGENTS.md + CLAUDE.md etc.).
+ */
+export async function loadReviewRules(cwd: string): Promise<string> {
+  const ruleFiles = [
+    'SHUGU.md', 'AGENTS.md', 'CLAUDE.md', 'PCC.md',
+    '.claude/CLAUDE.md', '.pcc/instructions.md', '.pcc/review-rules.md',
+  ];
+  const parts: string[] = [];
+  for (const file of ruleFiles) {
+    try {
+      const content = await readFile(join(cwd, file), 'utf-8');
+      parts.push(`# Rules from ${file}\n${content.slice(0, 2000)}`);
+    } catch { /* not found, skip */ }
+  }
+  if (parts.length === 0) return '';
+  let merged = parts.join('\n\n---\n\n');
+  if (merged.length > 6000) {
+    merged = merged.slice(0, 6000) + '\n\n[... truncated]';
+  }
+  return `\n\n# Project Review Rules:\n${merged}`;
+}
+
+/**
  * Format project context for system prompt injection.
  */
 export function formatProjectContext(project: ProjectContext): string {

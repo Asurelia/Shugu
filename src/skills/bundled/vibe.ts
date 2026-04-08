@@ -366,7 +366,31 @@ Example: /vibe TaskAPI A REST API for managing tasks with auth`,
       try {
         const result = await ctx.runAgent(fullPrompt);
 
-        // Mark completed
+        // Validate artifact if this stage produces one
+        if (stage.produces) {
+          const artifactPath = join(outputsDir, stage.produces);
+          if (!existsSync(artifactPath)) {
+            stageState.status = 'pending';
+            saveWorkflow(ctx.cwd, appName, workflow);
+            ctx.error(`  ✗ ${stage.name}: expected artifact not found — ${stage.produces}`);
+            ctx.info(`  Re-run with: /vibe ${appName} --from=${stage.id}`);
+            return { type: 'error', message: `Stage ${stage.id} did not produce: ${stage.produces}` };
+          }
+          if (stage.produces.endsWith('.json')) {
+            try {
+              JSON.parse(readFileSync(artifactPath, 'utf-8'));
+            } catch (parseErr) {
+              stageState.status = 'pending';
+              saveWorkflow(ctx.cwd, appName, workflow);
+              const parseMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+              ctx.error(`  ✗ ${stage.name}: invalid JSON artifact — ${parseMsg}`);
+              ctx.info(`  Re-run with: /vibe ${appName} --from=${stage.id}`);
+              return { type: 'error', message: `Stage ${stage.id} artifact invalid JSON: ${parseMsg}` };
+            }
+          }
+        }
+
+        // Mark completed only after validation passes
         stageState.status = 'completed';
         saveWorkflow(ctx.cwd, appName, workflow);
         ctx.info(`  ✓ ${stage.name} complete`);

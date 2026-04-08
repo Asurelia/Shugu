@@ -5,6 +5,7 @@
 import type { Command, CommandContext, CommandResult } from './registry.js';
 import type { AgentOrchestrator } from '../agents/orchestrator.js';
 import { AgentTeam, TEAM_TEMPLATES } from '../agents/teams.js';
+import { loadReviewRules } from '../context/workspace/project.js';
 
 export function createTeamCommand(orchestrator: AgentOrchestrator): Command {
   return {
@@ -42,6 +43,14 @@ export function createTeamCommand(orchestrator: AgentOrchestrator): Command {
       const template = TEAM_TEMPLATES[templateName];
       if (!template) {
         return { type: 'error', message: `Unknown team template: ${templateName}` };
+      }
+
+      // Inject merged review rules for review template (same source as /review)
+      if (templateName === 'review') {
+        const repoRules = await loadReviewRules(ctx.cwd);
+        if (repoRules) {
+          task = `${task}\n\n${repoRules}`;
+        }
       }
 
       ctx.info(`Dispatching to "${template.name}" team (${template.members.length} members, ${template.mode})...`);
