@@ -54,6 +54,7 @@ Use this tool to persist knowledge, decisions, and facts across sessions.`,
     },
     required: ['operation'],
   },
+  categories: ['memory'],
 };
 
 // ─── Tool Implementation ───────────────────────────────

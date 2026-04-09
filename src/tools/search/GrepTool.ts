@@ -49,6 +49,7 @@ export const GrepToolDefinition: ToolDefinition = {
     required: ['pattern'],
   },
   concurrencySafe: true,
+  categories: ['core', 'search'],
 };
 
 const MAX_OUTPUT = 50_000;

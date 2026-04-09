@@ -22,6 +22,9 @@ export interface ToolDefinition {
 
   /** Whether to defer loading this tool (for tool search) */
   deferLoading?: boolean;
+
+  /** Capability categories for dynamic tool routing */
+  categories?: string[];
 }
 
 export interface ToolInputSchema {

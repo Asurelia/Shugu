@@ -27,6 +27,7 @@ export const FileWriteToolDefinition: ToolDefinition = {
     required: ['file_path', 'content'],
   },
   concurrencySafe: false,
+  categories: ['core', 'file-ops'],
 };
 
 export class FileWriteTool implements Tool {

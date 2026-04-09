@@ -42,6 +42,7 @@ export const SemSearchToolDefinition: ToolDefinition = {
     required: ['query'],
   },
   concurrencySafe: true,
+  categories: ['search'],
 };
 
 export class SemSearchTool implements Tool {

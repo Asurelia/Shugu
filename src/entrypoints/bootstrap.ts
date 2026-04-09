@@ -33,6 +33,7 @@ import { loadMarkdownAgents } from '../agents/markdown-loader.js';
 import { FileRevertStack, TurnChangeAccumulator } from '../context/session/file-revert.js';
 import { registerFileTrackingHook } from '../plugins/builtin/file-tracking-hook.js';
 import { createFileRevertCommand } from '../commands/session.js';
+import { ToolRouter } from '../tools/router.js';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createReviewCommand } from '../commands/review.js';
@@ -189,6 +190,8 @@ export interface BootstrapResult {
   systemPrompt: string;
   needsHatchCeremony: boolean;
   resumedMessages: Message[] | null;
+  /** Formatted rehydration block from the resumed session's workContext */
+  resumedWorkContext: string | null;
 }
 
 export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
@@ -224,6 +227,7 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
   }
 
   const { registry, agentTool, webFetchTool, obsidianTool } = createDefaultRegistry(credentialProvider);
+  ToolRouter.validateCategories(registry.getDefinitions());
   const permResolver = new PermissionResolver(cliArgs.mode);
   const skillRegistry = createDefaultSkillRegistry();
   const commands = createDefaultCommands();
@@ -324,7 +328,7 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
   let builtSystemPrompt = '';
 
   // Register automation commands
-  const loopConfigFactory = (): LoopConfig => ({
+  const loopConfigFactory = (effectiveInput?: string): LoopConfig => ({
     client,
     systemPrompt: builtSystemPrompt,
     tools: new Map(registry.getAll().map(t => [t.definition.name, t])),
@@ -332,6 +336,9 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
     toolContext,
     hookRegistry,
     maxTurns: 15,
+    toolRouter: new ToolRouter(registry.getDefinitions()),
+    effectiveInput: effectiveInput ?? '',
+    complexity: 'simple',
   });
   commands.register(createVaultCommand(vault));
   commands.register(createFileRevertCommand(revertStack));
@@ -339,7 +346,7 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
   commands.register(createProactiveCommand(async (prompt) => {
     const messages: Message[] = [{ role: 'user', content: prompt }];
     let result = '';
-    for await (const event of runLoop(messages, loopConfigFactory())) {
+    for await (const event of runLoop(messages, loopConfigFactory(prompt))) {
       if (event.type === 'assistant_message') {
         result = event.message.content.filter(isTextBlock).map(b => b.text).join('');
       }
@@ -465,7 +472,22 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
     },
   };
 
-  return { services, systemPrompt, needsHatchCeremony, resumedMessages };
+  // Extract rehydration context from resumed session's workContext
+  let resumedWorkContext: string | null = null;
+  if (resumedMessages) {
+    // Find the session we resumed from to get its workContext
+    const resumedSession = cliArgs.continueSession
+      ? await sessionMgr.loadLatest(cwd)
+      : typeof cliArgs.resumeSession === 'string'
+        ? await sessionMgr.load(cliArgs.resumeSession).catch(() => null)
+        : null;
+    if (resumedSession?.workContext) {
+      const { formatRehydrationBlock } = await import('../context/session/work-context.js');
+      resumedWorkContext = formatRehydrationBlock(resumedSession.workContext);
+    }
+  }
+
+  return { services, systemPrompt, needsHatchCeremony, resumedMessages, resumedWorkContext };
 }
 
 // ─── Vault Setup Helpers ────────────────────────────────

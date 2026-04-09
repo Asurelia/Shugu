@@ -34,6 +34,7 @@ export const FileReadToolDefinition: ToolDefinition = {
     required: ['file_path'],
   },
   concurrencySafe: true,
+  categories: ['core', 'file-ops'],
 };
 
 const DEFAULT_LINE_LIMIT = READ_LIMITS.defaultLineLimit;

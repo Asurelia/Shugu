@@ -31,6 +31,7 @@ export const WebSearchToolDefinition: ToolDefinition = {
     required: ['query'],
   },
   concurrencySafe: true,
+  categories: ['web'],
 };
 
 export class WebSearchTool implements Tool {

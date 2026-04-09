@@ -23,6 +23,8 @@ import { runPostTurnIntelligence, type IntelligenceResult } from '../engine/inte
 import { logger } from '../utils/logger.js';
 import { tracer } from '../utils/tracer.js';
 import { expandFileTags } from '../context/file-tags.js';
+import { extractWorkContext } from '../context/session/work-context.js';
+import { ToolRouter } from '../tools/router.js';
 import { createCloneCommand, createSnapshotCommand } from '../commands/session.js';
 import type { SessionData } from '../context/session/persistence.js';
 import type { RuntimeServices } from './services.js';
@@ -35,6 +37,7 @@ export async function runREPL(
   systemPrompt: string,
   needsHatchCeremony: boolean,
   resumedMessages: Message[] | null,
+  resumedWorkContext: string | null = null,
 ): Promise<void> {
   const {
     client, registry, toolContext, permResolver, hookRegistry,
@@ -55,6 +58,8 @@ export async function runREPL(
   let correctionCount = 0;
   let turnCount = 0;
   let lastHumanInputIdx = -1;
+  let lastRawUserInput = '';
+  let pendingRehydration: string | null = resumedWorkContext;
 
   // Register session-aware commands (need live session reference).
   // The getter syncs session.messages from the live conversationMessages array
@@ -230,6 +235,11 @@ export async function runREPL(
     session.messages = conversationMessages;
     session.turnCount = budget.getTurnCount();
     session.totalUsage = budget.getTotalUsage();
+    // Only recompute workContext if we have a tracked human input;
+    // after /resume (lastHumanInputIdx = -1), preserve existing workContext
+    if (lastHumanInputIdx >= 0) {
+      session.workContext = extractWorkContext(conversationMessages, lastHumanInputIdx, lastRawUserInput);
+    }
     await sessionMgr.save(session).catch((err) => {
       logger.debug('session save failed', err instanceof Error ? err.message : String(err));
     });
@@ -402,6 +412,8 @@ export async function runREPL(
       }
       if (cmdResult?.type !== 'prompt') continue;
     } else {
+      // Capture raw input before file expansion (for workContext.currentGoal)
+      lastRawUserInput = input;
       // Expand @file tags in user input
       const { expandedContent, taggedFiles, truncated } = await expandFileTags(input, toolContext.cwd);
       if (taggedFiles.length > 0) {
@@ -447,6 +459,11 @@ export async function runREPL(
       kairosContext: kairos.shouldInjectTimeContext() ? kairos.getTimeContext() : undefined,
       memoryContext,
     });
+    // Inject rehydration context on the first turn after resume (once only)
+    if (pendingRehydration) {
+      volatileParts.unshift(pendingRehydration);
+      pendingRehydration = null;
+    }
     latestVolatileParts = volatileParts;
 
     // ── Auto-compaction ──
@@ -498,6 +515,29 @@ export async function runREPL(
       hookRegistry,
       maxTurns: 25,
       reflectionInterval: strategy.reflectionInterval,
+      // M2.7 alignment: dynamic tool routing + per-call memory refresh
+      toolRouter: new ToolRouter(registry.getDefinitions()),
+      complexity: strategy.complexity,
+      effectiveInput,
+      refreshContext: async (query: string, _turnIndex: number): Promise<string[] | null> => {
+        let refreshedMemory: string | undefined;
+        if (memoryAgent && query.length > 10) {
+          refreshedMemory = await memoryAgent.getRelevantContext(query, 3) ?? undefined;
+        }
+        if (obsidianVaultInstance && (Date.now() - lastVaultRefresh) > 60_000) {
+          try {
+            dynamicVaultContext = await obsidianVaultInstance.refreshContext();
+            lastVaultRefresh = Date.now();
+          } catch { /* non-critical */ }
+        }
+        return buildVolatilePromptParts({
+          mode: permResolver.getMode(),
+          dynamicVaultContext,
+          strategyPrompt: strategy.strategyPrompt ?? undefined,
+          kairosContext: kairos.shouldInjectTimeContext() ? kairos.getTimeContext() : undefined,
+          memoryContext: refreshedMemory,
+        });
+      },
     };
 
     let lastOutputTokens = 0;
@@ -591,12 +631,7 @@ export async function runREPL(
       logger.debug('post-turn intelligence failed', err instanceof Error ? err.message : String(err));
     });
 
-    // Save session periodically
-    session.messages = conversationMessages;
-    session.turnCount = budget.getTurnCount();
-    session.totalUsage = budget.getTotalUsage();
-    await sessionMgr.save(session).catch((err) => {
-      logger.debug('session save failed', err instanceof Error ? err.message : String(err));
-    });
+    // Save session (single path — includes workContext extraction)
+    await saveSession();
   }
 }

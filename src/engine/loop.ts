@@ -19,6 +19,7 @@ import type {
   AssistantMessage,
   UserMessage,
   SystemPrompt,
+  SystemPromptBlock,
   Usage,
   ContentBlock,
 } from '../protocol/messages.js';
@@ -52,6 +53,17 @@ export interface LoopConfig {
   reflectionInterval?: number;
   /** Runtime overrides for Meta-Harness. Optional — no effect when absent. */
   harnessRuntime?: import('../meta/types.js').HarnessRuntime;
+  /** Dynamic tool router — selects relevant tools per model call. Optional. */
+  toolRouter?: import('../tools/router.js').ToolRouter;
+  /** Task complexity from strategy analysis — used by toolRouter. */
+  complexity?: import('./strategy.js').Complexity;
+  /** The real human input for routing/refresh — NOT the last message in the array. */
+  effectiveInput?: string;
+  /**
+   * Called every N turns to refresh volatile system prompt parts.
+   * Returns updated text blocks, or null to keep current prompt.
+   */
+  refreshContext?: (query: string, turnIndex: number) => Promise<string[] | null>;
 }
 
 // ─── Loop Events ────────────────────────────────────────
@@ -90,12 +102,12 @@ export async function* runLoop(
 ): AsyncGenerator<LoopEvent> {
   const {
     client,
-    systemPrompt,
     tools,
     toolDefinitions,
     maxTurns = DEFAULT_MAX_TURNS,
     maxBudgetUsd,
   } = config;
+  let { systemPrompt } = config; // mutable — refreshContext can update it
 
   const budget = new BudgetTracker(client.model, maxBudgetUsd);
   const continuation = new ContinuationTracker();
@@ -104,6 +116,8 @@ export async function* runLoop(
 
   // Loop detection: track last 3 tool calls to detect stuck loops
   const recentToolCalls: string[] = [];
+  // Structured metadata for routing and refresh (separate from debug strings)
+  const recentToolMeta: Array<{ name: string; filePath?: string }> = [];
 
   try {
     while (true) {
@@ -115,9 +129,18 @@ export async function* runLoop(
 
       // ── 1. Stream model response ──────────────────
 
+      // Dynamic tool routing: select relevant tools per call
+      const effectiveToolDefs = config.toolRouter
+        ? config.toolRouter.select({
+            input: config.effectiveInput ?? '',
+            recentTools: recentToolMeta.map(m => m.name),
+            complexity: config.complexity ?? 'simple',
+          })
+        : toolDefinitions;
+
       const streamOptions: StreamOptions = {
         systemPrompt,
-        tools: toolDefinitions,
+        tools: effectiveToolDefs,
         abortSignal: interrupt.signal,
       };
 
@@ -247,6 +270,11 @@ export async function* runLoop(
           const callSig = `${call.name}:${JSON.stringify(call.input).slice(0, 100)}`;
           recentToolCalls.push(callSig);
           if (recentToolCalls.length > 5) recentToolCalls.shift();
+
+          // Structured metadata for routing + refresh
+          const callFilePath = typeof call.input['file_path'] === 'string' ? call.input['file_path'] : undefined;
+          recentToolMeta.push({ name: call.name, filePath: callFilePath });
+          if (recentToolMeta.length > 10) recentToolMeta.shift();
           if (recentToolCalls.length >= 3 &&
               recentToolCalls[recentToolCalls.length - 1] === recentToolCalls[recentToolCalls.length - 2] &&
               recentToolCalls[recentToolCalls.length - 2] === recentToolCalls[recentToolCalls.length - 3]) {
@@ -400,6 +428,27 @@ export async function* runLoop(
 
         // Yield tool_result_message so consumers can track incremental history
         yield { type: 'tool_result_message', message: toolResultMessage };
+      }
+
+      // ── Per-call context refresh (every 3 turns after tool execution) ──
+      if (config.refreshContext && turnIndex > 0 && turnIndex % 3 === 0) {
+        const recentPaths = recentToolMeta
+          .map(m => m.filePath)
+          .filter((p): p is string => p !== undefined)
+          .slice(-5)
+          .join(' ');
+        const refreshQuery = `${config.effectiveInput ?? ''} ${recentPaths}`.trim();
+        if (refreshQuery.length > 10) {
+          const refreshedParts = await config.refreshContext(refreshQuery, turnIndex);
+          if (refreshedParts && Array.isArray(systemPrompt)) {
+            // Keep first block (cached base prompt), replace volatile blocks
+            const base = (systemPrompt as SystemPromptBlock[])[0]!;
+            systemPrompt = [
+              base,
+              ...refreshedParts.map(text => ({ type: 'text' as const, text } as SystemPromptBlock)),
+            ];
+          }
+        }
       }
 
       turnIndex++;

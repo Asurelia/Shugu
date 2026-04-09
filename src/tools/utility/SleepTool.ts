@@ -25,6 +25,7 @@ export const SleepToolDefinition: ToolDefinition = {
     required: ['seconds'],
   },
   concurrencySafe: true,
+  categories: ['automation'],
 };
 
 export class SleepTool implements Tool {

@@ -33,6 +33,8 @@ export interface SessionData {
   turnCount: number;
   createdAt: string;
   updatedAt: string;
+  /** Work context snapshot for session rehydration (optional for backwards compat) */
+  workContext?: import('./work-context.js').WorkContext;
 }
 
 // ─── Session Snapshot ──────────────────────────────────

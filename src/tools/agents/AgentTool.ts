@@ -47,6 +47,7 @@ The sub-agent's result is returned as text. It cannot see your conversation — 
     required: ['prompt'],
   },
   concurrencySafe: true, // Multiple agents can run in parallel
+  categories: ['agent'],
 };
 
 export interface AgentEvent {

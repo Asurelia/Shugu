@@ -33,6 +33,7 @@ export const BashToolDefinition: ToolDefinition = {
     required: ['command'],
   },
   concurrencySafe: false,
+  categories: ['core'],
 };
 
 export class BashTool implements Tool {
