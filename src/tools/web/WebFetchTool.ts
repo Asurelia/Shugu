@@ -35,6 +35,7 @@ export const WebFetchToolDefinition: ToolDefinition = {
     required: ['url'],
   },
   concurrencySafe: true,
+  categories: ['web'],
 };
 
 const MAX_RESPONSE_LENGTH = 100_000;

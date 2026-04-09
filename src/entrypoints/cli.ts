@@ -21,12 +21,12 @@ async function main(): Promise<void> {
   const cliArgs = parseArgs();
 
   try {
-    const { services, systemPrompt, needsHatchCeremony, resumedMessages } = await bootstrap(cliArgs);
+    const { services, systemPrompt, needsHatchCeremony, resumedMessages, resumedWorkContext } = await bootstrap(cliArgs);
 
     if (cliArgs.prompt) {
       await runSingleQuery(services, cliArgs.prompt, systemPrompt);
     } else {
-      await runREPL(services, systemPrompt, needsHatchCeremony, resumedMessages);
+      await runREPL(services, systemPrompt, needsHatchCeremony, resumedMessages, resumedWorkContext);
     }
   } catch (error) {
     if (error instanceof Error && error.message.includes('No API key')) {

@@ -74,6 +74,7 @@ export const TaskCreateDefinition: ToolDefinition = {
     required: ['subject', 'description'],
   },
   concurrencySafe: true,
+  categories: ['task'],
 };
 
 export class TaskCreateTool implements Tool {
@@ -107,6 +108,7 @@ export const TaskUpdateDefinition: ToolDefinition = {
     required: ['taskId', 'status'],
   },
   concurrencySafe: true,
+  categories: ['task'],
 };
 
 export class TaskUpdateTool implements Tool {
@@ -140,6 +142,7 @@ export const TaskListDefinition: ToolDefinition = {
     properties: {},
   },
   concurrencySafe: true,
+  categories: ['task'],
 };
 
 export class TaskListTool implements Tool {

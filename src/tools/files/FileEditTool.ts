@@ -36,6 +36,7 @@ export const FileEditToolDefinition: ToolDefinition = {
     required: ['file_path', 'old_string', 'new_string'],
   },
   concurrencySafe: false,
+  categories: ['core', 'file-ops'],
 };
 
 export class FileEditTool implements Tool {

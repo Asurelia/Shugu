@@ -14,7 +14,7 @@ import type { LoopConfig } from '../engine/loop.js';
 
 export function createBgCommand(
   bgManager: BackgroundManager,
-  loopConfigFactory: () => LoopConfig,
+  loopConfigFactory: (effectiveInput?: string) => LoopConfig,
 ): Command {
   return {
     name: 'bg',
@@ -89,7 +89,7 @@ export function createBgCommand(
       // Default: start a new background session with the entire args as prompt
       const prompt = args.trim();
       const name = prompt.slice(0, 40);
-      const config = loopConfigFactory();
+      const config = loopConfigFactory(prompt);
 
       ctx.info(`Starting background session: ${name}`);
       const session = await bgManager.start(name, prompt, config);

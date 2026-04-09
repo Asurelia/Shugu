@@ -24,6 +24,7 @@ export const REPLToolDefinition: ToolDefinition = {
     required: ['code'],
   },
   concurrencySafe: true,
+  categories: ['automation'],
 };
 
 const TIMEOUT_MS = 30_000;

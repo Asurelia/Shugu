@@ -28,6 +28,7 @@ export const GlobToolDefinition: ToolDefinition = {
     required: ['pattern'],
   },
   concurrencySafe: true,
+  categories: ['core', 'search'],
 };
 
 const MAX_RESULTS = 500;
