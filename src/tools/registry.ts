@@ -22,6 +22,10 @@ export class ToolRegistryImpl implements ToolRegistry {
     this.tools.set(tool.definition.name, tool);
   }
 
+  unregister(name: string): boolean {
+    return this.tools.delete(name);
+  }
+
   getDefinitions(): ToolDefinition[] {
     return this.getAll().map((t) => t.definition);
   }

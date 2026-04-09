@@ -203,28 +203,29 @@ export interface SkillTrigger {
 
 ### Critical Issues
 
-#### 1. BashTool Security: Full System Access
+#### 1. BashTool Security: Hardened (2026-04-10)
 
 **File:** `src/tools/bash/BashTool.ts`
 
-The BashTool executes with full `process.env` and has no command whitelist/blacklist. While permission modes exist, a misconfigured `bypass` mode or classifier bypass grants arbitrary code execution.
+**Mitigations applied:**
+- `process.env` is **stripped of sensitive variables** before passing to child shell (MINIMAX_API_KEY, tokens, passwords, secrets — both explicit blocklist and regex sweep)
+- `env`, `printenv`, `node`, `python` **removed from SAFE_COMMANDS** in classifier.ts — these now require permission prompt in fullAuto mode
+- SSRF protection in WebFetchTool blocks localhost/RFC1918/metadata endpoints
 
-```typescript
-// src/tools/bash/BashTool.ts
-async function runBash(command: string, cwd: string, timeoutMs: number, abortSignal?: AbortSignal) {
-  const shell = process.platform === 'win32' ? 'bash' : '/bin/bash';
-  const child = spawn(shell, ['-c', command], { cwd, env: { ...process.env } });
-  // ^ No restrictions on what command can do
-}
-```
+**Remaining risk:** BashTool still executes arbitrary commands with user-level privileges. The classifier reduces attack surface but does not eliminate it. Full OS-level sandboxing (Docker/bubblewrap) is only applied to plugin code, not to the main Bash tool.
 
-**Risk:** Any command that passes the risk classifier can:
-- Read/write arbitrary files
-- Exfiltrate credentials
-- Modify system configuration
-- Spawn reverse shells
+#### 1a. Plugin Sandbox
 
-**Recommendation:** Implement command filtering or sandboxing.
+Plugins that declare `"isolation": "brokered"` in their `plugin.json` manifest run in a separate process with enforced capability limits. The implementation has two modes:
+
+- **Docker mode** — the plugin runs in a container launched with `--net=none --read-only --cap-drop=ALL`. Network access is fully blocked at the OS level. Filesystem writes are restricted to the container's writable `.data/` volume mount.
+- **Node fallback mode** — when Docker is not available, Shugu spawns a Node child process with `--permission` flags that restrict filesystem writes and block child process spawning.
+
+Host-child communication uses JSON-RPC over stdio (NDJSON). The `CapabilityBroker` in the host process gates every `fs.read`, `fs.write`, `fs.list`, and `http.fetch` request that the plugin makes, with path validation against an allowlist and SSRF blocking via `isBlockedUrl()`.
+
+**Important scope clarification:** This isolation applies to _plugin code_ only, not to the main `Bash` tool. The main agentic loop still executes arbitrary shell commands with user-level privileges. The sandbox prevents malicious plugins from exfiltrating credentials or reaching private network endpoints, but it does not constrain the model's use of BashTool.
+
+**Configuration:** Per-plugin policy lives in `.pcc/plugin-policy.json` and is loaded by `resolvePluginConfig()` at plugin load time.
 
 #### 2. Vitest Type-Checking Disabled
 
@@ -395,11 +396,16 @@ Many Windows systems don't have bash installed (WSL not guaranteed).
 
 | Threat | Mitigation | Location |
 |--------|------------|----------|
-| Credential theft | AES-256-GCM vault | `credentials/vault.ts` |
-| API key exposure | No keys in context | `transport/auth.ts` |
-| Command injection | Risk classifier | `policy/classifier.ts` |
-| Secret scanning | Behavior hook | `plugins/builtin/behavior-hooks.ts` |
-| Path traversal | Path normalization hook | `plugins/builtin/behavior-hooks.ts` |
+| Credential theft | AES-256-GCM vault, atomic write, 0o600 file permissions | `credentials/vault.ts` |
+| API key exposure | No keys in context; env stripping before child shell | `transport/auth.ts`, `tools/bash/BashTool.ts` |
+| Command injection | Risk classifier; `env`/`printenv`/`node`/`python` removed from safe list | `policy/classifier.ts` |
+| Secret scanning | Behavior hook; `redactSensitive()` for traces and memory | `plugins/builtin/behavior-hooks.ts` |
+| Path traversal | Path normalization hook; workspace boundary enforcement | `plugins/builtin/behavior-hooks.ts`, `policy/workspace.ts` |
+| SSRF | `isBlockedUrl()` in WebFetch and CapabilityBroker; RFC1918 + metadata endpoint blocking | `utils/network.ts`, `tools/web/WebFetchTool.ts`, `plugins/broker.ts` |
+| Plugin code isolation | Docker sandbox (`--net=none --read-only --cap-drop=ALL`) or Node `--permission` flags | `plugins/host.ts`, `plugins/broker.ts` |
+| Malformed webhook input | TriggerServer returns 400 on JSON parse error (no silent accept) | `automation/triggers.ts` |
+| Hook crash safety | PreToolUse hooks fail closed on unhandled exception | `plugins/hooks.ts` |
+| Scheduler runaway | AbortSignal propagated to job executors | `automation/scheduler.ts` |
 
 ### Remaining Vulnerabilities
 
@@ -468,22 +474,24 @@ const absPath = resolve(context.cwd, filePath);
 | `commands/` | ✅ commands.test.ts | Good |
 | `plugins/hooks.ts` | ✅ hooks.test.ts | Excellent |
 | `engine/interrupts.ts` | ✅ interrupts.test.ts | Excellent |
-| `policy/` | ✅ permissions.test.ts | Good |
+| `policy/` | ✅ permissions.test.ts, permission-gating.test.ts, classifier-evasion.test.ts | Good |
 | `protocol/` | ✅ protocol.test.ts | Moderate |
 | `automation/scheduler.ts` | ✅ scheduler.test.ts | Good |
 | `skills/` | ✅ skills.test.ts | Good |
-| `tools/registry.ts` | ✅ tools-registry.test.ts | Moderate |
-| `transport/` | ❌ NONE | **Critical Gap** |
+| `tools/registry.ts` | ✅ tools-registry.test.ts, tool-router.test.ts | Moderate |
+| `transport/` | ✅ transport-errors.test.ts, minimax-reasoning.test.ts, model-routing.test.ts | Good |
+| `credentials/` | ✅ vault.test.ts, credential-domain.test.ts | Good |
+| `agents/` | ✅ agent-depth.test.ts, agent-teams.test.ts, worktree-integration.test.ts | Moderate |
+| `plugins/` (brokered) | ✅ plugin-protocol.test.ts, plugin-broker.test.ts, plugin-host.test.ts, plugin-brokered-e2e.test.ts, plugin-sandbox-os.test.ts, plugin-policy.test.ts, plugin-integration.test.ts, plugin-trust.test.ts | Excellent |
+| `automation/triggers.ts` | ✅ security-audit-gaps.test.ts (partial) | Partial |
+| `context/` | ✅ workspace.test.ts, project-context.test.ts, session-features.test.ts, compaction-failure.test.ts, vault-discovery.test.ts | Moderate |
 | `engine/loop.ts` | ❌ NONE | **Critical Gap** |
-| `engine/turns.ts` | ❌ NONE | High Gap |
-| `context/` | ❌ NONE | High Gap |
-| `tools/*` | ❌ NONE | **Critical Gap** |
-| `credentials/` | ❌ NONE | **Critical Gap** |
-| `agents/` | ❌ NONE | **Critical Gap** |
-| `ui/` | ❌ NONE | Medium Gap |
+| `engine/turns.ts` | ✅ tool-result-pairing.test.ts | Partial |
+| `tools/*` (execution) | ✅ search-boundary.test.ts, obsidian-boundary.test.ts | Partial |
+| `ui/` | ✅ markdown.test.ts, parsers.test.ts, highlight.test.ts | Partial |
 | `remote/` | ❌ NONE | High Gap |
 
-**Coverage: ~13% of source files have tests (9/71 files)**
+**Coverage: 51 test files, 599 passing tests. Most modules now have dedicated tests; the primary remaining gap is `engine/loop.ts` (the core agentic loop) and the `remote/` SSH layer.**
 
 ### Critical Missing Tests
 
@@ -884,7 +892,9 @@ export function launchFullAppWithoutCompanion(...) { ... }
 - **Integrations:** `src/integrations/*.ts` (adapter, discovery)
 - **Remote:** `src/remote/*.ts` (gateway, ssh)
 - **Build:** `scripts/build.ts`, `vitest.config.ts`, `package.json`, `tsconfig.json`
-- **Tests:** `tests/*.test.ts` (all 9 test files)
+- **Tests:** `tests/*.test.ts` (all 51 test files)
+- **Plugin Sandbox:** `src/plugins/protocol.ts`, `src/plugins/host.ts`, `src/plugins/child-entry.ts`, `src/plugins/broker.ts`, `src/plugins/policy.ts`
+- **Security Utilities:** `src/utils/network.ts`
 
 ---
 
@@ -895,21 +905,22 @@ Project CC (Shugu) is a well-architected, ambitious reimplementation of Claude C
 1. **Clean layering** with no circular dependencies
 2. **Comprehensive tool system** with smart parallelization
 3. **Robust error handling** with exponential backoff
-4. **Strong security** with AES-256-GCM vault
-5. **Extensible skills system** with 6 bundled skills
+4. **Strong security** with AES-256-GCM vault, env stripping, SSRF protection, and hook fail-closed behavior
+5. **Extensible skills system** with 7 bundled skills
 6. **Multi-agent orchestration** with role-based sub-agents
+7. **Brokered plugin isolation** via Docker sandbox or Node `--permission` flags
 
-However, there are critical gaps:
+Current state:
 
-1. **Test coverage at ~13%** — transport, tools, and credentials are untested
-2. **Vitest type-checking disabled** — creates false confidence
-3. **BashTool security** — full system access without sandboxing
-4. **No integration tests** — critical paths are not validated
+1. **Test suite: 599 passing tests across 51 files** — transport, credentials, agents, and the plugin sandbox system all have dedicated tests
+2. **Vitest type-checking disabled** — still creates false confidence; enabling it remains a 1-line change
+3. **BashTool security** — mitigations applied (env stripping, classifier tightening, SSRF in WebFetch), but full OS-level sandboxing is not applied to the main Bash tool
+4. **Engine loop untested** — `engine/loop.ts` (the core agentic loop) and the `remote/` SSH layer have no test coverage
 
-The most important next steps are:
-1. Enable type-checking in Vitest (1 line change)
-2. Add integration tests for transport and agent loop
-3. Improve BashTool security (whitelist or sandbox)
-4. Add critical path integration tests
+The most important remaining next steps are:
+1. Enable type-checking in Vitest
+2. Add integration tests for the core agentic loop
+3. Add coverage for the remote/SSH layer
+4. Evaluate full OS-level sandboxing for BashTool (Docker/bubblewrap) for high-trust deployments
 
-Overall, this is a solid foundation that would benefit from more comprehensive testing before production use.
+Overall, this is a mature foundation with solid test coverage across most modules. The remaining gaps are well-understood and documented.

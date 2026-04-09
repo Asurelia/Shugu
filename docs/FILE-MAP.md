@@ -1,6 +1,6 @@
 # Shugu File Map — Complete Source Cartography
 
-> 159 TypeScript source files across 19 modules. Every file documented.
+> 165 TypeScript source files across 19 modules. Every file documented.
 
 ## How to Read This Document
 - **Layer**: Architectural layer number (0 = no deps on other Shugu modules, higher = more deps)
@@ -1073,9 +1073,9 @@ Domain-specific workflows that extend agent capabilities. Bundled skills ship wi
 
 ---
 
-## Module: plugins/ (Layer 14 — 7 files)
+## Module: plugins/ (Layer 14 — 11 files)
 
-Plugin system with hooks for intercepting tool execution, command dispatch, and lifecycle events.
+Plugin system with hooks for intercepting tool execution, command dispatch, and lifecycle events. Supports trusted (in-process) and brokered (Docker sandbox or Node `--permission`) isolation modes.
 
 ### `src/plugins/hooks.ts`
 - **Layer:** 14
@@ -1087,9 +1087,9 @@ Plugin system with hooks for intercepting tool execution, command dispatch, and 
 
 ### `src/plugins/loader.ts`
 - **Layer:** 14
-- **Role:** Plugin loader from ~/.pcc/plugins/ (global) and .pcc/plugins/ (project-local). Plugins have plugin.json manifest and JS/TS entry.
+- **Role:** Plugin loader from ~/.pcc/plugins/ (global) and .pcc/plugins/ (project-local). Plugins have plugin.json manifest and JS/TS entry. Routes trusted plugins to dynamic `import()` and brokered plugins to `PluginHost`.
 - **Exports:** `PluginManifest`, `Plugin`, `PluginAPI`, `PluginInit`, `LoadPluginOptions`, `loadPlugin()`, `loadAllPlugins()`, `loadManifest()`, `discoverPluginDirs()`
-- **Internal imports:** `../protocol/tools.js` (Tool), `../commands/registry.js` (Command), `../skills/loader.js` (Skill), `./hooks.js` (HookHandler, HookType)
+- **Internal imports:** `../protocol/tools.js` (Tool), `../commands/registry.js` (Command), `../skills/loader.js` (Skill), `./hooks.js` (HookHandler, HookType), `./host.js` (PluginHost), `./broker.js` (CapabilityBroker), `./policy.js` (resolvePluginConfig)`
 - **External imports:** `node:fs`, `node:path`, `node:os`
 - **Called by:** plugins/registry
 
@@ -1101,10 +1101,50 @@ Plugin system with hooks for intercepting tool execution, command dispatch, and 
 - **External imports:** `node:events`
 - **Called by:** entrypoints/bootstrap, meta/runtime
 
+### `src/plugins/protocol.ts`
+- **Layer:** 14
+- **Role:** JSON-RPC message type definitions for host↔child brokered IPC. Defines request, response, and notification shapes for all IPC methods: init, invoke_tool, invoke_hook, invoke_command, invoke_skill, register_tool, register_hook, register_command, register_skill, capability_request, and callback variants (info, error, query, run_agent, tool_invoke).
+- **Exports:** `JsonRpcRequest`, `JsonRpcResponse`, `JsonRpcNotification`, `JsonRpcError`, `JsonRpcMessage`, `RPC_PARSE_ERROR`, `RPC_INVALID_REQUEST`, `RPC_METHOD_NOT_FOUND`, `RPC_TIMEOUT`, `RPC_CHILD_CRASHED`, `RPC_CAPABILITY_DENIED`, `InitParams`, `InvokeToolParams`, `InvokeHookParams`, `InvokeHookResult`, `RegisterToolParams`, `RegisterHookParams`, `LogParams`, `CapabilityRequestParams`, `InvokeCommandParams`, `SerializedCommandContext`, `RegisterCommandParams`, `CallbackInfoParams`, `CallbackErrorParams`, `CallbackQueryParams`, `InvokeSkillParams`, `SerializedSkillContext`, `RegisterSkillParams`, `SerializedSkillTrigger`, `CallbackRunAgentParams`, `CallbackToolInvokeParams`, `SerializedToolContext`
+- **Internal imports:** `./hooks.js` (PreToolUseResult, PostToolUseResult)
+- **External imports:** (none — Layer 0 equivalent within plugins)
+- **Called by:** plugins/host, plugins/child-entry
+
+### `src/plugins/host.ts`
+- **Layer:** 14
+- **Role:** `PluginHost` manages the lifecycle of a single brokered plugin child process. Spawns a Docker container (`--net=none --read-only --cap-drop=ALL`) when Docker is available, or a Node child process with `--permission` flags otherwise. Sends JSON-RPC messages over stdio, handles capability requests via the `CapabilityBroker`, and creates proxy `Tool`, `HookHandler`, `Command`, and `Skill` objects that route invocations to the child.
+- **Exports:** `PluginHostOptions`, `isDockerAvailable()`, `buildDockerArgs()`, `getNodeMajorVersion()`, `buildPermissionFlags()`, `PluginHost`
+- **Internal imports:** `./protocol.js` (all RPC types), `./broker.js` (CapabilityBroker), `./hooks.js` (HookHandler, HookType), `./loader.js` (PluginManifest), `../protocol/tools.js` (Tool, ToolCall, ToolResult, ToolContext, ToolDefinition), `../commands/registry.js` (Command, CommandContext, CommandResult), `../skills/loader.js` (Skill, SkillContext, SkillResult, SkillTrigger, SkillCategory), `../utils/logger.js` (logger)
+- **External imports:** `node:child_process` (spawn, execFileSync), `node:readline`, `node:events`, `node:fs` (existsSync), `node:path`
+- **Called by:** plugins/loader
+
+### `src/plugins/child-entry.ts`
+- **Layer:** 14
+- **Role:** Entry point that runs inside the isolated child process. Reads JSON-RPC messages from stdin, dispatches `invoke_tool`, `invoke_hook`, `invoke_command`, and `invoke_skill` calls to plugin-registered handlers, and routes `capability_request` messages to the host via stdout. Imports the plugin's entry module and calls its `init(api)` export during the initialization handshake.
+- **Exports:** (none — side-effect entry point, self-contained)
+- **Internal imports (type-only):** `../protocol/tools.js`, `./hooks.js`, `../commands/registry.js`, `../skills/loader.js`, `./protocol.js`
+- **External imports:** `node:readline`
+- **Called by:** plugins/host (spawns as child process)
+
+### `src/plugins/broker.ts`
+- **Layer:** 14
+- **Role:** `CapabilityBroker` gates all filesystem and network requests from brokered plugins. Path validation resolves symlinks and rejects writes outside `.data/`. Network validation rejects RFC1918 addresses, localhost, and cloud metadata endpoints via `isBlockedUrl()`. Supports `fs.read`, `fs.write`, `fs.list`, and `http.fetch` capability names.
+- **Exports:** `CapabilityName`, `CapabilityRequest`, `CapabilityBroker`
+- **Internal imports:** `../utils/network.js` (isBlockedUrl), `../utils/logger.js` (logger)
+- **External imports:** `node:fs/promises` (readFile, writeFile, readdir, mkdir, realpath), `node:path` (resolve, relative, isAbsolute)
+- **Called by:** plugins/host, plugins/loader
+
+### `src/plugins/policy.ts`
+- **Layer:** 14
+- **Role:** Loads per-plugin policy configuration from `.pcc/plugin-policy.json` in the project directory. `resolvePluginConfig()` merges manifest defaults with policy overrides to produce a final `PluginConfig` with isolation mode, allowed capabilities, allowed paths, and `maxAgentTurns`.
+- **Exports:** `PluginPolicy`, `PluginConfig`, `loadPolicy()`, `resolvePluginConfig()`
+- **Internal imports:** `./loader.js` (PluginManifest)
+- **External imports:** `node:fs/promises`, `node:path`
+- **Called by:** plugins/loader
+
 ### `src/plugins/index.ts`
 - **Layer:** 14
 - **Role:** Barrel export for the plugins module.
-- **Exports:** Re-exports from hooks, loader, registry
+- **Exports:** Re-exports from hooks, loader, registry, protocol, host, broker, policy
 - **Internal imports:** All plugins submodules
 
 ### `src/plugins/builtin/behavior-hooks.ts`
@@ -1235,7 +1275,7 @@ Meta-Harness outer-loop optimizer. Evaluates and evolves harness configurations 
 
 ---
 
-## Module: utils/ (Layer 0 — 7 files)
+## Module: utils/ (Layer 0 — 8 files)
 
 Shared utility functions. No internal Shugu dependencies (true Layer 0).
 
@@ -1294,6 +1334,14 @@ Shared utility functions. No internal Shugu dependencies (true Layer 0).
 - **Internal imports:** (none)
 - **External imports:** (none)
 - **Called by:** ui/buddy, ui/companion/prompt
+
+### `src/utils/network.ts`
+- **Layer:** 0
+- **Role:** Shared SSRF protection. `isBlockedUrl()` inspects a URL string and returns a human-readable denial reason if the target resolves to localhost, a loopback address, an RFC1918 private range, IPv6 link-local/loopback, or a cloud metadata endpoint (169.254.169.254, fd00:ec2::/32, etc.). Returns `null` if the URL is safe to fetch.
+- **Exports:** `isBlockedUrl()`
+- **Internal imports:** (none)
+- **External imports:** `node:url` (URL — for parsing)
+- **Called by:** plugins/broker, tools/web/WebFetchTool
 
 ---
 
@@ -1382,7 +1430,7 @@ Top-level entry points that wire everything together. Highest layer — imports 
 
 | Layer | Module(s) | Files | Description |
 |-------|-----------|-------|-------------|
-| 0 | protocol/, utils/, brand | 15 | Types, shared utilities, brand constants |
+| 0 | protocol/, utils/, brand | 16 | Types, shared utilities (incl. SSRF protection), brand constants |
 | 1 | transport/ | 5 | Network layer — sole MiniMax contact point |
 | 2 | engine/ | 8 | Agentic loop, turns, budget, interrupts, strategy, intelligence, reflection |
 | 3 | tools/ | 16 | Tool implementations (Bash, files, search, web, agents, tasks, REPL, sleep, Obsidian) |
@@ -1396,10 +1444,10 @@ Top-level entry points that wire everything together. Highest layer — imports 
 | 11 | ui/ | 23 | Terminal UI (Ink components, ANSI renderer, companion, highlighting, markdown) |
 | 12 | voice/ | 2 | Push-to-talk voice input |
 | 13 | skills/ | 9 | Domain-specific workflows (vibe, dream, hunter, loop, schedule, secondbrain) |
-| 14 | plugins/ | 7 | Plugin system with hooks (behavior, knowledge, verification) |
+| 14 | plugins/ | 11 | Plugin system: hooks, brokered isolation (Docker/Node), capability broker, policy |
 | 15 | meta/ | 12 | Meta-Harness outer-loop optimizer |
 | 16 | entrypoints/ | 8 | CLI, bootstrap, REPL, services wiring |
-| **Total** | **19 modules** | **159** | |
+| **Total** | **19 modules** | **165** | |
 
 ## Dependency Graph (simplified)
 
@@ -1439,3 +1487,75 @@ entrypoints (16)
   │     └── protocol (0)
   └── protocol (0) + utils (0) + brand (0)
 ```
+
+---
+
+## Test Suite (`tests/` — 51 files)
+
+All tests run with Vitest. Integration tests use real emitters and consumers; mocking is limited to network boundaries.
+
+### Plugin System Tests
+
+| File | What it covers |
+|------|----------------|
+| `tests/plugin-protocol.test.ts` | JSON-RPC message serialization and round-trip validation for all IPC method types |
+| `tests/plugin-broker.test.ts` | `CapabilityBroker`: path validation (allowlist, traversal rejection), SSRF blocking, deny-by-default |
+| `tests/plugin-host.test.ts` | `PluginHost`: IPC handshake, tool/hook registration, invoke routing, child crash handling, graceful shutdown |
+| `tests/plugin-brokered-e2e.test.ts` | End-to-end brokered plugin flow: real plugin loaded into a real child process, tool invocation, capability broker round-trip |
+| `tests/plugin-sandbox-os.test.ts` | `buildPermissionFlags()` and `buildDockerArgs()`: correct `--permission` flag construction for Node fallback mode |
+| `tests/plugin-policy.test.ts` | `loadPolicy()` and `resolvePluginConfig()`: YAML parsing, manifest merging, deny-by-default for missing policies |
+| `tests/plugin-integration.test.ts` | Full `PluginRegistry.loadAll()` → tool execution → `PluginRegistry.unloadAll()` integration path |
+
+### Security Tests
+
+| File | What it covers |
+|------|----------------|
+| `tests/security-audit-gaps.test.ts` | 9 targeted security validations: env stripping in BashTool, SSRF blocking in WebFetch and broker, TriggerServer malformed-JSON rejection (400), scheduler AbortSignal propagation, hook fail-closed on crash (PreToolUse), vault atomic write, credential file permissions (0o600), and `redactSensitive()` for in-memory trace redaction |
+
+### Core + Integration Tests
+
+| File | What it covers |
+|------|----------------|
+| `tests/protocol.test.ts` | Protocol type guards and message helpers |
+| `tests/budget.test.ts` | BudgetTracker cost calculation, M2.7 pricing |
+| `tests/interrupts.test.ts` | InterruptController abort/pause/resume |
+| `tests/permissions.test.ts` | PermissionResolver: mode matrix, rule evaluation, classifier integration |
+| `tests/classifier-evasion.test.ts` | Bash risk classifier against evasion patterns |
+| `tests/tools-registry.test.ts` | ToolRegistryImpl register/get/definitions |
+| `tests/tool-router.test.ts` | Tool call routing and parallel/serial execution partitioning |
+| `tests/skills.test.ts` | SkillRegistry load, match, bundled skill triggers |
+| `tests/commands.test.ts` | CommandRegistry dispatch, builtin commands |
+| `tests/hooks.test.ts` | HookRegistry: 7 hook types, modification, blocking |
+| `tests/scheduler.test.ts` | Cron scheduler: add, remove, fire, AbortSignal |
+| `tests/transport-errors.test.ts` | Retry logic, error classification, model fallback |
+| `tests/minimax-reasoning.test.ts` | Reasoning split parsing and accumulation |
+| `tests/model-routing.test.ts` | Model alias resolution and fallback chain |
+| `tests/vault.test.ts` | CredentialVault AES-256-GCM encrypt/decrypt, atomic write |
+| `tests/credential-domain.test.ts` | CredentialProvider domain matching |
+| `tests/workspace.test.ts` | Project context detection |
+| `tests/project-context.test.ts` | CLAUDE.md loading and instruction merge |
+| `tests/vault-discovery.test.ts` | Obsidian vault auto-discovery priority order |
+| `tests/obsidian-boundary.test.ts` | Obsidian path traversal protection |
+| `tests/search-boundary.test.ts` | GrepTool/GlobTool workspace boundary enforcement |
+| `tests/permission-gating.test.ts` | End-to-end permission gate across all 5 modes |
+| `tests/plugin-trust.test.ts` | Plugin trust prompting and builtin protection |
+| `tests/agent-depth.test.ts` | Sub-agent depth limits and budget propagation |
+| `tests/agent-teams.test.ts` | AgentTeam named configurations |
+| `tests/worktree-integration.test.ts` | Git worktree create/remove |
+| `tests/batch-command.test.ts` | /batch parallel execution |
+| `tests/compaction-failure.test.ts` | Compaction fallback when LLM summary fails |
+| `tests/tool-result-pairing.test.ts` | tool_use / tool_result turn pairing validation |
+| `tests/session-features.test.ts` | Session save/load/resume |
+| `tests/repl-history.test.ts` | REPL input history |
+| `tests/meta-config.test.ts` | HarnessConfig YAML load and validation |
+| `tests/meta-dataset.test.ts` | Dataset load and search/holdout split |
+| `tests/meta-selector.test.ts` | Pareto frontier and weighted score ranking |
+| `tests/meta-redact.test.ts` | Secret redaction from traces and messages |
+| `tests/review-command.test.ts` | /review git error surfacing |
+| `tests/retry-command.test.ts` | /retry last-turn re-execution |
+| `tests/work-context.test.ts` | Work context preservation across /resume |
+| `tests/markdown.test.ts` | Markdown renderer output |
+| `tests/markdown-loaders.test.ts` | Markdown file parsing utilities |
+| `tests/parsers.test.ts` | Content parser correctness |
+| `tests/highlight.test.ts` | Syntax highlighting for supported languages |
+| `tests/file-tags.test.ts` | File tag extraction and indexing |

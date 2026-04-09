@@ -289,7 +289,7 @@ export class MemoryAgent {
     if (items.length === 0) return '';
 
     const lines = items.map(m =>
-      `- [${m.type}] ${m.title}: ${m.content.slice(0, 150)}`
+      `- [${m.type}] ${m.title}: ${redactSensitive(m.content.slice(0, 150))}`
     );
     return `\n\n# Relevant memories\n${lines.join('\n')}`;
   }
@@ -304,7 +304,7 @@ export class MemoryAgent {
       .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
       .slice(0, 10);
     const lines = recent.map(m =>
-      `- [${m.type}] ${m.title}: ${m.content.slice(0, 150)}`
+      `- [${m.type}] ${m.title}: ${redactSensitive(m.content.slice(0, 150))}`
     );
     return `\n\n# Memories from previous sessions\n${lines.join('\n')}`;
   }

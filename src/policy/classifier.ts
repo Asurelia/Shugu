@@ -196,14 +196,14 @@ const SAFE_COMMANDS = new Set([
 
   // Information
   'pwd', 'whoami', 'hostname', 'uname', 'date', 'uptime',
-  'env', 'printenv', 'id', 'groups',
+  'id', 'groups',
   'df', 'du', 'free', 'top', 'ps', 'pgrep',
 
   // Git read-only
   'git', // git without subcommand is safe; specific subcommands checked above
 
   // Development tools (read-only mode)
-  'node', 'python', 'python3', 'ruby', 'go', 'rustc', 'cargo',
+  'ruby', 'go', 'rustc', 'cargo',
   'tsc', 'npx', 'tsx',
   'rg', 'grep', 'awk', 'sed', 'tr', 'cut', 'paste',
   'jq', 'yq', 'xmllint',

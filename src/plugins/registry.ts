@@ -6,18 +6,22 @@
  */
 
 import { EventEmitter } from 'node:events';
-import type { Plugin, PluginManifest, LoadPluginOptions } from './loader.js';
+import type { Plugin, PluginManifest, LoadPluginOptions, PluginWithHost } from './loader.js';
 import { loadAllPlugins } from './loader.js';
 import { HookRegistry } from './hooks.js';
 import type { ToolRegistry, Tool } from '../protocol/tools.js';
 import type { CommandRegistry } from '../commands/registry.js';
 import type { SkillRegistry } from '../skills/loader.js';
+import type { PluginHost } from './host.js';
 
 // ─── Plugin Registry ───────────────────────────────────
 
 export class PluginRegistry extends EventEmitter {
   private plugins = new Map<string, Plugin>();
   private hookRegistry: HookRegistry;
+  private toolRegistry: ToolRegistry | null = null;
+  private commandRegistry: CommandRegistry | null = null;
+  private skillRegistry: SkillRegistry | null = null;
 
   constructor() {
     super();
@@ -42,6 +46,9 @@ export class PluginRegistry extends EventEmitter {
     skillRegistry: SkillRegistry,
     pluginOptions?: LoadPluginOptions,
   ): Promise<{ loaded: number; failed: number }> {
+    this.toolRegistry = toolRegistry;
+    this.commandRegistry = commandRegistry;
+    this.skillRegistry = skillRegistry;
     const plugins = await loadAllPlugins(projectDir, pluginOptions);
     let loaded = 0;
     let failed = 0;
@@ -81,6 +88,15 @@ export class PluginRegistry extends EventEmitter {
         for (const hook of plugin.hooks) {
           this.hookRegistry.register(hook);
         }
+      }
+
+      // Listen for crash events on brokered plugins
+      const host = (plugin as PluginWithHost)._host;
+      if (host) {
+        host.on('crashed', () => {
+          this.unload(plugin.manifest.name);
+          this.emit('plugin:crashed', plugin.manifest.name);
+        });
       }
 
       loaded++;
@@ -128,11 +144,49 @@ export class PluginRegistry extends EventEmitter {
     // Remove hooks
     this.hookRegistry.unregisterPlugin(name);
 
-    // Mark as inactive (tools/commands/skills remain registered for this session)
+    // Remove tools from registry (prevents dead proxies)
+    if (plugin.tools && this.toolRegistry) {
+      for (const tool of plugin.tools) {
+        this.toolRegistry.unregister(tool.definition.name);
+      }
+    }
+
+    // Remove commands from registry
+    if (plugin.commands && this.commandRegistry) {
+      for (const cmd of plugin.commands) {
+        this.commandRegistry.unregister(cmd.name);
+      }
+    }
+
+    // Remove skills from registry
+    if (plugin.skills && this.skillRegistry) {
+      for (const skill of plugin.skills) {
+        this.skillRegistry.unregister(skill.name);
+      }
+    }
+
+    // Shut down brokered child process
+    const host = (plugin as PluginWithHost)._host;
+    if (host && !host.isDead) {
+      host.shutdown().catch(() => host.kill());
+    }
+
     plugin.active = false;
     this.emit('plugin:unloaded', name);
 
     return true;
+  }
+
+  /**
+   * Shut down all brokered plugin child processes.
+   */
+  async disposeAll(): Promise<void> {
+    for (const plugin of this.plugins.values()) {
+      const host = (plugin as PluginWithHost)._host;
+      if (host && !host.isDead) {
+        await host.shutdown().catch(() => host.kill());
+      }
+    }
   }
 
   /**

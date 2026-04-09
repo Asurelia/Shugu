@@ -470,6 +470,7 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
     revertStack,
     turnAccumulator,
     async dispose() {
+      await pluginRegistry.disposeAll();
       scheduler.stop();
       vault.lock();
       await memoryAgent.flushIndex();

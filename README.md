@@ -27,10 +27,11 @@ Where Claude Code is Anthropic-first and ships MCP as its extension mechanism, S
 |---|---|---|
 | Provider | Anthropic (Claude 3.x) | MiniMax M2.7 |
 | Architecture | Feature-gated monolith | 14-layer modular system |
-| Extension model | MCP servers | CLI adapters + `pcc-tools.yaml` |
+| Extension model | MCP servers | CLI adapters + `pcc-tools.yaml` + plugin system |
 | Memory | CLAUDE.md only | CLAUDE.md + Obsidian vault |
 | Credential storage | None built-in | AES-256-GCM encrypted vault |
 | Multi-agent | Limited | Native orchestrator |
+| Plugin isolation | None | Docker sandbox or Node `--permission` |
 | Context window | 200K | 200K (M2.7-highspeed) |
 | Reasoning | Optional | Always-on (mandatory in M2.7) |
 | Binary | `claude` | `pcc` |
@@ -122,7 +123,7 @@ Shugu uses the Anthropic-compatible endpoint, which accepts the standard Message
 
 ## Architecture
 
-Shugu is organized into 14 independent layers, each with a single responsibility. Dependencies only flow downward.
+Shugu is organized into 14 independent layers, each with a single responsibility. Dependencies only flow downward. The test suite currently has 599 passing tests across 51 test files.
 
 ```
 Layer 1   transport/      MiniMax HTTP client, SSE streaming, retry logic
@@ -161,6 +162,111 @@ entrypoints (12)
 ```
 
 No circular dependencies. Each layer can be tested in isolation.
+
+---
+
+## Plugin System
+
+Shugu includes a plugin system (Layer 14) that lets external code extend the agent with additional tools, commands, skills, and lifecycle hooks. Plugins load from `~/.pcc/plugins/` (global) or `.pcc/plugins/` (project-local).
+
+### Isolation Modes
+
+Every plugin declares an isolation mode in its `plugin.json` manifest:
+
+| Mode | Mechanism | Network | Filesystem |
+|------|-----------|---------|-----------|
+| `trusted` (default) | In-process `import()` | Full | Full |
+| `brokered` | Docker container or Node `--permission` | Blocked or brokered | Write-restricted |
+
+`trusted` plugins are loaded like any Node module — fast, with full system access. Use this for internal or audited plugins.
+
+`brokered` plugins run in a separate process with enforced capability limits. When Docker is available, the process runs inside a container launched with `--net=none --read-only --cap-drop=ALL`. When Docker is not available, Shugu falls back to a Node child process with `--permission` flags that restrict filesystem writes to the plugin's `.data/` directory and block child process spawning.
+
+### Host-Child Communication
+
+Host and plugin communicate over JSON-RPC via stdio. The plugin declares its tools, hooks, commands, and skills during an initialization handshake; the host creates in-process proxy objects that forward invocations to the child and relay capability requests back through the `CapabilityBroker`.
+
+### Capability Broker
+
+All filesystem and network access from a brokered plugin passes through the `CapabilityBroker`:
+
+- `fs.read` — allowed for paths inside the plugin root or explicitly whitelisted directories
+- `fs.write` — restricted to the plugin's `.data/` directory
+- `fs.list` — same path rules as `fs.read`
+- `http.fetch` — blocked for localhost, RFC1918 addresses, and cloud metadata endpoints (SSRF protection)
+
+### Writing a Brokered Plugin
+
+Create a directory with a `plugin.json` manifest and a JS/TS entry file:
+
+```json
+{
+  "name": "my-plugin",
+  "version": "1.0.0",
+  "description": "Example brokered plugin",
+  "entry": "index.js",
+  "isolation": "brokered",
+  "capabilities": ["fs.read"],
+  "allowedPaths": ["./data"]
+}
+```
+
+```typescript
+// index.js — runs inside the isolated child process
+export async function init(api) {
+  api.registerTool({
+    name: 'MyTool',
+    description: 'A tool that reads a file via the capability broker',
+    inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
+    execute: async (call, ctx) => {
+      const content = await api.capabilities.readFile(call.input.path);
+      return { type: 'tool_result', content: [{ type: 'text', text: content }] };
+    },
+  });
+}
+```
+
+The plugin can also register hooks:
+
+```typescript
+api.registerHook('PreToolUse', async (payload) => {
+  // Inspect or block tool calls before they execute
+  return { status: 'allow' };
+});
+```
+
+### Policy File
+
+Per-plugin policy is configured in `.pcc/plugin-policy.json`:
+
+```json
+{
+  "plugins": {
+    "my-plugin": {
+      "isolation": "brokered",
+      "capabilities": ["fs.read", "http.fetch"],
+      "allowedPaths": ["./src", "./docs"],
+      "maxAgentTurns": 5
+    }
+  }
+}
+```
+
+The `maxAgentTurns` field limits how many agentic turns a plugin can consume per `runAgent` invocation, preventing runaway sub-agents.
+
+### Hook Types
+
+All 7 hook types work in both trusted and brokered mode:
+
+| Hook | Fires | Can block? |
+|------|-------|-----------|
+| `PreToolUse` | Before any tool executes | Yes — return `{ status: 'block' }` |
+| `PostToolUse` | After any tool executes | No — observe only |
+| `PreCommand` | Before a slash command runs | Yes |
+| `PostCommand` | After a slash command runs | No |
+| `OnMessage` | On each assistant message | No |
+| `OnStart` | Session startup | No |
+| `OnExit` | Session teardown | No |
 
 ---
 

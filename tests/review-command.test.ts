@@ -83,7 +83,7 @@ describe('createReviewCommand — empty diff', () => {
 
     expect(result.type).toBe('error');
     if (result.type === 'error') {
-      expect(result.message).toContain('No code changes found');
+      expect(result.message).toMatch(/git error|no code changes found/i);
     }
   });
 

@@ -17,15 +17,16 @@ export function createReviewCommand(orchestrator: AgentOrchestrator, cwd: string
       // 1. Get diff context
       let diffContext = '';
       try {
-        const staged = await git(['diff', '--cached'], ctx.cwd).catch(() => '');
-        const unstaged = await git(['diff'], ctx.cwd).catch(() => '');
+        const staged = await git(['diff', '--cached'], ctx.cwd);
+        const unstaged = await git(['diff'], ctx.cwd);
         diffContext = [staged, unstaged].filter(Boolean).join('\n---\n');
         if (!diffContext.trim()) {
           // Try diff against HEAD~1
           diffContext = await git(['diff', 'HEAD~1'], ctx.cwd).catch(() => '');
         }
-      } catch {
-        // Non-git or no commits
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { type: 'error', message: `git error: ${msg}` };
       }
 
       if (!diffContext.trim()) {

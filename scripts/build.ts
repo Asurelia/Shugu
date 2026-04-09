@@ -119,6 +119,27 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // ── Step 4: Plugin child entry bundle ────────────
+  console.log('  [extra] Bundling plugin child entry...');
+  try {
+    await build({
+      entryPoints: [join(SRC, 'plugins', 'child-entry.ts')],
+      outfile: join(DIST, 'plugin-child.mjs'),
+      bundle: true,
+      format: 'esm',
+      platform: 'node',
+      target: 'node20',
+      sourcemap: true,
+      minify: false,
+      external: ['node:*'],
+      logLevel: verbose ? 'info' : 'warning',
+    });
+    console.log('  ✓ Plugin child entry: dist/plugin-child.mjs\n');
+  } catch (error) {
+    console.error('  ✗ Plugin child bundle failed:', error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+
   // ── Summary ───────────────────────────────────────
   const duration = ((Date.now() - startTime) / 1000).toFixed(1);
 

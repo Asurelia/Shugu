@@ -131,7 +131,7 @@ export interface SchedulerEvents {
  * Function that actually runs a job's prompt through the agentic loop.
  * Injected by the CLI/REPL that owns the engine.
  */
-export type JobExecutor = (job: ScheduledJob) => Promise<string>;
+export type JobExecutor = (job: ScheduledJob, signal?: AbortSignal) => Promise<string>;
 
 // ─── Scheduler ─────────────────────────────────────────
 
@@ -323,12 +323,18 @@ export class Scheduler extends EventEmitter {
       // Apply timeout if configured
       let result: string;
       if (job.timeoutMs) {
-        result = await Promise.race([
-          this.executor(job),
-          new Promise<string>((_, reject) =>
-            setTimeout(() => reject(new Error('Job timed out')), job.timeoutMs),
-          ),
-        ]);
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), job.timeoutMs);
+        try {
+          result = await Promise.race([
+            this.executor(job, controller.signal),
+            new Promise<string>((_, reject) =>
+              setTimeout(() => reject(new Error('Job timed out')), job.timeoutMs),
+            ),
+          ]);
+        } finally {
+          clearTimeout(timer);
+        }
       } else {
         result = await this.executor(job);
       }

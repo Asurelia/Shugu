@@ -27,7 +27,7 @@ export class CredentialProvider {
    * Returns null if not configured.
    */
   getToken(service: ServiceType): string | null {
-    if (!this.vault.isUnlocked) return null;
+    if (!this.vault?.isUnlocked) return null;
     return this.vault.getValue(service, 'token') ?? null;
   }
 
@@ -35,7 +35,7 @@ export class CredentialProvider {
    * Get all values for a service credential.
    */
   getCredential(service: ServiceType): Record<string, string> | null {
-    if (!this.vault.isUnlocked) return null;
+    if (!this.vault?.isUnlocked) return null;
     const cred = this.vault.get(service);
     return cred?.values ?? null;
   }
@@ -45,7 +45,7 @@ export class CredentialProvider {
    * Auto-detects the service from the domain and returns appropriate headers.
    */
   getAuthHeaders(url: string): Record<string, string> {
-    if (!this.vault.isUnlocked) return {};
+    if (!this.vault?.isUnlocked) return {};
 
     const domain = extractDomain(url);
     if (!domain) return {};
@@ -61,7 +61,7 @@ export class CredentialProvider {
    * Check if a service has configured credentials.
    */
   hasCredential(service: ServiceType): boolean {
-    if (!this.vault.isUnlocked) return false;
+    if (!this.vault?.isUnlocked) return false;
     return this.vault.get(service) !== undefined;
   }
 
@@ -69,7 +69,7 @@ export class CredentialProvider {
    * Get SSH connection info for VPS.
    */
   getVPSConfig(): VPSConfig | null {
-    if (!this.vault.isUnlocked) return null;
+    if (!this.vault?.isUnlocked) return null;
     const cred = this.vault.get('vps');
     if (!cred) return null;
 
@@ -82,7 +82,7 @@ export class CredentialProvider {
   }
 
   get isAvailable(): boolean {
-    return this.vault.isUnlocked;
+    return this.vault?.isUnlocked ?? false;
   }
 }
 

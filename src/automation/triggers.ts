@@ -191,7 +191,13 @@ export class TriggerServer extends EventEmitter {
 
     // Catch-all: fire by name (POST /fire with body { name, variables })
     if (req.method === 'POST' && url.pathname === '/fire') {
-      const body = await this.readBody(req);
+      let body: unknown;
+      try {
+        body = await this.readBody(req);
+      } catch {
+        this.sendJson(res, 400, { error: 'Invalid JSON in request body' });
+        return;
+      }
       const { name, variables } = body as { name?: string; variables?: Record<string, string> };
       if (!name) {
         this.sendJson(res, 400, { error: 'Missing "name" in body' });
@@ -222,7 +228,13 @@ export class TriggerServer extends EventEmitter {
       return;
     }
 
-    const body = await this.readBody(req);
+    let body: unknown;
+    try {
+      body = await this.readBody(req);
+    } catch {
+      this.sendJson(res, 400, { error: 'Invalid JSON in request body' });
+      return;
+    }
     const variables = (body as { variables?: Record<string, string> }).variables ?? {};
 
     await this.fireTrigger(trigger, variables, req, res);
@@ -319,7 +331,7 @@ export class TriggerServer extends EventEmitter {
         try {
           resolve(body ? JSON.parse(body) : {});
         } catch {
-          resolve({});
+          reject(new Error('Invalid JSON'));
         }
       });
       req.on('error', reject);

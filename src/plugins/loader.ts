@@ -29,6 +29,10 @@ import type { Tool } from '../protocol/tools.js';
 import type { Command } from '../commands/registry.js';
 import type { Skill } from '../skills/loader.js';
 import type { HookHandler, HookType } from './hooks.js';
+import { PluginHost } from './host.js';
+import { CapabilityBroker, type CapabilityName } from './broker.js';
+import { logger } from '../utils/logger.js';
+import { loadPolicy, resolvePluginConfig, type ResolvedPluginConfig } from './policy.js';
 
 // ─── Plugin Manifest ───────────────────────────────────
 
@@ -43,8 +47,12 @@ export interface PluginManifest {
   entry: string;
   /** Hook types this plugin uses */
   hooks?: HookType[];
-  /** Permission scopes this plugin needs */
+  /** Permission scopes for API registration (tools, hooks, commands, skills) */
   permissions?: string[];
+  /** Isolation mode: 'trusted' (in-process) or 'brokered' (child process) */
+  isolation?: 'trusted' | 'brokered';
+  /** Runtime capabilities for brokered mode (fs.read, fs.write, http.fetch, etc.) */
+  capabilities?: string[];
   /** Author info */
   author?: string;
 }
@@ -153,8 +161,15 @@ export function loadManifest(pluginDir: string): PluginManifest | null {
 
 /**
  * Load a single plugin from a directory.
+ * If resolvedConfig is provided (from policy resolution), its values take precedence
+ * over the raw manifest values. If not provided (backward compat), resolves from
+ * manifest with null policy.
  */
-export async function loadPlugin(pluginDir: string, source: 'global' | 'local' = 'global'): Promise<Plugin> {
+export async function loadPlugin(
+  pluginDir: string,
+  source: 'global' | 'local' = 'global',
+  resolvedConfig?: ResolvedPluginConfig,
+): Promise<Plugin> {
   const manifest = loadManifest(pluginDir);
   if (!manifest) {
     return {
@@ -163,6 +178,20 @@ export async function loadPlugin(pluginDir: string, source: 'global' | 'local' =
       active: false,
       source,
       error: `No valid plugin.json found in ${pluginDir}`,
+    };
+  }
+
+  // Resolve config from policy (or use null policy for backward compat)
+  const resolved = resolvedConfig ?? resolvePluginConfig(manifest, null);
+
+  // If disabled by policy, mark as inactive immediately
+  if (!resolved.enabled) {
+    return {
+      manifest,
+      path: pluginDir,
+      active: false,
+      source,
+      error: 'Disabled by policy',
     };
   }
 
@@ -176,6 +205,26 @@ export async function loadPlugin(pluginDir: string, source: 'global' | 'local' =
     skills: [],
     hooks: [],
   };
+
+  // permissions: [] → no capabilities, no code execution (applies to ALL modes)
+  // This check is on the manifest declaration, not the resolved config.
+  if (Array.isArray(manifest.permissions) && manifest.permissions.length === 0) {
+    plugin.active = true;
+    return plugin;
+  }
+
+  // Brokered isolation: use resolved isolation (policy can override manifest)
+  const isolation = resolved.isolation;
+  if (isolation === 'brokered') {
+    return loadBrokeredPlugin(plugin, resolved.capabilities, resolved.timeoutMs);
+  }
+
+  // ─── Trusted path: in-process loading ───
+  // Deprecation notice: trusted mode runs plugin code in the main process
+  // with full access to the runtime. Consider setting isolation: 'brokered'.
+  if (manifest.name !== 'unknown') {
+    logger.debug(`[plugin:${manifest.name}] Running in trusted mode (in-process). Set "isolation": "brokered" in plugin.json for process isolation.`);
+  }
 
   try {
     const entryPath = join(pluginDir, manifest.entry);
@@ -208,6 +257,48 @@ export async function loadPlugin(pluginDir: string, source: 'global' | 'local' =
 }
 
 /**
+ * Load a plugin in brokered isolation (child process).
+ * V1: only tools + PreToolUse/PostToolUse hooks are supported.
+ */
+async function loadBrokeredPlugin(
+  plugin: Plugin,
+  resolvedCapabilities?: string[],
+  resolvedTimeoutMs?: number,
+): Promise<Plugin> {
+  try {
+    const caps = (resolvedCapabilities ?? plugin.manifest.capabilities ?? ['fs.read']) as CapabilityName[];
+    const broker = new CapabilityBroker(caps, plugin.path, process.cwd());
+    const host = new PluginHost({
+      manifest: plugin.manifest,
+      pluginDir: plugin.path,
+      capabilities: caps,
+      broker,
+      timeoutMs: resolvedTimeoutMs,
+    });
+
+    await host.start();
+
+    plugin.tools = host.tools;
+    plugin.hooks = host.hooks;
+    plugin.commands = host.commands;
+    plugin.skills = host.skills;
+    plugin.active = true;
+
+    // Store host reference for shutdown/crash cleanup
+    (plugin as PluginWithHost)._host = host;
+  } catch (error) {
+    plugin.error = `Brokered load failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+
+  return plugin;
+}
+
+/** Internal extension to store the host reference on brokered plugins. */
+export interface PluginWithHost extends Plugin {
+  _host?: PluginHost;
+}
+
+/**
  * Options for loading plugins.
  */
 export interface LoadPluginOptions {
@@ -227,6 +318,9 @@ export async function loadAllPlugins(projectDir: string, options: LoadPluginOpti
   const pluginSources = discoverPluginDirs(projectDir);
   const plugins: Plugin[] = [];
 
+  // Load policy once for the whole batch
+  const policy = await loadPolicy(projectDir);
+
   for (const { dir, source } of pluginSources) {
     const entries = readdirSync(dir);
     for (const entry of entries) {
@@ -237,6 +331,19 @@ export async function loadAllPlugins(projectDir: string, options: LoadPluginOpti
       if (source === 'local') {
         const manifest = loadManifest(fullPath);
         if (!manifest) continue;
+
+        // Resolve config with policy to check enabled state before prompting
+        const resolved = resolvePluginConfig(manifest, policy);
+        if (!resolved.enabled) {
+          plugins.push({
+            manifest,
+            path: fullPath,
+            active: false,
+            source: 'local',
+            error: 'Disabled by policy',
+          });
+          continue;
+        }
 
         if (!options.onConfirmLocal) {
           // No confirmation callback — skip local plugins for safety
@@ -261,9 +368,22 @@ export async function loadAllPlugins(projectDir: string, options: LoadPluginOpti
           });
           continue;
         }
+
+        const plugin = await loadPlugin(fullPath, source, resolved);
+        plugins.push(plugin);
+        continue;
       }
 
-      const plugin = await loadPlugin(fullPath, source);
+      // For global plugins: resolve config and pass through
+      const manifest = loadManifest(fullPath);
+      if (!manifest) {
+        const plugin = await loadPlugin(fullPath, source);
+        plugins.push(plugin);
+        continue;
+      }
+
+      const resolved = resolvePluginConfig(manifest, policy);
+      const plugin = await loadPlugin(fullPath, source, resolved);
       plugins.push(plugin);
     }
   }

@@ -53,6 +53,19 @@ export class CommandRegistry {
     }
   }
 
+  unregister(name: string): boolean {
+    const cmd = this.commands.get(name);
+    if (!cmd) return false;
+    this.commands.delete(name);
+    // Also remove aliases
+    if (cmd.aliases) {
+      for (const alias of cmd.aliases) {
+        this.commands.delete(alias);
+      }
+    }
+    return true;
+  }
+
   get(name: string): Command | undefined {
     return this.commands.get(name);
   }

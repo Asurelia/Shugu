@@ -16,10 +16,10 @@ flags, 344 user-type gates).
 
 | Metric | Value |
 |---|---|
-| Source files (`.ts` + `.tsx`) | 159 |
-| Lines of code (src/) | ~25,500 |
-| Lines of code (tests/) | ~5,500 |
-| Test files | 37 |
+| Source files (`.ts` + `.tsx`) | 165 |
+| Lines of code (src/) | ~26,500 |
+| Lines of code (tests/) | ~7,000 |
+| Test files | 51 |
 | Architectural layers | 14 (0 through 14) |
 | Tools (model-callable) | 14 |
 | Slash commands | 19+ (built-in) + dynamic |
@@ -50,7 +50,7 @@ Project_cc/
 │   ├── benchmark-context.ts# Context-window benchmark harness
 │   └── quick-bench-c.ts    # Quick benchmark runner
 ├── src/                    # Source code — 159 files, 14 layers
-├── tests/                  # Vitest test suite — 37 test files, ~5,500 LOC
+├── tests/                  # Vitest test suite — 51 test files, ~7,000 LOC
 │   ├── helpers/            # Shared test utilities
 │   └── *.test.ts           # Per-module integration + unit tests
 ├── .pcc/                   # Local PCC configuration directory
@@ -63,7 +63,7 @@ Project_cc/
 ### Source Tree (`src/`)
 
 ```
-src/                                  159 files total
+src/                                  165 files total
 ├── brand.ts                          # Brand constants
 │
 ├── protocol/         (7 files)       # Layer 0  — Pure types, zero deps
@@ -223,11 +223,16 @@ src/                                  159 files total
 │       ├── schedule.ts               #     /schedule — cron scheduling
 │       └── secondbrain.ts            #     /brain — Obsidian second brain
 │
-├── plugins/          (7 files)       # Layer 14 — Plugin + hook system
+├── plugins/          (11 files)      # Layer 14 — Plugin + hook system
 │   ├── index.ts                      #   Barrel export
 │   ├── hooks.ts                      #   HookRegistry — event interception
-│   ├── loader.ts                     #   Plugin loading + manifest parsing
+│   ├── loader.ts                     #   Plugin loading + manifest parsing (trusted + brokered)
 │   ├── registry.ts                   #   PluginRegistry — global plugin manager
+│   ├── protocol.ts                   #   JSON-RPC message types for host↔child IPC
+│   ├── host.ts                       #   PluginHost — spawn Docker/Node child, manage IPC
+│   ├── child-entry.ts                #   Child process entry point — JSON-RPC handler
+│   ├── broker.ts                     #   CapabilityBroker — fs/network gating with SSRF protection
+│   ├── policy.ts                     #   loadPolicy(), resolvePluginConfig() from .pcc/plugin-policy.json
 │   └── builtin/                      #   Built-in hooks (3 files)
 │       ├── behavior-hooks.ts         #     Behavioral guardrails
 │       ├── knowledge-hook.ts         #     Knowledge injection
@@ -257,14 +262,15 @@ src/                                  159 files total
 │   ├── repl-commands.ts             #   Inline REPL command handlers
 │   └── cli-handlers.ts             #   Event-to-UI bridge, formatters
 │
-└── utils/            (7 files)       # Shared utilities
+└── utils/            (8 files)       # Shared utilities
     ├── logger.ts                     #   Structured logger
     ├── tracer.ts                     #   Execution tracer
     ├── ansi.ts                       #   ANSI escape helpers
     ├── fs.ts                         #   Filesystem utilities
     ├── git.ts                        #   Git helper functions
     ├── strings.ts                    #   String manipulation
-    └── random.ts                     #   Random generation utilities
+    ├── random.ts                     #   Random generation utilities
+    └── network.ts                    #   isBlockedUrl() — shared SSRF protection
 ```
 
 ---
@@ -949,19 +955,52 @@ SkillResult
 
 ### Layer 14 — Plugins (`src/plugins/`)
 
-**Purpose:** Extensibility backbone.  Plugins can intercept tool execution,
-command dispatch, and lifecycle events via a prioritized hook system.
+**Purpose:** Extensibility backbone with process-level isolation. Plugins can intercept tool execution,
+command dispatch, and lifecycle events via a prioritized hook system. Brokered plugins run in isolated
+Docker containers or Node child processes with restricted capabilities.
 
 | File | Responsibility |
 |---|---|
 | `hooks.ts` | `HookRegistry` — register, execute, and chain hooks |
-| `loader.ts` | `loadPlugin()`, `loadAllPlugins()`, `discoverPluginDirs()` |
-| `registry.ts` | `PluginRegistry` — global plugin manager with trust prompting |
+| `loader.ts` | `loadPlugin()`, `loadAllPlugins()`, `discoverPluginDirs()` — supports trusted + brokered isolation |
+| `registry.ts` | `PluginRegistry` — global plugin manager with trust prompting + crash cleanup |
+| `protocol.ts` | JSON-RPC message types for host↔child IPC |
+| `host.ts` | `PluginHost` — spawns child process/Docker container, manages IPC, creates proxy tools/hooks/commands/skills |
+| `child-entry.ts` | Child process entry point — handles tool/hook/command/skill invocations via JSON-RPC |
+| `broker.ts` | `CapabilityBroker` — gates fs/network access with path validation and SSRF protection |
+| `policy.ts` | `loadPolicy()`, `resolvePluginConfig()` — per-plugin policy from `.pcc/plugin-policy.json` |
 | `builtin/behavior-hooks.ts` | Behavioral guardrails (e.g., prevent infinite loops) |
 | `builtin/knowledge-hook.ts` | Knowledge injection from external sources |
 | `builtin/verification-hook.ts` | Post-action verification checks |
 
-**Architectural pattern:** Event-driven Plugin Architecture.
+**Architectural pattern:** Event-driven Plugin Architecture + Process Isolation (Docker/Node --permission).
+
+**Plugin isolation modes:**
+
+| Mode | Mechanism | Network | Filesystem | Child Process |
+|------|-----------|---------|-----------|--------------|
+| `trusted` (default) | In-process `import()` | Full access | Full access | Full access |
+| `brokered` (opt-in) | Docker container (`--net=none --read-only --cap-drop=ALL`) | **Blocked** | **Write-restricted** to `.data/` | **Blocked** |
+| `brokered` (no Docker) | Node `--permission` flags | Open | **Writes restricted** | **Blocked** |
+
+**Brokered plugin IPC flow:**
+```
+Host (main process)                    Child (Docker container or Node process)
+────────────────────                   ─────────────────────────────────────────
+PluginHost.start()                     child-entry.ts
+  → spawn/docker run                     ← receives init via stdin (JSON-RPC)
+  → send init ──────────────────────►    import(plugin entry)
+  ← register_tool ◄────────────────     plugin.init(api) calls api.registerTool()
+  ← register_hook ◄────────────────     plugin.init(api) calls api.registerHook()
+  ← register_command ◄─────────────     plugin.init(api) calls api.registerCommand()
+  → init response ◄────────────────     responds { status: 'ok' }
+  
+  (later, during execution)
+  → invoke_tool ────────────────────►    tool.execute(call, ctx) → ToolResult
+  ← callback/info ◄────────────────     ctx.info("message") → host renders
+  ← callback/query ◄───────────────     ctx.query("prompt") → host queries model → response
+  ← capability_request ◄───────────     api.capabilities.readFile() → broker validates → result
+```
 
 **Allowed imports:** `protocol/`, `tools/`, `commands/`, `skills/`
 

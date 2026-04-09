@@ -14,6 +14,7 @@ import { appendFile, mkdir, stat, readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
+import { redactSensitive } from '../context/memory/agent.js';
 
 // ─── Types ────────────────────────────────────────────
 
@@ -61,19 +62,35 @@ function genId(): string {
   return randomUUID().slice(0, 8);
 }
 
+function redactEventData(event: TraceEvent): TraceEvent {
+  const redacted: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(event.data)) {
+    if (typeof v === 'string') {
+      redacted[k] = redactSensitive(v);
+    } else if (v !== null && typeof v === 'object') {
+      redacted[k] = JSON.parse(redactSensitive(JSON.stringify(v)));
+    } else {
+      redacted[k] = v;
+    }
+  }
+  return { ...event, data: redacted };
+}
+
 async function writeEvent(event: TraceEvent): Promise<void> {
+  const safe = redactEventData(event);
+
   try {
     await mkdir(TRACES_DIR, { recursive: true });
 
     // Rotation: if file > 50MB, it's fine — new day = new file
-    const line = JSON.stringify(event) + '\n';
+    const line = JSON.stringify(safe) + '\n';
     await appendFile(getTraceFile(), line, 'utf-8');
   } catch {
     // Tracer must never throw
   }
 
   // Keep in memory for /trace command (last 200 events)
-  _sessionEvents.push(event);
+  _sessionEvents.push(safe);
   if (_sessionEvents.length > 200) _sessionEvents.shift();
 }
 

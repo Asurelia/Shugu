@@ -114,6 +114,9 @@ export interface ToolRegistry {
   /** Register a tool */
   register(tool: Tool): void;
 
+  /** Unregister a tool by name (for plugin cleanup) */
+  unregister(name: string): boolean;
+
   /** Get tool definitions for the API (what the model sees) */
   getDefinitions(): ToolDefinition[];
 }

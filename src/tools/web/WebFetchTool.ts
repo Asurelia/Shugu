@@ -8,6 +8,7 @@
 
 import type { Tool, ToolCall, ToolResult, ToolContext, ToolDefinition } from '../../protocol/tools.js';
 import type { CredentialProvider } from '../../credentials/provider.js';
+import { isBlockedUrl } from '../../utils/network.js';
 
 export const WebFetchToolDefinition: ToolDefinition = {
   name: 'WebFetch',
@@ -58,6 +59,8 @@ export class WebFetchTool implements Tool {
     } catch {
       return 'url must be a valid URL';
     }
+    const blocked = isBlockedUrl(input['url'] as string);
+    if (blocked) return blocked;
     return null;
   }
 
@@ -66,6 +69,11 @@ export class WebFetchTool implements Tool {
     const method = ((call.input['method'] as string) ?? 'GET').toUpperCase();
     const extraHeaders = (call.input['headers'] as Record<string, string>) ?? {};
     const body = call.input['body'] as string | undefined;
+
+    const ssrfBlock = isBlockedUrl(url);
+    if (ssrfBlock) {
+      return { tool_use_id: call.id, content: ssrfBlock, is_error: true };
+    }
 
     try {
       // Build headers — auto-inject credentials if available
