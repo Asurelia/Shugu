@@ -22,6 +22,9 @@ import { analyzeTask } from '../engine/strategy.js';
 import { runPostTurnIntelligence, type IntelligenceResult } from '../engine/intelligence.js';
 import { logger } from '../utils/logger.js';
 import { tracer } from '../utils/tracer.js';
+import { expandFileTags } from '../context/file-tags.js';
+import { createCloneCommand, createSnapshotCommand } from '../commands/session.js';
+import type { SessionData } from '../context/session/persistence.js';
 import type { RuntimeServices } from './services.js';
 import { handleEventForApp, formatTimeAgo, getCompanionInstance, isCompanionMuted } from './cli-handlers.js';
 import { handleInlineCommand, type ReplState } from './repl-commands.js';
@@ -48,9 +51,24 @@ export async function runREPL(
     const estimated = estimateTokens(resumedMessages);
     tokenTracker.updateFromUsage({ input_tokens: estimated, output_tokens: 0 });
   }
-  const session = sessionMgr.createSession(toolContext.cwd, client.model);
+  let session = sessionMgr.createSession(toolContext.cwd, client.model);
   let correctionCount = 0;
   let turnCount = 0;
+
+  // Register session-aware commands (need live session reference).
+  // The getter syncs session.messages from the live conversationMessages array
+  // so that /clone and /snapshot always capture the current REPL state,
+  // even after /resume or /snapshot load rewrites conversationMessages.
+  const getLiveSession = (): SessionData => {
+    session.messages = conversationMessages;
+    return session;
+  };
+  commands.register(createCloneCommand(
+    sessionMgr,
+    getLiveSession,
+    (cloned) => { session = cloned; },
+  ));
+  commands.register(createSnapshotCommand(sessionMgr, getLiveSession));
   let thinkingExpanded = false;
 
   // Vault refresh tracking
@@ -363,7 +381,19 @@ export async function runREPL(
       }
       if (cmdResult?.type !== 'prompt') continue;
     } else {
-      conversationMessages.push({ role: 'user', content: input });
+      // Expand @file tags in user input
+      const { expandedContent, taggedFiles, truncated } = await expandFileTags(input, toolContext.cwd);
+      if (taggedFiles.length > 0) {
+        const existing = taggedFiles.filter(f => f.exists);
+        const missing = taggedFiles.filter(f => !f.exists);
+        if (existing.length > 0) {
+          app.pushMessage({ type: 'info', text: `  Tagged: ${existing.map(f => f.raw).join(', ')}${truncated ? ' (some content truncated)' : ''}` });
+        }
+        if (missing.length > 0) {
+          app.pushMessage({ type: 'info', text: `  Not found: ${missing.map(f => f.raw).join(', ')}` });
+        }
+      }
+      conversationMessages.push({ role: 'user', content: expandedContent });
     }
 
     // ── Strategy analysis ──
@@ -480,7 +510,15 @@ export async function runREPL(
           contextUsed: status.usedTokens,
           costUsd: budget.getTotalCostUsd(),
         });
+
       }
+    }
+
+    // Flush file changes to revert stack (after all tool calls in this user turn)
+    const { revertStack, turnAccumulator } = services;
+    const revertEntry = turnAccumulator.flush(turnCount);
+    if (revertEntry) {
+      revertStack.push(revertEntry);
     }
 
     // Brew timer

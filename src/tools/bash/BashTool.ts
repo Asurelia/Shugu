@@ -10,6 +10,8 @@
 import { spawn } from 'node:child_process';
 import type { Tool, ToolCall, ToolResult, ToolContext, ToolDefinition } from '../../protocol/tools.js';
 import { BASH_MAX_OUTPUT_CHARS, BASH_MAX_STDERR_CHARS, truncateBashOutput } from '../outputLimits.js';
+import { resolveShell } from './shells.js';
+import type { ShellConfig } from './shells.js';
 
 const DEFAULT_TIMEOUT_MS = 120_000; // 2 minutes
 
@@ -67,6 +69,14 @@ export class BashTool implements Tool {
   }
 }
 
+// ─── Shell Resolution (cached) ─────────────────────────
+
+let cachedShell: ShellConfig | null = null;
+function getShell(): ShellConfig {
+  if (!cachedShell) cachedShell = resolveShell();
+  return cachedShell;
+}
+
 // ─── Shell Execution ────────────────────────────────────
 
 interface BashResult {
@@ -83,8 +93,8 @@ function runBash(
   abortSignal?: AbortSignal,
 ): Promise<BashResult> {
   return new Promise((resolve, reject) => {
-    const shell = process.platform === 'win32' ? 'bash' : '/bin/bash';
-    const child = spawn(shell, ['-c', command], {
+    const shell = getShell();
+    const child = spawn(shell.path, [...shell.args, command], {
       cwd,
       env: { ...process.env },
       stdio: ['pipe', 'pipe', 'pipe'],

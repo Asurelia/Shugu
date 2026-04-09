@@ -28,6 +28,13 @@ import { createBgCommand, createProactiveCommand } from '../commands/automation.
 import { createTeamCommand } from '../commands/team.js';
 import { createVaultCommand } from '../commands/vault.js';
 import { createDefaultCommands } from '../commands/index.js';
+import { loadMarkdownCommands } from '../commands/markdown-loader.js';
+import { loadMarkdownAgents } from '../agents/markdown-loader.js';
+import { FileRevertStack, TurnChangeAccumulator } from '../context/session/file-revert.js';
+import { registerFileTrackingHook } from '../plugins/builtin/file-tracking-hook.js';
+import { createFileRevertCommand } from '../commands/session.js';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
 import { createReviewCommand } from '../commands/review.js';
 import { createBatchCommand } from '../commands/batch.js';
 import { createMetaCommand } from '../meta/cli.js';
@@ -221,6 +228,17 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
   const skillRegistry = createDefaultSkillRegistry();
   const commands = createDefaultCommands();
 
+  // Load custom markdown commands (.pcc/commands/*.md)
+  const builtinCommandNames = new Set(commands.getAll().flatMap(c => [c.name, ...(c.aliases ?? [])]));
+  const mdCommands = loadMarkdownCommands(
+    [join(homedir(), '.pcc', 'commands'), join(cwd, '.pcc', 'commands')],
+    builtinCommandNames,
+  );
+  for (const cmd of mdCommands) commands.register(cmd);
+  if (mdCommands.length > 0) {
+    renderer.info(`  Custom commands: ${mdCommands.length} loaded`);
+  }
+
   // Load plugins — local (repo-controlled) plugins require user confirmation
   const pluginRegistry = new PluginRegistry();
   const pluginResult = await pluginRegistry.loadAll(cwd, registry, commands, skillRegistry, {
@@ -245,6 +263,13 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
   // Register built-in hooks
   registerBehaviorHooks(hookRegistry);
   registerVerificationHook(hookRegistry);
+
+  // File revert: track file changes for /file-revert
+  const revertStack = new FileRevertStack();
+  const turnAccumulator = new TurnChangeAccumulator();
+  registerFileTrackingHook(hookRegistry, (path, previousContent) => {
+    turnAccumulator.recordBefore(path, previousContent);
+  });
 
   // Discover Obsidian vault
   const vaultPath = await discoverVault(cwd);
@@ -276,9 +301,19 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
     askPermission,
   };
 
+  // Load custom markdown agents (.pcc/agents/*.md)
+  const customAgents = await loadMarkdownAgents([
+    join(homedir(), '.pcc', 'agents'),
+    join(cwd, '.pcc', 'agents'),
+  ]);
+  const customAgentCount = Object.keys(customAgents).length;
+  if (customAgentCount > 0) {
+    renderer.info(`  Custom agents: ${customAgentCount} loaded`);
+  }
+
   // Wire agent orchestrator
   const toolMap = new Map(registry.getAll().map(t => [t.definition.name, t]));
-  const orchestrator = new AgentOrchestrator(client, toolMap, toolContext);
+  const orchestrator = new AgentOrchestrator(client, toolMap, toolContext, customAgentCount > 0 ? customAgents : undefined);
   agentTool.setOrchestrator(orchestrator);
   agentTool.setEventCallback(() => {});
   commands.register(createTeamCommand(orchestrator));
@@ -299,6 +334,7 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
     maxTurns: 15,
   });
   commands.register(createVaultCommand(vault));
+  commands.register(createFileRevertCommand(revertStack));
   commands.register(createBgCommand(bgManager, loopConfigFactory));
   commands.register(createProactiveCommand(async (prompt) => {
     const messages: Message[] = [{ role: 'user', content: prompt }];
@@ -371,12 +407,21 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
     }
   } else if (cliArgs.resumeSession) {
     if (typeof cliArgs.resumeSession === 'string') {
-      const session = await sessionMgr.load(cliArgs.resumeSession);
-      if (session && session.messages.length > 0) {
-        resumedMessages = session.messages;
-        renderer.info(`  Resuming session ${session.id} (${session.turnCount} turns)`);
-      } else {
-        renderer.error(`  Session not found: ${cliArgs.resumeSession}`);
+      try {
+        const session = await sessionMgr.load(cliArgs.resumeSession);
+        if (session && session.messages.length > 0) {
+          resumedMessages = session.messages;
+          renderer.info(`  Resuming session ${session.id} (${session.turnCount} turns)`);
+        } else {
+          renderer.error(`  Session not found: ${cliArgs.resumeSession}`);
+        }
+      } catch (err: unknown) {
+        const { SessionCorruptedError } = await import('../context/session/persistence.js');
+        if (err instanceof SessionCorruptedError) {
+          renderer.error(`  Session corrupted: ${cliArgs.resumeSession} — ${(err.cause as Error)?.message ?? 'unknown error'}`);
+        } else {
+          throw err;
+        }
       }
     } else {
       const sessions = await sessionMgr.listRecent(10);
@@ -411,6 +456,8 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
     credentialProvider,
     kairos,
     renderer,
+    revertStack,
+    turnAccumulator,
     async dispose() {
       scheduler.stop();
       vault.lock();

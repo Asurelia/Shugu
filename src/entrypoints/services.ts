@@ -20,6 +20,7 @@ import type { ObsidianVault } from '../context/memory/obsidian.js';
 import type { CredentialProvider } from '../credentials/provider.js';
 import type { Kairos } from '../automation/kairos.js';
 import type { TerminalRenderer } from '../ui/renderer.js';
+import type { FileRevertStack, TurnChangeAccumulator } from '../context/session/file-revert.js';
 
 export interface RuntimeServices {
   readonly client: MiniMaxClient;
@@ -37,6 +38,8 @@ export interface RuntimeServices {
   readonly credentialProvider: CredentialProvider;
   readonly kairos: Kairos;
   readonly renderer: TerminalRenderer;
+  readonly revertStack: FileRevertStack;
+  readonly turnAccumulator: TurnChangeAccumulator;
 
   dispose(): Promise<void>;
 }
