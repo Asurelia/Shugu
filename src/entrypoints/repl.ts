@@ -38,6 +38,7 @@ export async function runREPL(
   needsHatchCeremony: boolean,
   resumedMessages: Message[] | null,
   resumedWorkContext: string | null = null,
+  resumedWorkContextData: import('../context/session/work-context.js').WorkContext | null = null,
 ): Promise<void> {
   const {
     client, registry, toolContext, permResolver, hookRegistry,
@@ -55,6 +56,11 @@ export async function runREPL(
     tokenTracker.updateFromUsage({ input_tokens: estimated, output_tokens: 0 });
   }
   let session = sessionMgr.createSession(toolContext.cwd, client.model);
+  // Seed workContext from resumed session so it's preserved if the user
+  // quits before sending a new prompt (lastHumanInputIdx stays -1)
+  if (resumedWorkContextData) {
+    session.workContext = resumedWorkContextData;
+  }
   let correctionCount = 0;
   let turnCount = 0;
   let lastHumanInputIdx = -1;
@@ -362,6 +368,7 @@ export async function runREPL(
           } else if (skillResult.type === 'prompt') {
             conversationMessages.push({ role: 'user', content: skillResult.prompt });
             lastHumanInputIdx = conversationMessages.length - 1;
+            lastRawUserInput = input;
           }
         }
       }
@@ -407,6 +414,7 @@ export async function runREPL(
             app.pushMessage({ type: 'user', text: input });
             conversationMessages.push({ role: 'user', content: cmdResult.prompt });
             lastHumanInputIdx = conversationMessages.length - 1;
+            lastRawUserInput = input;
             break;
         }
       }

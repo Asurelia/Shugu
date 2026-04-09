@@ -20,17 +20,21 @@ function assistantText(text: string): Message {
   return { role: 'assistant', content: [{ type: 'text', text }] };
 }
 
-function assistantToolUse(name: string, input: Record<string, unknown>): Message {
+let toolCallCounter = 0;
+function nextCallId(): string { return `call_${++toolCallCounter}`; }
+
+function assistantToolUse(name: string, input: Record<string, unknown>, id?: string): Message {
+  const callId = id ?? nextCallId();
   return {
     role: 'assistant',
-    content: [{ type: 'tool_use', id: `call_${Math.random()}`, name, input }],
+    content: [{ type: 'tool_use', id: callId, name, input }],
   };
 }
 
-function userToolResult(content: string, isError = false): Message {
+function userToolResult(content: string, isError = false, toolUseId?: string): Message {
   return {
     role: 'user',
-    content: [{ type: 'tool_result', tool_use_id: 'call_1', content, is_error: isError }],
+    content: [{ type: 'tool_result', tool_use_id: toolUseId ?? `call_${toolCallCounter}`, content, is_error: isError }],
   };
 }
 
@@ -174,6 +178,39 @@ describe('formatRehydrationBlock', () => {
     expect(block).not.toContain('Active files');
     expect(block).not.toContain('Recent actions');
     expect(block).not.toContain('Pending');
+  });
+});
+
+// ── Multi-tool-use matching ─────────────────────────────
+
+describe('extractWorkContext — multi tool_use matching', () => {
+  it('matches tool_use_id to correct tool_result in multi-tool messages', () => {
+    const messages: Message[] = [
+      userMsg('Fix both files'),
+      {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id: 'call_read', name: 'Read', input: { file_path: '/src/a.ts' } },
+          { type: 'tool_use', id: 'call_edit', name: 'Edit', input: { file_path: '/src/b.ts' } },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', tool_use_id: 'call_read', content: 'file content', is_error: false },
+          { type: 'tool_result', tool_use_id: 'call_edit', content: 'Error: parse failed', is_error: true },
+        ],
+      },
+      assistantText('Fixed a.ts, b.ts had an error.'),
+    ];
+
+    const ctx = extractWorkContext(messages, 0, 'Fix both files');
+    const readEntry = ctx.toolHistory.find(h => h.tool === 'Read');
+    const editEntry = ctx.toolHistory.find(h => h.tool === 'Edit');
+
+    // Read should be success, Edit should be error — matched by tool_use_id
+    expect(readEntry?.outcome).toBe('success');
+    expect(editEntry?.outcome).toBe('error');
   });
 });
 

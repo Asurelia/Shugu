@@ -66,7 +66,7 @@ export function extractWorkContext(
     if (msg.role === 'assistant' && Array.isArray(msg.content)) {
       for (const block of msg.content as ContentBlock[]) {
         if (block.type === 'tool_use') {
-          const toolUse = block as { type: 'tool_use'; name: string; input: Record<string, unknown> };
+          const toolUse = block as { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> };
           const filePath = typeof toolUse.input['file_path'] === 'string'
             ? toolUse.input['file_path']
             : typeof toolUse.input['path'] === 'string'
@@ -75,7 +75,7 @@ export function extractWorkContext(
 
           if (filePath) activeFilesSet.add(filePath);
 
-          // Find matching tool_result in the next user message
+          // Find matching tool_result by tool_use_id in the next user message
           const nextMsg = messages[i + 1];
           let outcome: 'success' | 'error' = 'success';
           let summary = '';
@@ -84,6 +84,8 @@ export function extractWorkContext(
             for (const resultBlock of nextMsg.content as ContentBlock[]) {
               if (resultBlock.type === 'tool_result') {
                 const result = resultBlock as { type: 'tool_result'; tool_use_id: string; content: string | ContentBlock[]; is_error?: boolean };
+                // Match by tool_use_id to handle multi-tool-use messages correctly
+                if (result.tool_use_id !== toolUse.id) continue;
                 if (result.is_error) outcome = 'error';
                 const text = typeof result.content === 'string'
                   ? result.content

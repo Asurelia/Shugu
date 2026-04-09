@@ -107,4 +107,13 @@ describe('ToolRouter.validateCategories', () => {
     ];
     expect(() => ToolRouter.validateCategories(bad)).toThrow('EmptyCat');
   });
+
+  it('catches plugin-registered tools without categories (simulates post-plugin load)', () => {
+    // Simulates the scenario where a plugin registers a tool without categories
+    const allToolsIncludingPlugin: ToolDefinition[] = [
+      ...MOCK_TOOLS,
+      { name: 'PluginTool', description: 'From plugin', inputSchema: { type: 'object', properties: {} } },
+    ];
+    expect(() => ToolRouter.validateCategories(allToolsIncludingPlugin)).toThrow('PluginTool');
+  });
 });

@@ -192,6 +192,8 @@ export interface BootstrapResult {
   resumedMessages: Message[] | null;
   /** Formatted rehydration block from the resumed session's workContext */
   resumedWorkContext: string | null;
+  /** Raw WorkContext from resumed session — used to seed new session on resume */
+  resumedWorkContextData: import('../context/session/work-context.js').WorkContext | null;
 }
 
 export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
@@ -227,7 +229,6 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
   }
 
   const { registry, agentTool, webFetchTool, obsidianTool } = createDefaultRegistry(credentialProvider);
-  ToolRouter.validateCategories(registry.getDefinitions());
   const permResolver = new PermissionResolver(cliArgs.mode);
   const skillRegistry = createDefaultSkillRegistry();
   const commands = createDefaultCommands();
@@ -259,6 +260,9 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
   if (pluginResult.loaded > 0) {
     renderer.info(`  Plugins: ${pluginResult.loaded} loaded`);
   }
+
+  // Validate tool categories AFTER plugins (plugins can register tools)
+  ToolRouter.validateCategories(registry.getDefinitions());
 
   // Check hatch ceremony BEFORE buildSystemPrompt creates the companion file
   const { isFirstHatch } = await import('../ui/companion/companion.js');
@@ -474,8 +478,8 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
 
   // Extract rehydration context from resumed session's workContext
   let resumedWorkContext: string | null = null;
+  let resumedWorkContextData: import('../context/session/work-context.js').WorkContext | null = null;
   if (resumedMessages) {
-    // Find the session we resumed from to get its workContext
     const resumedSession = cliArgs.continueSession
       ? await sessionMgr.loadLatest(cwd)
       : typeof cliArgs.resumeSession === 'string'
@@ -484,10 +488,11 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
     if (resumedSession?.workContext) {
       const { formatRehydrationBlock } = await import('../context/session/work-context.js');
       resumedWorkContext = formatRehydrationBlock(resumedSession.workContext);
+      resumedWorkContextData = resumedSession.workContext;
     }
   }
 
-  return { services, systemPrompt, needsHatchCeremony, resumedMessages, resumedWorkContext };
+  return { services, systemPrompt, needsHatchCeremony, resumedMessages, resumedWorkContext, resumedWorkContextData };
 }
 
 // ─── Vault Setup Helpers ────────────────────────────────
