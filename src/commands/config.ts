@@ -125,9 +125,39 @@ export const diffCommand: Command = {
 export const exportCommand: Command = {
   name: 'export',
   aliases: [],
-  description: 'Export conversation to a text file',
+  description: 'Export conversation to file (md, json, html)',
+  usage: '/export [json|html] [filename]',
   async execute(args: string, ctx: CommandContext): Promise<CommandResult> {
-    const filename = args.trim() || `shugu-export-${new Date().toISOString().split('T')[0]}.md`;
+    const parts = args.trim().split(/\s+/);
+    const format = (parts[0]?.toLowerCase() === 'json' || parts[0]?.toLowerCase() === 'html')
+      ? parts.shift()!.toLowerCase()
+      : 'md';
+    const dateStr = new Date().toISOString().split('T')[0] ?? 'export';
+
+    if (format === 'json') {
+      const { exportToJson } = await import('../context/session/export-json.js');
+      const filename = parts.join(' ').trim() || `shugu-export-${dateStr}.json`;
+      const session = { id: 'repl', projectDir: ctx.cwd, messages: ctx.messages, model: 'unknown', totalUsage: { input_tokens: 0, output_tokens: 0 }, turnCount: ctx.messages.length, createdAt: '', updatedAt: new Date().toISOString() };
+      const content = exportToJson(session);
+      const filePath = `${ctx.cwd}/${filename}`;
+      await writeFile(filePath, content, 'utf-8');
+      ctx.info(`  Exported ${ctx.messages.length} messages to ${filename} (JSON)`);
+      return { type: 'handled' };
+    }
+
+    if (format === 'html') {
+      const { exportToHtml } = await import('../context/session/export-html.js');
+      const filename = parts.join(' ').trim() || `shugu-export-${dateStr}.html`;
+      const session = { id: 'repl', projectDir: ctx.cwd, messages: ctx.messages, model: 'unknown', totalUsage: { input_tokens: 0, output_tokens: 0 }, turnCount: ctx.messages.length, createdAt: '', updatedAt: new Date().toISOString() };
+      const content = exportToHtml(session);
+      const filePath = `${ctx.cwd}/${filename}`;
+      await writeFile(filePath, content, 'utf-8');
+      ctx.info(`  Exported ${ctx.messages.length} messages to ${filename} (HTML)`);
+      return { type: 'handled' };
+    }
+
+    // Default: markdown export
+    const filename = parts.join(' ').trim() || `shugu-export-${dateStr}.md`;
     const lines: string[] = [`# Shugu Conversation Export\n`, `Date: ${new Date().toISOString()}\n`, '---\n'];
 
     for (const msg of ctx.messages) {

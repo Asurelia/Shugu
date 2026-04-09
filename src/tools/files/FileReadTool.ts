@@ -10,6 +10,7 @@ import { resolve, isAbsolute } from 'node:path';
 import type { Tool, ToolCall, ToolResult, ToolContext, ToolDefinition } from '../../protocol/tools.js';
 import { validateWorkspacePath } from '../../policy/workspace.js';
 import { isSpillPath } from '../outputLimits.js';
+import { READ_LIMITS } from '../../context/read-limits.js';
 
 export const FileReadToolDefinition: ToolDefinition = {
   name: 'Read',
@@ -35,7 +36,7 @@ export const FileReadToolDefinition: ToolDefinition = {
   concurrencySafe: true,
 };
 
-const DEFAULT_LINE_LIMIT = 2000;
+const DEFAULT_LINE_LIMIT = READ_LIMITS.defaultLineLimit;
 
 export class FileReadTool implements Tool {
   definition = FileReadToolDefinition;

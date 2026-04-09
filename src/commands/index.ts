@@ -12,6 +12,8 @@ export { initCommand } from './init.js';
 export { doctorCommand } from './doctor.js';
 export { modelCommand, fastCommand, diffCommand, exportCommand, rewindCommand } from './config.js';
 export { traceCommand, healthCommand } from './trace.js';
+export { workspaceCommand } from './workspace.js';
+export { createFileRevertCommand, createCloneCommand, copyCommand, createSnapshotCommand } from './session.js';
 export { createTeamCommand } from './team.js';
 export { createReviewCommand } from './review.js';
 export { createBatchCommand } from './batch.js';
@@ -25,6 +27,8 @@ import { initCommand } from './init.js';
 import { doctorCommand } from './doctor.js';
 import { modelCommand, fastCommand, diffCommand, exportCommand, rewindCommand } from './config.js';
 import { traceCommand, healthCommand } from './trace.js';
+import { workspaceCommand } from './workspace.js';
+import { copyCommand } from './session.js';
 
 /**
  * Create a command registry with all builtin commands.
@@ -48,5 +52,7 @@ export function createDefaultCommands(): CommandRegistry {
   registry.register(rewindCommand);
   registry.register(traceCommand);
   registry.register(healthCommand);
+  registry.register(workspaceCommand);
+  registry.register(copyCommand);
   return registry;
 }

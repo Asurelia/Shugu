@@ -17,6 +17,7 @@ export { REPLTool } from './repl/REPLTool.js';
 export { TaskCreateTool, TaskUpdateTool, TaskListTool } from './tasks/TaskTools.js';
 export { SleepTool } from './utility/SleepTool.js';
 export { ObsidianTool } from './obsidian/ObsidianTool.js';
+export { SemSearchTool } from './search/SemSearchTool.js';
 
 import { ToolRegistryImpl } from './registry.js';
 import { BashTool } from './bash/BashTool.js';
@@ -32,6 +33,7 @@ import { REPLTool } from './repl/REPLTool.js';
 import { TaskCreateTool, TaskUpdateTool, TaskListTool } from './tasks/TaskTools.js';
 import { SleepTool } from './utility/SleepTool.js';
 import { ObsidianTool } from './obsidian/ObsidianTool.js';
+import { SemSearchTool } from './search/SemSearchTool.js';
 import type { CredentialProvider } from '../credentials/provider.js';
 
 /**
@@ -69,6 +71,9 @@ export function createDefaultRegistry(credentialProvider: CredentialProvider): {
 
   // Utility
   registry.register(new SleepTool());
+
+  // Workspace search (index-backed, separate from live Grep)
+  registry.register(new SemSearchTool());
 
   // Obsidian vault (second brain)
   const obsidianTool = new ObsidianTool();

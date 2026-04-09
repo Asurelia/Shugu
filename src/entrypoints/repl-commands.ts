@@ -146,14 +146,23 @@ export async function handleInlineCommand(
     const targetId = input.startsWith('/resume ') ? input.slice(8).trim() : null;
     const resMgr = new (await import('../context/session/persistence.js')).SessionManager();
     if (targetId) {
-      const s = await resMgr.load(targetId);
-      if (s && s.messages.length > 0) {
-        conversationMessages.length = 0;
-        conversationMessages.push(...s.messages);
-        tokenTracker.reset();
-        app.pushMessage({ type: 'info', text: `  Resumed session ${s.id} (${s.turnCount} turns)` });
-      } else {
-        app.pushMessage({ type: 'error', text: `Session not found: ${targetId}` });
+      try {
+        const s = await resMgr.load(targetId);
+        if (s && s.messages.length > 0) {
+          conversationMessages.length = 0;
+          conversationMessages.push(...s.messages);
+          tokenTracker.reset();
+          app.pushMessage({ type: 'info', text: `  Resumed session ${s.id} (${s.turnCount} turns)` });
+        } else {
+          app.pushMessage({ type: 'error', text: `Session not found: ${targetId}` });
+        }
+      } catch (err: unknown) {
+        const { SessionCorruptedError } = await import('../context/session/persistence.js');
+        if (err instanceof SessionCorruptedError) {
+          app.pushMessage({ type: 'error', text: `Session corrupted: ${targetId} — ${(err.cause as Error)?.message ?? 'unknown error'}` });
+        } else {
+          throw err;
+        }
       }
     } else {
       const sessions = await resMgr.listRecent(10);
