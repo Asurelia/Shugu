@@ -59,7 +59,10 @@ export function extractWorkContext(
   const activeFilesSet = new Set<string>();
   const toolHistory: ToolHistoryEntry[] = [];
 
-  // Walk backward from the end, collecting tool_use and tool_result pairs
+  // Design: activeFiles and toolHistory scan session-wide recent messages (not bounded
+  // to lastHumanInputIdx). This is intentional — rehydration should show which files
+  // are "hot" across the session, not just the last turn. currentGoal is the only
+  // field scoped to the specific human input (via rawGoal parameter).
   for (let i = messages.length - 1; i >= 0 && toolHistory.length < maxHistory; i--) {
     const msg = messages[i]!;
 

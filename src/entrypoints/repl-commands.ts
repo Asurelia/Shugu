@@ -155,6 +155,10 @@ export async function handleInlineCommand(
           conversationMessages.push(...s.messages);
           tokenTracker.reset();
           state.lastHumanInputIdx = -1; // Reset: resumed history has no tracked human input
+          // Carry over workContext so it survives quit-before-new-prompt
+          if (s.workContext) {
+            state.session.workContext = s.workContext;
+          }
           app.pushMessage({ type: 'info', text: `  Resumed session ${s.id} (${s.turnCount} turns)` });
         } else {
           app.pushMessage({ type: 'error', text: `Session not found: ${targetId}` });

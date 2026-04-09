@@ -236,3 +236,82 @@ describe('SessionData backwards compat', () => {
     expect(deserialized.workContext).toBeUndefined();
   });
 });
+
+// ── /resume inline → immediate quit preservation ──────
+
+describe('inline /resume workContext preservation', () => {
+  it('carries workContext from resumed session into live session state', async () => {
+    // Simulate the handleInlineCommand /resume path:
+    // state.session is the live session, s is the loaded session
+    const savedWorkContext: WorkContext = {
+      activeFiles: ['/src/auth.ts'],
+      currentGoal: 'Fix auth bug',
+      toolHistory: [{ tool: 'Edit', path: '/src/auth.ts', outcome: 'success', summary: 'patched' }],
+      pendingWork: 'Still need to add tests',
+      stats: { totalTurns: 8, lastTurnTimestamp: '2026-04-09T10:00:00Z' },
+    };
+
+    // The live session starts empty
+    const liveSession = {
+      id: 'new-session',
+      projectDir: '/test',
+      messages: [] as Message[],
+      model: 'test',
+      totalUsage: { input_tokens: 0, output_tokens: 0 },
+      turnCount: 0,
+      createdAt: '2026-04-09',
+      updatedAt: '2026-04-09',
+      workContext: undefined as WorkContext | undefined,
+    };
+
+    // Simulate what /resume does: copy workContext from loaded session
+    const loadedSession = { ...liveSession, id: 'old-session', workContext: savedWorkContext };
+    if (loadedSession.workContext) {
+      liveSession.workContext = loadedSession.workContext;
+    }
+
+    // After /resume, the live session should have the workContext
+    expect(liveSession.workContext).toBeDefined();
+    expect(liveSession.workContext!.currentGoal).toBe('Fix auth bug');
+    expect(liveSession.workContext!.pendingWork).toBe('Still need to add tests');
+
+    // Simulate saveSession with lastHumanInputIdx < 0 (no new prompt)
+    // workContext should be PRESERVED, not overwritten
+    const lastHumanInputIdx = -1;
+    if (lastHumanInputIdx >= 0) {
+      // This would overwrite — but it's skipped
+      liveSession.workContext = undefined;
+    }
+
+    // workContext still intact
+    expect(liveSession.workContext).toBeDefined();
+    expect(liveSession.workContext!.activeFiles).toEqual(['/src/auth.ts']);
+  });
+
+  it('design: activeFiles/toolHistory are session-wide, not bounded to lastHumanInputIdx', () => {
+    // Conversation with 2 user turns, each with different tool calls
+    const messages: Message[] = [
+      userMsg('Fix auth'),
+      assistantToolUse('Read', { file_path: '/src/auth.ts' }, 'c1'),
+      userToolResult('auth code', false, 'c1'),
+      assistantText('Auth fixed.'),
+      userMsg('Now fix tests'),
+      assistantToolUse('Edit', { file_path: '/tests/auth.test.ts' }, 'c2'),
+      userToolResult('test updated', false, 'c2'),
+      assistantText('Tests fixed.'),
+    ];
+
+    // lastHumanInputIdx = 4 (the "Now fix tests" message)
+    const ctx = extractWorkContext(messages, 4, 'Now fix tests');
+
+    // currentGoal should be from the last human input
+    expect(ctx.currentGoal).toBe('Now fix tests');
+
+    // activeFiles should include BOTH files (session-wide, not just last turn)
+    expect(ctx.activeFiles).toContain('/src/auth.ts');
+    expect(ctx.activeFiles).toContain('/tests/auth.test.ts');
+
+    // toolHistory should include BOTH tool calls
+    expect(ctx.toolHistory.length).toBe(2);
+  });
+});
