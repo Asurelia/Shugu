@@ -30,6 +30,8 @@ export interface ReplState {
   conversationMessages: Message[];
   client: MiniMaxClient;
   thinkingExpanded: boolean;
+  /** Index of the last real human message in conversationMessages (-1 = none) */
+  lastHumanInputIdx: number;
 }
 
 /**
@@ -40,7 +42,7 @@ export interface ReplState {
 export async function handleInlineCommand(
   input: string,
   state: ReplState,
-): Promise<{ handled: boolean; thinkingExpanded?: boolean }> {
+): Promise<{ handled: boolean; thinkingExpanded?: boolean; retry?: boolean }> {
   const { app, budget, tokenTracker, renderer, permResolver, session, conversationMessages, client } = state;
 
   // ── Companion commands ──
@@ -152,6 +154,7 @@ export async function handleInlineCommand(
           conversationMessages.length = 0;
           conversationMessages.push(...s.messages);
           tokenTracker.reset();
+          state.lastHumanInputIdx = -1; // Reset: resumed history has no tracked human input
           app.pushMessage({ type: 'info', text: `  Resumed session ${s.id} (${s.turnCount} turns)` });
         } else {
           app.pushMessage({ type: 'error', text: `Session not found: ${targetId}` });
@@ -179,6 +182,28 @@ export async function handleInlineCommand(
       }
     }
     return { handled: true };
+  }
+
+  // ── Retry last turn ──
+  if (input === '/retry') {
+    const { lastHumanInputIdx } = state;
+
+    if (lastHumanInputIdx < 0 || lastHumanInputIdx >= conversationMessages.length) {
+      app.pushMessage({ type: 'error', text: 'Nothing to retry.' });
+      return { handled: true };
+    }
+
+    if (lastHumanInputIdx === conversationMessages.length - 1) {
+      app.pushMessage({ type: 'error', text: 'No assistant response to retry.' });
+      return { handled: true };
+    }
+
+    // Pop everything after the last human input (assistant responses, tool_results, synthetic messages)
+    const popped = conversationMessages.length - lastHumanInputIdx - 1;
+    conversationMessages.splice(lastHumanInputIdx + 1);
+
+    app.pushMessage({ type: 'info', text: `  Retrying (removed ${popped} message(s))...` });
+    return { handled: false, retry: true };
   }
 
   // ── Mode switching ──

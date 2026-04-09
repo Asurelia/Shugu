@@ -54,6 +54,7 @@ export async function runREPL(
   let session = sessionMgr.createSession(toolContext.cwd, client.model);
   let correctionCount = 0;
   let turnCount = 0;
+  let lastHumanInputIdx = -1;
 
   // Register session-aware commands (need live session reference).
   // The getter syncs session.messages from the live conversationMessages array
@@ -261,6 +262,7 @@ export async function runREPL(
     conversationMessages,
     client,
     thinkingExpanded,
+    lastHumanInputIdx,
   };
 
   // ─── Main REPL Loop ──────────────────────────────────
@@ -272,70 +274,88 @@ export async function runREPL(
       continue;
     }
 
-    // Trace
-    tracer.startTrace();
-    tracer.log('user_input', { input: input.slice(0, 200), length: input.length });
-
-    // Correction detection
-    const correctionPatterns = /^(non|no|pas ça|not that|c'est faux|wrong|incorrect|ce n'est pas|that's not|arrête|stop|undo)/i;
-    if (correctionPatterns.test(input.trim())) {
-      correctionCount++;
-    }
-    turnCount++;
-
-    // KAIROS
-    const kairosNotif = kairos.onUserInput();
-    if (kairosNotif) {
-      if (kairosNotif.type === 'away_summary') {
-        app.pushMessage({ type: 'info', text: `  💤 ${kairosNotif.message}` });
-      } else if (kairosNotif.type === 'break_suggestion') {
-        app.pushMessage({ type: 'info', text: `  ☕ ${kairosNotif.message}` });
-      }
-    }
-
     // ── Inline REPL commands (need direct state access) ──
+    // Sync state bidirectionally: write before call, read back after
     replState.thinkingExpanded = thinkingExpanded;
+    replState.lastHumanInputIdx = lastHumanInputIdx;
     const inlineResult = await handleInlineCommand(input, replState);
+    lastHumanInputIdx = replState.lastHumanInputIdx; // read back (may be reset by /resume)
     if (inlineResult.handled) {
       if (inlineResult.thinkingExpanded !== undefined) {
         thinkingExpanded = inlineResult.thinkingExpanded;
       }
       continue;
     }
+    const isRetry = inlineResult.retry === true;
 
-    // Show user message immediately (before processing)
-    if (!input.startsWith('/') || input.startsWith('/vibe') || input.startsWith('/dream') || input.startsWith('/hunt') || input.startsWith('/brain') || input.startsWith('/proactive')) {
-      app.pushMessage({ type: 'user', text: input });
+    // For retry: recover the original human input for strategy/memory analysis
+    let effectiveInput = input;
+    if (isRetry && lastHumanInputIdx >= 0 && lastHumanInputIdx < conversationMessages.length) {
+      const preserved = conversationMessages[lastHumanInputIdx]!;
+      effectiveInput = typeof preserved.content === 'string'
+        ? preserved.content
+        : (preserved.content as Array<{ type: string; text?: string }>)
+            .filter((b) => b.type === 'text')
+            .map((b) => b.text ?? '')
+            .join('\n');
     }
 
-    // ── Skill matching ──
-    let skillHandled = false;
-    if (skillRegistry && input.startsWith('/')) {
-      const skillMatch = skillRegistry.match(input);
-      if (skillMatch) {
-        const skillCtx: SkillContext = {
-          input,
-          args: skillMatch.args,
-          cwd: toolContext.cwd,
-          messages: conversationMessages,
-          toolContext,
-          tools: new Map(registry.getAll().map(t => [t.definition.name, t])),
-          info: (msg) => app.pushMessage({ type: 'info', text: msg }),
-          error: (msg) => app.pushMessage({ type: 'error', text: msg }),
-          query: queryModel,
-          runAgent: runAgentLoop,
-        };
-        const skillResult = await skillMatch.skill.execute(skillCtx);
-        if (skillResult.type === 'handled') { skillHandled = true; }
-        else if (skillResult.type === 'error') {
-          app.pushMessage({ type: 'error', text: skillResult.message });
-          skillHandled = true;
-        } else if (skillResult.type === 'prompt') {
-          conversationMessages.push({ role: 'user', content: skillResult.prompt });
+    if (!isRetry) {
+      // Trace
+      tracer.startTrace();
+      tracer.log('user_input', { input: input.slice(0, 200), length: input.length });
+
+      // Correction detection
+      const correctionPatterns = /^(non|no|pas ça|not that|c'est faux|wrong|incorrect|ce n'est pas|that's not|arrête|stop|undo)/i;
+      if (correctionPatterns.test(input.trim())) {
+        correctionCount++;
+      }
+      turnCount++;
+
+      // KAIROS
+      const kairosNotif = kairos.onUserInput();
+      if (kairosNotif) {
+        if (kairosNotif.type === 'away_summary') {
+          app.pushMessage({ type: 'info', text: `  💤 ${kairosNotif.message}` });
+        } else if (kairosNotif.type === 'break_suggestion') {
+          app.pushMessage({ type: 'info', text: `  ☕ ${kairosNotif.message}` });
         }
       }
-    }
-    if (skillHandled) continue;
+
+      // Show user message immediately (before processing)
+      if (!input.startsWith('/') || input.startsWith('/vibe') || input.startsWith('/dream') || input.startsWith('/hunt') || input.startsWith('/brain') || input.startsWith('/proactive')) {
+        app.pushMessage({ type: 'user', text: input });
+      }
+
+      // ── Skill matching ──
+      let skillHandled = false;
+      if (skillRegistry && input.startsWith('/')) {
+        const skillMatch = skillRegistry.match(input);
+        if (skillMatch) {
+          const skillCtx: SkillContext = {
+            input,
+            args: skillMatch.args,
+            cwd: toolContext.cwd,
+            messages: conversationMessages,
+            toolContext,
+            tools: new Map(registry.getAll().map(t => [t.definition.name, t])),
+            info: (msg) => app.pushMessage({ type: 'info', text: msg }),
+            error: (msg) => app.pushMessage({ type: 'error', text: msg }),
+            query: queryModel,
+            runAgent: runAgentLoop,
+          };
+          const skillResult = await skillMatch.skill.execute(skillCtx);
+          if (skillResult.type === 'handled') { skillHandled = true; }
+          else if (skillResult.type === 'error') {
+            app.pushMessage({ type: 'error', text: skillResult.message });
+            skillHandled = true;
+          } else if (skillResult.type === 'prompt') {
+            conversationMessages.push({ role: 'user', content: skillResult.prompt });
+            lastHumanInputIdx = conversationMessages.length - 1;
+          }
+        }
+      }
+      if (skillHandled) continue;
 
     // ── Command registry dispatch ──
     if (input.startsWith('/')) {
@@ -376,6 +396,7 @@ export async function runREPL(
           case 'prompt':
             app.pushMessage({ type: 'user', text: input });
             conversationMessages.push({ role: 'user', content: cmdResult.prompt });
+            lastHumanInputIdx = conversationMessages.length - 1;
             break;
         }
       }
@@ -394,10 +415,12 @@ export async function runREPL(
         }
       }
       conversationMessages.push({ role: 'user', content: expandedContent });
+      lastHumanInputIdx = conversationMessages.length - 1;
     }
+    } // end if (!isRetry)
 
     // ── Strategy analysis ──
-    const strategy = await analyzeTask(input, conversationMessages, client);
+    const strategy = await analyzeTask(effectiveInput, conversationMessages, client);
     if (strategy.complexity !== 'trivial' && strategy.strategyPrompt) {
       tracer.log('strategy', { complexity: strategy.complexity, classifiedBy: strategy.classifiedBy, reflectionInterval: strategy.reflectionInterval });
       app.pushMessage({ type: 'info', text: `  ⚡ Strategy: ${strategy.complexity} (${strategy.classifiedBy})` });
@@ -413,8 +436,8 @@ export async function runREPL(
 
     // ── Build volatile prompt parts ──
     let memoryContext: string | undefined;
-    if (memoryAgent && input.length > 10) {
-      memoryContext = await memoryAgent.getRelevantContext(input, 5) ?? undefined;
+    if (memoryAgent && effectiveInput.length > 10) {
+      memoryContext = await memoryAgent.getRelevantContext(effectiveInput, 5) ?? undefined;
     }
 
     const volatileParts = buildVolatilePromptParts({
