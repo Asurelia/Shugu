@@ -85,10 +85,17 @@ export function classifyByHeuristics(input: string): Complexity | null {
 // ─── LLM Classifier (~150 tokens, M2.5) ──────────────
 
 const CLASSIFY_PROMPT = `Classify this coding task into exactly ONE category:
-- trivial: Simple question, explanation, or tiny change (< 1 file)
-- simple: Clear single task (1-2 files, straightforward)
-- complex: Multi-step task requiring planning (3+ files or multiple operations)
-- epic: Large-scale work requiring task breakdown and sub-agents
+- trivial: Simple question, explanation, or tiny change (< 1 file). Examples: "what does this function do?", "rename this variable"
+- simple: Clear single task (1-2 files, straightforward). Examples: "fix this bug", "add a field to this interface"
+- complex: Multi-step task requiring planning (3+ files or multiple operations). Examples: "refactor the auth system", "add a new API endpoint with tests"
+- epic: Large-scale work requiring task breakdown and sub-agents. Examples: "build the entire feature", "migrate from X to Y across the codebase"
+
+Signals that increase complexity:
+- References to multiple systems (API + database + UI)
+- Words like "and then", "also", "additionally" chaining distinct operations
+- Mentions of testing, reviewing, or deploying alongside implementation
+- References to Obsidian vault, memory, or cross-session knowledge (requires context gathering)
+- Requests involving agent delegation or parallel work
 
 Reply with ONLY the category word on the first line.
 On the second line, write 1-2 recommended tools (e.g., "Grep, Read" or "Agent(explore), Edit").
@@ -153,7 +160,8 @@ function buildStrategyPrompt(complexity: Complexity, toolHints?: string): string
 2. Execute each step completely before moving to the next
 3. After each step, verify the result before continuing
 4. If a step fails, diagnose the root cause before retrying
-Consider using the Agent tool to delegate exploration or parallel work.${AGENT_ROUTING_HINT}${toolHints ? `\nRecommended tools: ${toolHints}` : ''}`;
+Consider using the Agent tool to delegate exploration or parallel work.
+Before reporting completion, verify your work: run tests, check for TypeScript errors, confirm output matches expectations. If you can't verify, say so explicitly.${AGENT_ROUTING_HINT}${toolHints ? `\nRecommended tools: ${toolHints}` : ''}`;
 
     case 'epic':
       return `[STRATEGY] This is a large-scale task. You MUST plan first:
@@ -161,7 +169,8 @@ Consider using the Agent tool to delegate exploration or parallel work.${AGENT_R
 2. For each step, decide: execute directly OR delegate to a sub-agent
 3. Execute step by step, verifying after each
 4. Periodically check: "Am I making progress toward the goal?"
-Do NOT try to do everything in one turn — methodical progress > rushing.${AGENT_ROUTING_HINT}${toolHints ? `\nRecommended tools: ${toolHints}` : ''}`;
+Do NOT try to do everything in one turn — methodical progress > rushing.
+Before reporting completion, verify each step's result: run tests, check for TypeScript errors, confirm output matches expectations. The implementer is an LLM too — verify independently.${AGENT_ROUTING_HINT}${toolHints ? `\nRecommended tools: ${toolHints}` : ''}`;
   }
 }
 

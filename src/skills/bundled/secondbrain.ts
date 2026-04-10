@@ -141,10 +141,21 @@ Present the connections visually using a tree or indented list.`,
         return {
           type: 'prompt',
           prompt: `Search the Obsidian vault at ${vaultPath} for notes relevant to our current conversation.
-Look at the conversation history and extract key topics/concepts.
-For each topic, search the vault and summarize any relevant knowledge found.
-This helps ground our conversation in the user's existing knowledge base.
-Present findings as: Topic → relevant notes → key insights.`,
+
+Strategy:
+1. Extract key topics/concepts from the conversation history (technical terms, project names, patterns discussed)
+2. For each topic, search the vault using Glob for file names and Grep for content — try synonyms and related terms
+3. Also check MemoryAgent context (already in system prompt) for related project_fact or decision entries
+4. Follow [[wikilinks]] in found notes to discover connected knowledge (1 level deep)
+5. Check the Agent/ folder for previous session notes that may have relevant context
+
+Present findings as a structured summary:
+- **Topic** → relevant vault notes (with paths) → key insights extracted
+- **Connections** → how vault knowledge relates to the current task
+- **Gaps** → topics discussed that have NO vault coverage (suggest creating notes)
+
+If the vault has daily notes, check recent ones for task context.
+If no relevant notes found, say so clearly — don't fabricate connections.`,
         };
       }
 

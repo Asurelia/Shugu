@@ -213,10 +213,22 @@ async function handleBatch(
   ctx.info('Decomposing task with model...');
 
   // Ask the model to decompose into parallel units
-  const decompositionPrompt = `Decompose this task into 2-15 independent units that can be executed in parallel by separate agents.
-Each unit should modify a non-overlapping set of files.
-Return ONLY valid JSON with this structure:
-{"units": [{"name": "short-kebab-name", "description": "What to do", "files": ["src/path/to/file.ts"]}]}
+  const decompositionPrompt = `Decompose this task into 2-15 independent units that can be executed in parallel by separate Shugu sub-agents.
+
+Rules:
+- Each unit MUST modify a non-overlapping set of files (agents run in parallel — file conflicts = data loss)
+- Each unit must be self-contained: an agent with only Read/Edit/Write/Bash + the description should be able to complete it
+- Order units by dependency: units that create interfaces/types BEFORE units that consume them
+- If a unit needs context from another, list it in a "depends" field (these will run sequentially)
+- Include test units separately — testing should verify the implementation units, not be mixed in
+
+Consider the Shugu ecosystem:
+- MemoryAgent may have relevant project facts (tech stack, patterns) — mention them in unit descriptions if relevant
+- Git context: agents will share the same branch, so file overlap = merge conflicts
+- Each agent gets its own conversation context but shares the filesystem
+
+Return ONLY valid JSON:
+{"units": [{"name": "short-kebab-name", "description": "What to do — be specific about which files and what changes", "files": ["src/path/to/file.ts"], "agentType": "code|test|general", "depends": ["other-unit-name"]}]}
 
 Task: ${task}`;
 

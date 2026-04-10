@@ -34,7 +34,10 @@ Pause and evaluate your progress:
 - What have you accomplished so far?
 - Is your current approach working? If not, what should change?
 - What are the remaining steps to complete the task?
-- Are you stuck in a loop or repeating the same actions?${urgency}
+- Are you stuck in a loop or repeating the same actions?
+- Have you claimed any result without actually running a verification command? If so, verify now.
+- If you hit an obstacle, did you diagnose the root cause or just retry blindly?
+- If you wrote an explanation instead of running a command, stop and run the command.${urgency}
 Continue working after this reflection.`;
 }
 

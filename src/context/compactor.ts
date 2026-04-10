@@ -144,19 +144,28 @@ function identifyTurns(messages: Message[]): Turn[] {
 
 // ─── Summary Generation ─────────────────────────────────
 
-const COMPACTION_PROMPT = `Summarize the following conversation as a structured action log. Use this format:
+const COMPACTION_PROMPT = `Summarize the following conversation as a structured action log for Shugu (AI coding agent).
 
+This summary replaces older turns in context — it is the ONLY record of what happened. If you lose a detail here, it is gone forever for the current session. (Persistent memories are handled separately by MemoryAgent.)
+
+## Format
 - [TOOL: name] path/target → outcome (success/error/partial)
-- [DECISION] what was decided and why
-- [FINDING] what was discovered or learned
-- [PENDING] unresolved issues or next steps
+- [DECISION] what was decided and why (critical — decisions guide future turns)
+- [FINDING] what was discovered or learned about the codebase
+- [MEMORY] any user preferences, corrections, or project facts mentioned (MemoryAgent may not have captured these yet)
+- [PENDING] unresolved issues, next steps, or interrupted work
+- [VAULT] any Obsidian vault notes referenced or created
+- [AGENT] any sub-agents spawned and their verdicts
 
-Rules:
-- Preserve ALL file paths, tool names, error messages, and specific results
-- Do NOT paraphrase code — note the file and what changed
-- Do NOT include conversational filler or greetings
-- Include every tool call and its outcome
-- Keep under 500 words`;
+## Rules
+- Preserve ALL file paths, tool names, error messages, and specific results verbatim
+- Preserve user corrections and preferences word-for-word (e.g., "don't mock the database", "use snake_case")
+- Preserve the current goal / task description from the first user message
+- Do NOT paraphrase code — note the file path, line range, and what changed
+- Do NOT include conversational filler, greetings, or assistant acknowledgments
+- Include every tool call and its outcome — a missing tool call means lost context
+- If work was interrupted (pending tool_use without result), mark it [PENDING]
+- Keep under 600 words — but completeness over brevity. Missing a file path is worse than extra words.`;
 
 async function generateSummary(
   messages: Message[],
