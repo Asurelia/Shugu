@@ -345,6 +345,7 @@ export async function runREPL(
 
       // ── Skill matching ──
       let skillHandled = false;
+      let skillPromptInjected = false;
       if (skillRegistry && input.startsWith('/')) {
         const skillMatch = skillRegistry.match(input);
         if (skillMatch) {
@@ -369,13 +370,14 @@ export async function runREPL(
             conversationMessages.push({ role: 'user', content: skillResult.prompt });
             lastHumanInputIdx = conversationMessages.length - 1;
             lastRawUserInput = input;
+            skillPromptInjected = true; // Skip command dispatch but let model turn run
           }
         }
       }
       if (skillHandled) continue;
 
     // ── Command registry dispatch ──
-    if (input.startsWith('/')) {
+    if (input.startsWith('/') && !skillPromptInjected) {
       const cmdResult = await commands.dispatch(input, cmdCtx);
       if (cmdResult) {
         switch (cmdResult.type) {

@@ -12,7 +12,16 @@ import { validateWorkspacePath } from '../../policy/workspace.js';
 
 export const FileEditToolDefinition: ToolDefinition = {
   name: 'Edit',
-  description: `Performs exact string replacements in files. The old_string must match exactly (including whitespace/indentation). The old_string must be unique in the file unless replace_all is true. Use replace_all for renaming variables across a file.`,
+  description: `Performs exact string replacements in files.
+
+Usage:
+- You MUST use the Read tool at least once on a file before editing it. This tool will error if you attempt an edit without reading the file first.
+- When editing text from Read tool output, preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: line number + tab. Everything after that is the actual file content to match. Never include any part of the line number prefix in old_string or new_string.
+- ALWAYS prefer editing existing files over creating new ones with Write.
+- The edit will FAIL if old_string is not unique in the file. Either provide a larger string with more surrounding context to make it unique, or use replace_all to change every instance.
+- Use replace_all for renaming variables or strings across the file.
+- Do NOT re-read a file you just edited to verify — Edit would have errored if the change failed.
+- Only use emojis if the user explicitly requests it.`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -65,6 +74,15 @@ export class FileEditTool implements Tool {
     const replaceAll = (call.input['replace_all'] as boolean) ?? false;
 
     const absPath = isAbsolute(filePath) ? filePath : resolve(context.cwd, filePath);
+
+    // Enforce read-before-edit: the model must Read a file before Edit
+    if (context.readTracker && !context.readTracker.hasRead(absPath) && context.permissionMode !== 'bypass') {
+      return {
+        tool_use_id: call.id,
+        content: 'You must use the Read tool to read this file before editing it. This ensures you understand the file content before making changes.',
+        is_error: true,
+      };
+    }
 
     // Workspace boundary check (always enforced for edits)
     const validation = await validateWorkspacePath(filePath, context.cwd);

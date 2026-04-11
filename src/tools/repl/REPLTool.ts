@@ -12,7 +12,14 @@ import type { Tool, ToolCall, ToolResult, ToolContext, ToolDefinition } from '..
 
 export const REPLToolDefinition: ToolDefinition = {
   name: 'REPL',
-  description: `Execute JavaScript code in a Node.js REPL. Returns the output. Use for: quick calculations, data transformations, testing code snippets, JSON manipulation.`,
+  description: `Execute JavaScript code in a stateless Node.js environment. Returns the output.
+
+Usage:
+- The last expression in the code is automatically printed as the result
+- Supports async/await — async code is automatically awaited
+- Use for: quick calculations, data transformations, JSON manipulation, testing snippets
+- Each execution is independent — no state persists between calls
+- Timeout: 30 seconds. For long-running tasks, use Bash instead.`,
   inputSchema: {
     type: 'object',
     properties: {

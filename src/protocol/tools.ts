@@ -93,6 +93,9 @@ export interface ToolContext {
 
   /** Callback to report progress */
   onProgress?: (progress: ToolProgress) => void;
+
+  /** Tracks files read during this session — used by FileEditTool to enforce read-before-edit */
+  readTracker?: import('../context/read-tracker.js').ReadTracker;
 }
 
 export type PermissionMode = 'default' | 'plan' | 'acceptEdits' | 'fullAuto' | 'bypass';

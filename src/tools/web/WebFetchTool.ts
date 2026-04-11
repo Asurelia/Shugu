@@ -12,7 +12,14 @@ import { isBlockedUrl } from '../../utils/network.js';
 
 export const WebFetchToolDefinition: ToolDefinition = {
   name: 'WebFetch',
-  description: `Fetch content from a URL. Returns the page content converted to Markdown. Supports GET and POST. Automatically uses stored credentials when accessing known services (GitHub, Notion, etc.). Use for: reading web pages, calling APIs, downloading data.`,
+  description: `Fetch content from a URL and return it as Markdown.
+
+Usage:
+- Supports GET and POST methods
+- Automatically converts HTML pages to clean Markdown
+- Automatically uses stored credentials when accessing known services (GitHub, Notion, etc.)
+- Use for: reading web pages, calling APIs, downloading data
+- Do NOT generate or guess URLs unless you are confident they exist. Use URLs provided by the user or found in local files.`,
   inputSchema: {
     type: 'object',
     properties: {

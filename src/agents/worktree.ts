@@ -11,10 +11,11 @@
  * 4. Cleanup worktree
  */
 
-import { rm } from 'node:fs/promises';
+import { rm, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { git, resolveGitRoot } from '../utils/git.js';
+import { logger } from '../utils/logger.js';
 
 // ─── Worktree ───────────────────────────────────────────
 
@@ -173,4 +174,90 @@ export async function mergeWorktree(
 
     return { merged: false, conflicts: true, error, conflictFiles };
   }
+}
+
+/**
+ * Clean up orphaned worktrees left behind by crashed sessions.
+ * Removes worktrees in .pcc-worktrees/ that are older than maxAgeMs
+ * and have no uncommitted changes.
+ */
+export async function cleanupOrphanWorktrees(
+  repoDir: string,
+  maxAgeMs: number = 60 * 60 * 1000, // 1 hour default
+): Promise<{ removed: string[]; skipped: string[]; errors: string[] }> {
+  const removed: string[] = [];
+  const skipped: string[] = [];
+  const errors: string[] = [];
+
+  let gitRoot: string;
+  try {
+    gitRoot = await resolveGitRoot(repoDir);
+  } catch {
+    return { removed, skipped, errors: ['Not a git repository'] };
+  }
+
+  const worktreesDir = join(gitRoot, '.pcc-worktrees');
+
+  let entries: string[];
+  try {
+    entries = await readdir(worktreesDir);
+  } catch {
+    // No worktrees directory — nothing to clean up
+    return { removed, skipped, errors };
+  }
+
+  const now = Date.now();
+
+  for (const entry of entries) {
+    const entryPath = join(worktreesDir, entry);
+
+    try {
+      const entryStats = await stat(entryPath);
+      if (!entryStats.isDirectory()) continue;
+
+      // Skip if younger than maxAgeMs
+      const ageMs = now - entryStats.mtimeMs;
+      if (ageMs < maxAgeMs) {
+        skipped.push(entry);
+        continue;
+      }
+
+      // Check for uncommitted changes — skip if present
+      try {
+        const status = await git(['status', '--porcelain'], entryPath);
+        if (status.trim().length > 0) {
+          skipped.push(entry);
+          continue;
+        }
+      } catch {
+        // git status failed — worktree may be corrupt, try to remove anyway
+      }
+
+      // Remove the worktree
+      try {
+        await git(['worktree', 'remove', '--force', entryPath], gitRoot);
+      } catch {
+        await rm(entryPath, { recursive: true, force: true });
+        await git(['worktree', 'prune'], gitRoot);
+      }
+
+      // Try to delete the branch
+      try {
+        await git(['branch', '-D', entry], gitRoot);
+      } catch {
+        // Branch may not exist or may already be deleted
+      }
+
+      removed.push(entry);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`${entry}: ${msg}`);
+    }
+  }
+
+  if (removed.length > 0) {
+    logger.debug(`Cleaned up ${removed.length} orphan worktree(s): ${removed.join(', ')}`);
+  }
+
+  return { removed, skipped, errors };
 }

@@ -14,7 +14,15 @@ import { READ_LIMITS } from '../../context/read-limits.js';
 
 export const FileReadToolDefinition: ToolDefinition = {
   name: 'Read',
-  description: `Reads a text file from the filesystem. Returns content with line numbers. Use offset and limit for large files.`,
+  description: `Reads a file from the local filesystem. You can access any file directly by using this tool.
+
+Usage:
+- The file_path parameter must be an absolute path, not a relative path.
+- By default, it reads up to 2000 lines starting from the beginning of the file.
+- When you already know which part of the file you need, only read that part using offset and limit. This is important for larger files.
+- Results are returned using cat -n format, with line numbers starting at 1.
+- This tool can only read files, not directories. To list a directory, use ls via the Bash tool.
+- Do NOT re-read a file you just edited to verify — Edit would have errored if the change failed, and the file state is tracked for you.`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -106,6 +114,8 @@ export class FileReadTool implements Tool {
       if (!result.trim()) {
         result = '(Empty file)';
       }
+
+      context.readTracker?.markRead(absPath);
 
       return {
         tool_use_id: call.id,

@@ -9,7 +9,9 @@ import type { Tool, ToolCall, ToolResult, ToolContext, ToolDefinition } from '..
 
 export const SleepToolDefinition: ToolDefinition = {
   name: 'Sleep',
-  description: 'Wait for a specified number of seconds. Use sparingly — only when waiting for an external process or polling.',
+  description: `Wait for a specified number of seconds. Maximum: 300 seconds (5 minutes).
+
+Use sparingly — only when genuinely waiting for an external process, a build to complete, or polling for state changes. Do not use sleep between commands that can run immediately. If waiting for a background task, prefer checking its status directly.`,
   inputSchema: {
     type: 'object',
     properties: {
