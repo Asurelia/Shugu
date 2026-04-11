@@ -7,7 +7,7 @@
  */
 
 import { readFile, writeFile, readdir, mkdir } from 'node:fs/promises';
-import { resolve, relative, isAbsolute } from 'node:path';
+import { resolve, relative, isAbsolute, dirname, basename } from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { isBlockedUrl } from '../utils/network.js';
 import { logger } from '../utils/logger.js';
@@ -92,8 +92,30 @@ export class CapabilityBroker {
     try {
       real = await realpath(resolved);
     } catch {
-      // File may not exist yet (for writes) — use the resolved path
-      real = resolved;
+      // File may not exist yet (for writes).
+      // Resolve the PARENT directory to prevent symlink/traversal attacks,
+      // then join the leaf filename back onto the validated parent.
+      const parentDir = dirname(resolved);
+      const leaf = basename(resolved);
+      let realParent: string;
+      try {
+        realParent = await realpath(parentDir);
+      } catch {
+        throw new Error(`Path denied: parent directory does not exist for ${filePath}`);
+      }
+
+      // Validate the real parent is within boundaries before accepting
+      const pluginDataDir = resolve(this.pluginDir, '.data');
+      const relToPluginData = relative(pluginDataDir, realParent);
+      const relToProject = relative(this.projectDir, realParent);
+      const parentInsidePluginData = !relToPluginData.startsWith('..') && !isAbsolute(relToPluginData);
+      const parentInsideProject = !relToProject.startsWith('..') && !isAbsolute(relToProject);
+
+      if (!parentInsidePluginData && !parentInsideProject) {
+        throw new Error(`Path denied: ${filePath} is outside workspace and plugin data directory`);
+      }
+
+      real = resolve(realParent, leaf);
     }
 
     // Must be inside pluginDir/.data/ or projectDir

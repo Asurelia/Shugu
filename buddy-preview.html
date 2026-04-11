@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Shugu Buddy Preview</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap');
+:root{--bg:#0d1117;--s:#161b22;--e:#1c2333;--bd:#30363d;--t:#e6edf3;--td:#7d8590;--cy:#58d4f1;--gn:#3fb950;--yl:#d29922;--rd:#f85149;--mg:#db61a2;--pr:#a371f7;--gr:#6e7681;--gd:#ffc107}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--t);font-family:'JetBrains Mono',monospace;padding:32px 24px;max-width:1200px;margin:0 auto}
+h1{font-size:24px;background:linear-gradient(135deg,var(--cy),var(--pr));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:24px;text-align:center}
+.g{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media(max-width:800px){.g{grid-template-columns:1fr}}
+.p{background:var(--s);border:1px solid var(--bd);border-radius:10px;overflow:hidden}
+.ph{padding:10px 14px;background:var(--e);border-bottom:1px solid var(--bd);font-size:11px;color:var(--td);text-transform:uppercase;letter-spacing:1px}
+.pb{padding:16px}
+.term{background:#0a0e14;border:1px solid #1a1f2e;border-radius:6px;padding:14px;font-size:13px;line-height:1.4;min-height:160px;white-space:pre;overflow:hidden}
+.c{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.b{font-family:inherit;font-size:11px;padding:5px 10px;border:1px solid var(--bd);border-radius:5px;background:var(--e);color:var(--td);cursor:pointer}
+.b:hover{border-color:var(--cy);color:var(--cy)}.b.a{background:rgba(88,212,241,.1);border-color:var(--cy);color:var(--cy)}
+select.s,input.s{font-family:inherit;font-size:11px;padding:5px 10px;border:1px solid var(--bd);border-radius:5px;background:var(--e);color:var(--t);outline:none}
+label.l{font-size:10px;color:var(--td);text-transform:uppercase;letter-spacing:.8px;display:block;margin-bottom:5px}
+.fw{grid-column:1/-1}
+.gl{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
+.gi{background:#0a0e14;border:1px solid var(--bd);border-radius:6px;padding:10px;text-align:center;cursor:pointer;font-size:12px;white-space:pre;line-height:1.3;transition:all .2s}
+.gi:hover{border-color:var(--cy);transform:translateY(-2px)}
+.gi.sel{border-color:var(--cy);background:rgba(88,212,241,.05)}
+.gi .sn{color:var(--cy);font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-top:6px;display:block}
+
+/* Horizontal buddy layout: bubble left, sprite right */
+.buddy-row{display:flex;align-items:center;gap:0;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.4}
+.buddy-bubble{white-space:pre;color:var(--gr);flex-shrink:0}
+.buddy-conn{white-space:pre;color:var(--cy);flex-shrink:0;display:flex;flex-direction:column;justify-content:center;padding:0 2px}
+.buddy-sprite{white-space:pre;color:var(--cy);flex-shrink:0}
+.buddy-sprite .name{color:var(--gr);font-size:11px}
+
+/* Bubble box using pure CSS border */
+.bub-box{border:1px solid var(--gr);border-radius:8px;padding:2px 8px;margin:2px 0;max-width:280px;min-width:80px}
+.bub-box.classic{border-radius:2px;border-style:solid}
+.bub-box.round{border-radius:12px}
+.bub-box.minimal{border:none;padding:0;color:var(--gr);font-style:italic}
+.bub-box.double{border-width:2px;border-color:var(--cy);border-radius:2px}
+.bub-box.fading{opacity:0.4}
+.bub-text{color:var(--t);font-style:italic;font-size:12px;word-break:break-word;white-space:normal}
+</style>
+</head>
+<body>
+<h1>Shugu Buddy &mdash; Visual Preview</h1>
+<div class="g">
+
+<!-- ═══ Live Preview ═══ -->
+<div class="p">
+<div class="ph">Live Preview (Ink REPL Mode)</div>
+<div class="pb">
+<div style="margin-bottom:10px"><label class="l">Espece</label>
+<select class="s" id="sp" onchange="up()"><option>cat</option><option>duck</option><option>goose</option><option>dragon</option><option>owl</option><option>ghost</option><option>robot</option><option>axolotl</option><option>capybara</option><option>blob</option><option>octopus</option><option>penguin</option><option>turtle</option><option>snail</option><option>cactus</option><option>rabbit</option><option>mushroom</option><option>chonk</option></select></div>
+<div style="margin-bottom:10px"><label class="l">Message bulle</label>
+<input class="s" id="bt" value="*narrows eyes* SQL injection detected in query" oninput="up()" style="width:280px"/></div>
+<div style="margin-bottom:10px"><label class="l">Style bulle</label>
+<div class="c"><button class="b a" onclick="bs('classic',this)">Classic</button><button class="b" onclick="bs('round',this)">Round</button><button class="b" onclick="bs('minimal',this)">Minimal</button><button class="b" onclick="bs('double',this)">Double</button></div></div>
+<div style="background:#0a0e14;border:1px solid #1a1f2e;border-radius:6px;padding:16px;min-height:180px">
+  <!-- Simulated prompt area -->
+  <div style="color:var(--gr);font-size:11px;margin-bottom:8px">────────────── session-abc12 ──</div>
+  <div style="display:flex;align-items:flex-end">
+    <!-- Left: prompt area -->
+    <div style="flex:1">
+      <div><span style="color:var(--gn);font-weight:bold">&gt; </span><span style="color:var(--t)">help me fix the auth bug</span><span style="opacity:0.3">|</span></div>
+      <div style="color:var(--gr);font-size:11px;margin-top:4px">──────────────────────────────</div>
+      <div style="color:var(--td);font-size:10px;margin-top:2px">model: minimax-m2.7 | tokens: 12.4k/204k | cost: $0.03</div>
+      <div style="color:var(--td);font-size:10px">  <span style="color:var(--gr)">\u23F5\u23F5</span> <span style="color:var(--gn)">normal</span> permissions on</div>
+    </div>
+    <!-- Right: buddy with bubble -->
+    <div id="liveBuddy" style="flex-shrink:0;margin-left:8px"></div>
+  </div>
+</div>
+</div></div>
+
+<!-- ═══ States ═══ -->
+<div class="p">
+<div class="ph">States (ANSI Mode)</div>
+<div class="pb">
+<div class="c">
+<button class="b a" onclick="ss('idle',this)">idle</button>
+<button class="b" onclick="ss('thinking',this)">thinking</button>
+<button class="b" onclick="ss('working',this)">working</button>
+<button class="b" onclick="ss('happy',this)">happy</button>
+<button class="b" onclick="ss('error',this)">error</button>
+<button class="b" onclick="ss('sleeping',this)">sleeping</button>
+<button class="b" onclick="ss('searching',this)">searching</button>
+</div>
+<div class="term" id="stp"></div>
+</div></div>
+
+<!-- ═══ Buddy Card ═══ -->
+<div class="p">
+<div class="ph">/buddy card</div>
+<div class="pb"><div class="term" id="cp" style="font-size:12px"></div></div>
+</div>
+
+<!-- ═══ Bubble Styles ═══ -->
+<div class="p">
+<div class="ph">Bubble Styles (cote-a-cote avec sprite)</div>
+<div class="pb" id="bubStyles"></div>
+</div>
+
+<!-- ═══ Gallery ═══ -->
+<div class="p fw">
+<div class="ph">Species Gallery</div>
+<div class="pb"><div class="gl" id="gal"></div></div>
+</div>
+
+</div>
+
+<script>
+const B={
+cat:[['            ','   /\\_/\\    ','  ( o   o)  ','  (  \u03C9  )   ','  (")_(")   '],['            ','   /\\_/\\    ','  ( o   o)  ','  (  \u03C9  )   ','  (")_(")~  '],['            ','   /\\-/\\    ','  ( o   o)  ','  (  \u03C9  )   ','  (")_(")   ']],
+duck:[['            ','    __      ','  <(o )___  ','   (  ._>   ','    `--\u00B4    '],['            ','    __      ','  <(o )___  ','   (  ._>   ','    `--\u00B4~   ']],
+goose:[['            ','     (o>    ','     ||     ','   _(__)_   ','    ^^^^    '],['            ','    (o>     ','     ||     ','   _(__)_   ','    ^^^^    ']],
+dragon:[['            ','  /^\\  /^\\  ',' <  o  o  > ',' (   ~~   ) ','  `-vvvv-\u00B4  '],['   ~    ~   ','  /^\\  /^\\  ',' <  o  o  > ',' (   ~~   ) ','  `-vvvv-\u00B4  ']],
+owl:[['            ','   /\\  /\\   ','  ((o)(o))  ','  (  ><  )  ','   `----\u00B4   '],['            ','   /\\  /\\   ','  ((o)(o))  ','  (  ><  )  ','   .----.   ']],
+ghost:[['            ','   .----.   ','  / o  o \\  ','  |      |  ','  ~`~``~`~  '],['            ','   .----.   ','  / o  o \\  ','  |      |  ','  `~`~~`~`  ']],
+robot:[['            ','   .[||].   ','  [ o  o ]  ','  [ ==== ]  ','  `------\u00B4  '],['            ','   .[||].   ','  [ o  o ]  ','  [ -==- ]  ','  `------\u00B4  ']],
+axolotl:[['            ','}~(______)~{','}~(o .. o)~{','  ( .--. )  ','  (_/  \\_)  '],['            ','~}(______){~','~}(o .. o){~','  ( .--. )  ','  (_/  \\_)  ']],
+capybara:[['            ','  n______n  ',' ( o    o ) ',' (   oo   ) ','  `------\u00B4  '],['            ','  n______n  ',' ( o    o ) ',' (   Oo   ) ','  `------\u00B4  ']],
+blob:[['            ','   .----.   ','  ( o  o )  ','  (      )  ','   `----\u00B4   '],['            ','  .------.  ',' (  o  o  ) ',' (        ) ','  `------\u00B4  ']],
+octopus:[['            ','   .----.   ','  ( o  o )  ','  (______)  ','  /\\/\\/\\/\\  '],['            ','   .----.   ','  ( o  o )  ','  (______)  ','  \\/\\/\\/\\/  ']],
+penguin:[['            ','  .---.     ','  (o>o)     ',' /(   )\\    ','  `---\u00B4     '],['            ','  .---.     ','  (o>o)     ',' |(   )|    ','  `---\u00B4     ']],
+turtle:[['            ','   _,--._   ','  ( o  o )  ',' /[______]\\ ','  ``    ``  '],['            ','   _,--._   ','  ( o  o )  ',' /[______]\\ ','   ``  ``   ']],
+snail:[['            ',' o    .--.  ','  \\  ( @ )  ','   \\_`--\u00B4   ','  ~~~~~~~   '],['            ','  o   .--.  ','  |  ( @ )  ','   \\_`--\u00B4   ','  ~~~~~~~   ']],
+cactus:[['            ',' n  ____  n ',' | |o  o| | ',' |_|    |_| ','   |    |   '],['            ','    ____    ',' n |o  o| n ',' |_|    |_| ','   |    |   ']],
+rabbit:[['            ','   (\\__/)   ','  ( o  o )  ',' =(  ..  )= ','  (")__(")  '],['            ','   (|__/)   ','  ( o  o )  ',' =(  ..  )= ','  (")__(")  ']],
+mushroom:[['            ',' .-o-OO-o-. ','(__________)','   |o  o|   ','   |____|   '],['            ',' .-O-oo-O-. ','(__________)','   |o  o|   ','   |____|   ']],
+chonk:[['            ','  /\\    /\\  ',' ( o    o ) ',' (   ..   ) ','  `------\u00B4  '],['            ','  /\\    /|  ',' ( o    o ) ',' (   ..   ) ','  `------\u00B4  ']]
+};
+
+const SF={
+idle:['   (___) ','   /\\_/\\ ','  ( o   o)','  (  \u03C9  )','   (")_(")','   Shugu'],
+thinking:['  \uD83D\uDCAD...','   /\\_/\\ ','  ( \u2022   \u2022)','  (  ~  )','   (")_(")','   hmm..'],
+working:['  \u26A1','   /\\_/\\ ','  ( >   <)','  (  w  )','   (")_(")','   busy!'],
+happy:['  \u2728','   /\\_/\\ ','  ( ^   ^)','  (  \u03C9  )','   (")_(")','   yay!'],
+error:['  \u26A0','   /\\_/\\ ','  ( x   x)','  (  \u25B3  )','   (")_(")','   oops'],
+sleeping:['  z Z z','   /\\_/\\ ','  ( -   -)','  (  \u03C9  )','   (")_(")','   zzz..'],
+searching:['  \uD83D\uDD0D','   /\\_/\\ ','  ( \u25C9   \u25C9)','  (  \u03C9  )','   (")_(")','   look!']
+};
+const SC={idle:'#58d4f1',thinking:'#d29922',working:'#3fb950',happy:'#3fb950',error:'#f85149',sleeping:'#6e7681',searching:'#58d4f1'};
+
+let cbs='classic',af=0;
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+
+// ── Build a buddy row using real DOM (flexbox, not pre-formatted text) ──
+function buildBuddyDOM(species, text, style, parent) {
+  parent.textContent = '';
+  const row = document.createElement('div');
+  row.className = 'buddy-row';
+
+  if (text) {
+    // Bubble
+    const bubWrap = document.createElement('div');
+    bubWrap.style.display = 'flex';
+    bubWrap.style.alignItems = 'center';
+    bubWrap.style.flexShrink = '0';
+
+    if (style === 'minimal') {
+      const q = document.createElement('span');
+      q.style.cssText = 'color:var(--gr);font-style:italic;font-size:12px;white-space:nowrap';
+      q.textContent = '\u00AB ' + text + ' \u00BB';
+      bubWrap.appendChild(q);
+    } else {
+      const box = document.createElement('div');
+      box.className = 'bub-box ' + style;
+      const txt = document.createElement('div');
+      txt.className = 'bub-text';
+      txt.textContent = text;
+      box.appendChild(txt);
+      bubWrap.appendChild(box);
+    }
+
+    // Connector
+    const conn = document.createElement('span');
+    conn.style.cssText = 'color:var(--cy);white-space:pre;font-size:13px';
+    conn.textContent = style === 'minimal' ? ' \u2192 ' : ' \u2500\u256E ';
+    bubWrap.appendChild(conn);
+
+    row.appendChild(bubWrap);
+  }
+
+  // Sprite
+  const sp = document.createElement('div');
+  sp.className = 'buddy-sprite';
+  const frames = B[species] || B.cat;
+  const frame = frames[af % frames.length];
+  const lines = [...frame];
+  sp.insertAdjacentHTML('beforeend',
+    lines.map(l => '<span style="color:var(--cy)">' + esc(l) + '</span>').join('\n')
+    + '\n<span class="name">   ' + species + '</span>'
+  );
+  row.appendChild(sp);
+
+  parent.appendChild(row);
+}
+
+// ── Update functions ──
+function up() {
+  const sp = document.getElementById('sp').value;
+  const text = document.getElementById('bt').value;
+  buildBuddyDOM(sp, text, cbs, document.getElementById('liveBuddy'));
+}
+
+function bs(s, btn) {
+  cbs = s;
+  btn.parentElement.querySelectorAll('.b').forEach(b => b.classList.remove('a'));
+  btn.classList.add('a');
+  up();
+}
+
+function ss(st, btn) {
+  btn.parentElement.querySelectorAll('.b').forEach(b => b.classList.remove('a'));
+  btn.classList.add('a');
+  const msgs = {idle:'Ready!',thinking:'Hmm...',working:'Shell time!',happy:'Done!',error:'Oops!',sleeping:'zzz...',searching:'Searching...'};
+  const d = document.getElementById('stp');
+  d.textContent = '';
+  // States: vertical bubble above (ANSI single-shot style)
+  const co = (s,c) => '<span style="color:'+c+'">'+s+'</span>';
+  const lines = [];
+  // Bubble
+  const t = msgs[st], w = 14;
+  const p = t.padEnd(w);
+  lines.push(co(' \u256D' + '\u2500'.repeat(w+2) + '\u256E', '#6e7681'));
+  lines.push(co(' \u2502', '#6e7681') + ' ' + esc(p) + ' ' + co('\u2502', '#6e7681'));
+  lines.push(co(' \u2570' + '\u2500'.repeat(w+2) + '\u256F', '#6e7681'));
+  lines.push(co('    \u2572', '#6e7681'));
+  // State sprite
+  SF[st].forEach(l => lines.push(co(esc(l), SC[st])));
+  d.insertAdjacentHTML('beforeend', lines.join('\n'));
+}
+
+// ── Bubble styles comparison (using real DOM) ──
+function buildBubbleComparison() {
+  const container = document.getElementById('bubStyles');
+  container.textContent = '';
+  const text = '*narrows eyes* SQL injection in query';
+
+  for (const style of ['classic', 'round', 'minimal', 'double']) {
+    const label = document.createElement('div');
+    label.style.cssText = 'color:var(--cy);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;margin-top:16px;font-family:JetBrains Mono,monospace';
+    label.textContent = style;
+    container.appendChild(label);
+
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#0a0e14;border:1px solid #1a1f2e;border-radius:6px;padding:12px';
+    buildBuddyDOM('cat', text, style, box);
+    container.appendChild(box);
+  }
+}
+
+// ── Card ──
+function uc() {
+  const sp = document.getElementById('sp').value;
+  const fr = (B[sp]||B.cat)[0];
+  const st = {DEBUGGING:72,PATIENCE:45,CHAOS:88,WISDOM:63,SNARK:91};
+  const bar = v => '\u2588'.repeat(Math.round(v/100*14)) + '\u2591'.repeat(14-Math.round(v/100*14));
+  const co = (s,c) => '<span style="color:'+c+'">'+s+'</span>';
+  const L = [];
+  L.push(co('\u256D'+'\u2500'.repeat(39)+'\u256E','#30363d'));
+  L.push(co('\u2502','#30363d')+co('  '+sp,'#58d4f1')+'  Sentinel  '+co('\u2605\u2605\u2605\u2605','#ffc107')+'          '+co('\u2502','#30363d'));
+  L.push(co('\u2502','#30363d')+co('  epic '+sp,'#a371f7')+'                          '+co('\u2502','#30363d'));
+  L.push(co('\u2502'+'\u2500'.repeat(39)+'\u2502','#30363d'));
+  for(const l of fr) L.push(co('\u2502','#30363d')+co('  '+esc(l),'#58d4f1')+'                         '+co('\u2502','#30363d'));
+  L.push(co('\u2502'+'\u2500'.repeat(39)+'\u2502','#30363d'));
+  for(const[n,v]of Object.entries(st)) L.push(co('\u2502','#30363d')+'  '+n.padEnd(10)+' '+co(bar(v),'#58d4f1')+' '+co(String(v).padStart(3),'#d29922')+'  '+co('\u2502','#30363d'));
+  L.push(co('\u2502'+'\u2500'.repeat(39)+'\u2502','#30363d'));
+  L.push(co('\u2502','#30363d')+'  Personality: '+co('vigilant sentinel','#db61a2')+'       '+co('\u2502','#30363d'));
+  L.push(co('\u2570'+'\u2500'.repeat(39)+'\u256F','#30363d'));
+  const d=document.getElementById('cp');d.textContent='';
+  d.insertAdjacentHTML('beforeend',L.join('\n'));
+}
+
+// ── Gallery ──
+function bg() {
+  const g = document.getElementById('gal');
+  for (const sp of Object.keys(B)) {
+    const d = document.createElement('div');
+    d.className = 'gi' + (sp==='cat'?' sel':'');
+    d.insertAdjacentHTML('beforeend', B[sp][0].map(l=>esc(l)).join('\n') + '<span class="sn">'+sp+'</span>');
+    d.onclick = () => { g.querySelectorAll('.gi').forEach(el=>el.classList.remove('sel')); d.classList.add('sel'); document.getElementById('sp').value=sp; up(); uc(); };
+    g.appendChild(d);
+  }
+}
+
+// ── Animation ──
+setInterval(() => { af=(af+1)%3; up(); }, 800);
+
+// ── Init ──
+bg(); up(); uc(); buildBubbleComparison();
+ss('idle', document.querySelector('.c .b.a'));
+</script>
+</body>
+</html>

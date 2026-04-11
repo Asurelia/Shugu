@@ -3,8 +3,9 @@
  */
 
 export { CompanionSprite, type CompanionSpriteProps } from './CompanionSprite.js';
-export { getCompanion, generateBones, getStoredCompanion, saveCompanion } from './companion.js';
-export { getCompanionPrompt, generateReaction, type CompanionEvent } from './prompt.js';
+export { getCompanion, generateBones, getStoredCompanion, saveCompanion, loadBuddyConfig } from './companion.js';
+export { getCompanionPrompt, generateReaction, generatePersonalityPrompt, type CompanionEvent } from './prompt.js';
 export { renderSprite, renderFace, spriteFrameCount } from './sprites.js';
-export type { Companion, CompanionBones, CompanionSoul, Species, Eye, Hat, Rarity } from './types.js';
-export { SPECIES, EYES, HATS, RARITIES, RARITY_STARS } from './types.js';
+export { BuddyObserver } from './observer.js';
+export type { Companion, CompanionBones, CompanionSoul, Species, Eye, Hat, Rarity, BuddyConfig } from './types.js';
+export { SPECIES, EYES, HATS, RARITIES, RARITY_STARS, DEFAULT_BUDDY_CONFIG } from './types.js';

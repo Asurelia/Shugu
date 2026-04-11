@@ -17,7 +17,7 @@ import type { SessionData, SessionManager } from '../context/session/persistence
 import { MODE_DESCRIPTIONS } from '../policy/modes.js';
 import { compactConversation } from '../context/compactor.js';
 import type { MiniMaxClient } from '../transport/client.js';
-import { getCompanionInstance, setCompanionMuted } from './cli-handlers.js';
+import { getCompanionInstance, setCompanionMuted, setCompanionInstance } from './cli-handlers.js';
 import { formatTimeAgo } from './cli-handlers.js';
 
 export interface ReplState {
@@ -107,6 +107,145 @@ export async function handleInlineCommand(
       const { saveCompanion } = await import('../ui/companion/companion.js');
       saveCompanion({ name: newName, personality: c.personality, hatchedAt: c.hatchedAt });
       app.pushMessage({ type: 'info', text: `  ${oldName} is now ${newName}!` });
+    }
+    return { handled: true };
+  }
+
+  if (input === '/buddy show') {
+    const { renderBuddyCompact } = await import('../ui/companion/companion.js');
+    const c = getCompanionInstance();
+    if (c) {
+      for (const line of renderBuddyCompact(c)) {
+        app.pushMessage({ type: 'info', text: line });
+      }
+    }
+    return { handled: true };
+  }
+
+  if (input === '/buddy list') {
+    const { listSlots } = await import('../ui/companion/companion.js');
+    const slots = listSlots();
+    if (slots.length === 0) {
+      app.pushMessage({ type: 'info', text: '  No companions saved yet.' });
+    } else {
+      app.pushMessage({ type: 'info', text: '  ╭─── Menagerie ───────────────────╮' });
+      for (const s of slots) {
+        const marker = s.active ? ' ◆' : '  ';
+        app.pushMessage({ type: 'info', text: `  │${marker} ${s.name.padEnd(12)} ${s.species.padEnd(10)} ${s.rarity.padEnd(10)} │` });
+      }
+      app.pushMessage({ type: 'info', text: '  ╰──────────────────────────────────╯' });
+    }
+    return { handled: true };
+  }
+
+  if (input.startsWith('/buddy save')) {
+    const slotName = input.slice(11).trim() || undefined;
+    const c = getCompanionInstance();
+    if (c) {
+      try {
+        const { saveSlot } = await import('../ui/companion/companion.js');
+        const name = slotName || c.name.toLowerCase();
+        saveSlot(name, c);
+        app.pushMessage({ type: 'info', text: `  ${c.name} saved to slot "${name}".` });
+      } catch (e) {
+        app.pushMessage({ type: 'info', text: `  Error: ${e instanceof Error ? e.message : String(e)}` });
+      }
+    }
+    return { handled: true };
+  }
+
+  if (input.startsWith('/buddy summon')) {
+    const slotName = input.slice(12).trim();
+    if (!slotName) {
+      app.pushMessage({ type: 'info', text: '  Usage: /buddy summon <slot>' });
+      return { handled: true };
+    }
+    try {
+      const { summonSlot } = await import('../ui/companion/companion.js');
+      const newCompanion = summonSlot(slotName);
+      setCompanionInstance(newCompanion);
+      app.setCompanion(newCompanion);
+      app.pushMessage({ type: 'info', text: `  ${newCompanion.name} the ${newCompanion.species} has appeared!` });
+    } catch (e) {
+      app.pushMessage({ type: 'info', text: `  Error: ${e instanceof Error ? e.message : String(e)}` });
+    }
+    return { handled: true };
+  }
+
+  if (input.startsWith('/buddy dismiss ')) {
+    const slotName = input.slice(15).trim();
+    if (!slotName) {
+      app.pushMessage({ type: 'info', text: '  Usage: /buddy dismiss <slot>' });
+      return { handled: true };
+    }
+    try {
+      const { dismissSlot } = await import('../ui/companion/companion.js');
+      const removed = dismissSlot(slotName);
+      if (removed) {
+        app.pushMessage({ type: 'info', text: `  Slot "${slotName}" dismissed.` });
+      } else {
+        app.pushMessage({ type: 'info', text: `  Slot "${slotName}" not found.` });
+      }
+    } catch (e) {
+      app.pushMessage({ type: 'info', text: `  Error: ${e instanceof Error ? e.message : String(e)}` });
+    }
+    return { handled: true };
+  }
+
+  if (input.startsWith('/buddy personality ')) {
+    const text = input.slice(18).trim();
+    const c = getCompanionInstance();
+    if (c && text) {
+      c.personality = text;
+      const { saveCompanion } = await import('../ui/companion/companion.js');
+      saveCompanion({ name: c.name, personality: text, hatchedAt: c.hatchedAt });
+      app.pushMessage({ type: 'info', text: `  ${c.name}'s personality: "${text}"` });
+    }
+    return { handled: true };
+  }
+
+  if (input.startsWith('/buddy frequency')) {
+    const arg = input.slice(15).trim();
+    const { loadBuddyConfig, saveBuddyConfig } = await import('../ui/companion/companion.js');
+    if (!arg) {
+      const cfg = loadBuddyConfig();
+      app.pushMessage({ type: 'info', text: `  Reaction cooldown: ${cfg.cooldownSeconds}s | Observation cooldown: ${cfg.observationCooldownSeconds}s` });
+    } else {
+      const seconds = parseInt(arg, 10);
+      if (isNaN(seconds) || seconds < 5 || seconds > 300) {
+        app.pushMessage({ type: 'info', text: '  Frequency must be 5-300 seconds.' });
+      } else {
+        saveBuddyConfig({ cooldownSeconds: seconds });
+        app.pushMessage({ type: 'info', text: `  Reaction cooldown set to ${seconds}s.` });
+      }
+    }
+    return { handled: true };
+  }
+
+  if (input.startsWith('/buddy style')) {
+    const arg = input.slice(12).trim() as 'classic' | 'round';
+    if (arg === 'classic' || arg === 'round') {
+      const { saveBuddyConfig } = await import('../ui/companion/companion.js');
+      saveBuddyConfig({ style: arg });
+      app.pushMessage({ type: 'info', text: `  Bubble style: ${arg}` });
+    } else {
+      app.pushMessage({ type: 'info', text: '  Usage: /buddy style [classic|round]' });
+    }
+    return { handled: true };
+  }
+
+  if (input.startsWith('/buddy observe')) {
+    const arg = input.slice(14).trim();
+    const { loadBuddyConfig, saveBuddyConfig } = await import('../ui/companion/companion.js');
+    if (arg === 'on') {
+      saveBuddyConfig({ observationsEnabled: true });
+      app.pushMessage({ type: 'info', text: '  Buddy observations: ON — injecting into model context.' });
+    } else if (arg === 'off') {
+      saveBuddyConfig({ observationsEnabled: false });
+      app.pushMessage({ type: 'info', text: '  Buddy observations: OFF.' });
+    } else {
+      const cfg = loadBuddyConfig();
+      app.pushMessage({ type: 'info', text: `  Observations: ${cfg.observationsEnabled ? 'ON' : 'OFF'}. Usage: /buddy observe [on|off]` });
     }
     return { handled: true };
   }

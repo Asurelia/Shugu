@@ -28,7 +28,7 @@ const SENSITIVE_PATH_PATTERNS = [
 /**
  * Redact a single string, replacing all sensitive patterns with placeholders.
  */
-function redactString(text: string): string {
+export function redactString(text: string): string {
   let result = text;
 
   // Apply secret patterns (API keys, tokens, credentials)

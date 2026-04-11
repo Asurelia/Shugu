@@ -11,6 +11,7 @@ import {
   isToolUseBlock,
   isToolResultBlock,
 } from '../../protocol/messages.js';
+import { redactString } from '../../meta/redact.js';
 
 // ─── Exported Types ────────────────────────────────────
 
@@ -93,7 +94,8 @@ function extractToolUses(
     };
     const result = resultMap.get(block.id);
     if (result !== undefined && result !== '') {
-      exported.result = result;
+      // Redact secrets from tool results before export
+      exported.result = redactString(result);
     }
     return exported;
   });

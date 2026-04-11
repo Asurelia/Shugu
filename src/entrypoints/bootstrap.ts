@@ -42,6 +42,7 @@ import { createBatchCommand } from '../commands/batch.js';
 import { createMetaCommand } from '../meta/cli.js';
 import { registerBehaviorHooks } from '../plugins/builtin/behavior-hooks.js';
 import { registerVerificationHook } from '../plugins/builtin/verification-hook.js';
+import { registerBuddyObserverHook } from '../plugins/builtin/buddy-observer-hook.js';
 import { AgentOrchestrator } from '../agents/orchestrator.js';
 import { discoverTools } from '../integrations/discovery.js';
 import { runLoop, type LoopConfig } from '../engine/loop.js';
@@ -272,6 +273,21 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
   // Register built-in hooks
   registerBehaviorHooks(hookRegistry);
   registerVerificationHook(hookRegistry);
+
+  // Buddy observer hook (when observations enabled)
+  try {
+    const { loadBuddyConfig } = await import('../ui/companion/companion.js');
+    const { BuddyObserver } = await import('../ui/companion/observer.js');
+    const buddyConfig = loadBuddyConfig();
+    if (buddyConfig.observationsEnabled) {
+      const { getCompanion: getBuddyCompanion } = await import('../ui/companion/companion.js');
+      const companion = getBuddyCompanion();
+      const observer = new BuddyObserver(companion, buddyConfig);
+      registerBuddyObserverHook(hookRegistry, observer);
+    }
+  } catch {
+    // Companion not available — skip observer
+  }
 
   // File revert: track file changes for /file-revert
   const revertStack = new FileRevertStack();

@@ -6,7 +6,7 @@
  *
  * Protocol (our own, not Anthropic's bridge):
  * - Server: PCC instance running with --share flag
- * - Client: connects via ws://host:port or wss://domain via Cloudflare
+ * - Client: connects via localhost WebSocket or wss://domain via Cloudflare tunnel
  * - Messages: JSON-RPC style { type, payload }
  *
  * The gateway runs on the VPS or locally.
@@ -94,10 +94,20 @@ export class SessionGateway {
       const wss = new WebSocketServer({ server: this.server });
 
       wss.on('connection', (socket: WebSocketLike, req: { url?: string; headers: Record<string, string | string[] | undefined> }) => {
-        // Auth check — constant-time comparison to prevent timing attacks
         if (this.config.password) {
-          const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
-          const token = url.searchParams.get('token') ?? '';
+          // Auth via header (preferred) or Sec-WebSocket-Protocol (fallback).
+          // Never use URL query params — they leak into server/proxy logs.
+          const authHeader = req.headers['authorization'];
+          const headerToken = typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
+            ? authHeader.slice(7)
+            : '';
+
+          const protocolHeader = req.headers['sec-websocket-protocol'];
+          const protocolToken = typeof protocolHeader === 'string' && protocolHeader.startsWith('auth.')
+            ? protocolHeader.slice(5)
+            : '';
+
+          const token = headerToken || protocolToken;
           if (!timingSafeCompare(token, this.config.password)) {
             socket.close(4001, 'Unauthorized');
             return;
@@ -127,7 +137,9 @@ export class SessionGateway {
       });
 
       this.server.listen(this.config.port, this.config.host, () => {
-        const addr = `ws://${this.config.host}:${this.config.port}`;
+        // Localhost-only display address (TLS is handled by reverse proxy for remote access)
+        const scheme = this.config.host === '127.0.0.1' || this.config.host === 'localhost' ? 'ws' : 'wss';
+        const addr = `${scheme}://${this.config.host}:${this.config.port}`;
         resolve(addr);
       });
 

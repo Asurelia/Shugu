@@ -138,6 +138,12 @@ export class HookRegistry extends EventEmitter {
         logger.warn(`Hook PreToolUse from plugin "${hook.pluginName}" threw: ${(error as Error).message}`);
         tracer.log('error', { hook: hook.pluginName, type: 'PreToolUse', error: (error as Error).message });
         this.emit('hook:error', hook.pluginName, 'PreToolUse', error);
+
+        // Fail secure: high-priority hooks (security-related, priority < 50) block on error.
+        // This prevents a crashing security hook from silently allowing dangerous operations.
+        if (hook.priority < 50) {
+          return { proceed: false, blockReason: `Security hook "${hook.pluginName}" failed — blocking tool call for safety` };
+        }
       }
     }
 

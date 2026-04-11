@@ -337,9 +337,24 @@ export class TriggerServer extends EventEmitter {
     );
   }
 
+  /** Max length per interpolated variable value. */
+  private static readonly MAX_VAR_LENGTH = 2000;
+
   private interpolate(template: string, vars: Record<string, string>): string {
     return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
-      return vars[key] ?? `{{${key}}}`;
+      const raw = vars[key];
+      if (raw === undefined) return `{{${key}}}`;
+
+      // Sanitize: truncate, strip prompt-injection markers, wrap in data tags
+      let value = raw.slice(0, TriggerServer.MAX_VAR_LENGTH);
+      value = value
+        .replace(/<\/?system[^>]*>/gi, '')
+        .replace(/<\/?user[^>]*>/gi, '')
+        .replace(/<\/?assistant[^>]*>/gi, '')
+        .replace(/<\/?instruction[^>]*>/gi, '')
+        .replace(/\n(?:Human|User|Assistant|System):/gi, '\n[role-marker-stripped]:');
+
+      return `<data name="${key}">${value}</data>`;
     });
   }
 
@@ -378,6 +393,12 @@ export class TriggerServer extends EventEmitter {
     if (!entry || now >= entry.resetAt) {
       // New window
       this.rateLimitMap.set(ip, { count: 1, resetAt: now + 60_000 });
+      // Periodically garbage-collect expired entries to prevent memory leaks
+      if (this.rateLimitMap.size > 1000) {
+        for (const [key, val] of this.rateLimitMap) {
+          if (now >= val.resetAt) this.rateLimitMap.delete(key);
+        }
+      }
       return false;
     }
 

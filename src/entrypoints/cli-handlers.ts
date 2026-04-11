@@ -34,6 +34,13 @@ export function isCompanionMuted(): boolean {
   return _companionMuted;
 }
 
+/**
+ * Replace the active companion instance (for /buddy summon).
+ */
+export function setCompanionInstance(companion: Companion): void {
+  _companion = companion;
+}
+
 // ─── Single-shot event handler ────────────────────────
 
 export function handleEvent(

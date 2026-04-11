@@ -333,7 +333,8 @@ export class ObsidianVault {
    * Archive a note by moving it to Agent/archive/YYYY-MM-DD/.
    */
   async archiveNote(notePath: string): Promise<string | null> {
-    const absPath = join(this.config.path, notePath);
+    const absPath = this.resolveSafe(notePath);
+    if (absPath === null) return null;
     try {
       await access(absPath);
     } catch {
