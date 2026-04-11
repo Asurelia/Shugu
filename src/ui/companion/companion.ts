@@ -3,8 +3,8 @@
  * Ported from OpenClaude buddy/companion.ts
  */
 
-import type { CompanionBones, Companion, Rarity, Species, Eye, Hat } from './types.js';
-import { SPECIES, EYES, HATS, RARITIES, RARITY_WEIGHTS, RARITY_STARS } from './types.js';
+import type { CompanionBones, Companion, Rarity, Species, Eye, Hat, BuddyConfig, Menagerie, MenagerieSlot } from './types.js';
+import { SPECIES, EYES, HATS, RARITIES, RARITY_WEIGHTS, RARITY_STARS, DEFAULT_BUDDY_CONFIG } from './types.js';
 import { renderSprite, renderFace } from './sprites.js';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -231,4 +231,164 @@ export function renderHatchCeremony(companion: Companion): string[] {
  */
 export function isFirstHatch(): boolean {
   return !existsSync(COMPANION_FILE);
+}
+
+// ─── Menagerie (Multi-Companion Storage) ──────────────
+
+const MENAGERIE_FILE = join(CONFIG_DIR, 'menagerie.json');
+const BUDDY_CONFIG_FILE = join(CONFIG_DIR, 'buddy-config.json');
+
+function slugify(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 14) || 'buddy';
+}
+
+/**
+ * Load the menagerie. If none exists, auto-migrate from companion.json.
+ */
+export function loadMenagerie(): Menagerie {
+  try {
+    const data = readFileSync(MENAGERIE_FILE, 'utf-8');
+    return JSON.parse(data) as Menagerie;
+  } catch {
+    // Auto-migrate from companion.json if it exists
+    const stored = getStoredCompanion();
+    const defaultSlot: MenagerieSlot = {
+      name: stored?.name ?? 'Buddy',
+      seed: `shugu-${homedir()}`,
+      personality: stored?.personality ?? 'curious and helpful',
+      hatchedAt: stored?.hatchedAt ?? Date.now(),
+    };
+    const menagerie: Menagerie = {
+      activeSlot: 'default',
+      slots: { default: defaultSlot },
+    };
+    saveMenagerie(menagerie);
+    return menagerie;
+  }
+}
+
+/**
+ * Persist the menagerie to disk.
+ */
+export function saveMenagerie(menagerie: Menagerie): void {
+  if (!existsSync(CONFIG_DIR)) mkdirSync(CONFIG_DIR, { recursive: true });
+  writeFileSync(MENAGERIE_FILE, JSON.stringify(menagerie, null, 2));
+}
+
+/**
+ * Save current companion to a named slot.
+ * Throws if slot already exists (use saveCompanion for active slot updates).
+ */
+export function saveSlot(slotName: string, companion: Companion): void {
+  const menagerie = loadMenagerie();
+  const slug = slugify(slotName);
+  if (menagerie.slots[slug]) {
+    throw new Error(`Slot "${slug}" already exists. Use a different name.`);
+  }
+  menagerie.slots[slug] = {
+    name: companion.name,
+    seed: `shugu-${homedir()}-${slug}`,
+    personality: companion.personality,
+    hatchedAt: companion.hatchedAt,
+    vibeWords: (companion as Companion & { vibeWords?: string[] }).vibeWords,
+  };
+  saveMenagerie(menagerie);
+}
+
+/**
+ * Summon a companion from a named slot.
+ * If the slot doesn't exist, generates a new companion deterministically from the slot name.
+ */
+export function summonSlot(slotName: string): Companion {
+  const menagerie = loadMenagerie();
+  const slug = slugify(slotName);
+  const slot = menagerie.slots[slug];
+
+  if (slot) {
+    menagerie.activeSlot = slug;
+    saveMenagerie(menagerie);
+    const bones = generateBones(slot.seed);
+    return { ...bones, name: slot.name, personality: slot.personality, hatchedAt: slot.hatchedAt };
+  }
+
+  // Generate new companion from slot name as seed
+  const seed = `shugu-${homedir()}-${slug}`;
+  const bones = generateBones(seed);
+  const defaultNames: Record<Species, string> = {
+    duck: 'Quacko', goose: 'Honkers', blob: 'Gloopy', cat: 'Shugu',
+    dragon: 'Ember', octopus: 'Inky', owl: 'Hoot', penguin: 'Waddles',
+    turtle: 'Shell', snail: 'Slick', ghost: 'Boo', axolotl: 'Axie',
+    capybara: 'Cappy', cactus: 'Spike', robot: 'Beep', rabbit: 'Bun',
+    mushroom: 'Spore', chonk: 'Chonky',
+  };
+  const newSlot: MenagerieSlot = {
+    name: defaultNames[bones.species] ?? 'Buddy',
+    seed,
+    personality: 'curious and helpful',
+    hatchedAt: Date.now(),
+  };
+  menagerie.slots[slug] = newSlot;
+  menagerie.activeSlot = slug;
+  saveMenagerie(menagerie);
+  saveCompanion({ name: newSlot.name, personality: newSlot.personality, hatchedAt: newSlot.hatchedAt });
+
+  return { ...bones, ...newSlot };
+}
+
+/**
+ * List all saved companion slots.
+ */
+export function listSlots(): Array<{ slot: string; name: string; species: Species; rarity: Rarity; active: boolean }> {
+  const menagerie = loadMenagerie();
+  return Object.entries(menagerie.slots).map(([slug, slot]) => {
+    const bones = generateBones(slot.seed);
+    return {
+      slot: slug,
+      name: slot.name,
+      species: bones.species,
+      rarity: bones.rarity,
+      active: slug === menagerie.activeSlot,
+    };
+  });
+}
+
+/**
+ * Dismiss (remove) a saved companion slot.
+ * Cannot dismiss the currently active slot.
+ */
+export function dismissSlot(slotName: string): boolean {
+  const menagerie = loadMenagerie();
+  const slug = slugify(slotName);
+  if (!menagerie.slots[slug]) return false;
+  if (slug === menagerie.activeSlot) {
+    throw new Error(`Cannot dismiss active companion "${slug}". Summon another first.`);
+  }
+  delete menagerie.slots[slug];
+  saveMenagerie(menagerie);
+  return true;
+}
+
+// ─── Buddy Configuration ──────────────────────────────
+
+/**
+ * Load buddy config with defaults for any missing fields.
+ */
+export function loadBuddyConfig(): BuddyConfig {
+  try {
+    const data = readFileSync(BUDDY_CONFIG_FILE, 'utf-8');
+    const stored = JSON.parse(data) as Partial<BuddyConfig>;
+    return { ...DEFAULT_BUDDY_CONFIG, ...stored };
+  } catch {
+    return { ...DEFAULT_BUDDY_CONFIG };
+  }
+}
+
+/**
+ * Merge partial config updates and persist.
+ */
+export function saveBuddyConfig(config: Partial<BuddyConfig>): void {
+  const current = loadBuddyConfig();
+  const merged = { ...current, ...config };
+  if (!existsSync(CONFIG_DIR)) mkdirSync(CONFIG_DIR, { recursive: true });
+  writeFileSync(BUDDY_CONFIG_FILE, JSON.stringify(merged, null, 2));
 }

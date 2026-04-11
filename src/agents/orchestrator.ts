@@ -392,7 +392,15 @@ export class AgentOrchestrator {
     overrideAllowed?: string[],
     depth: number = 0,
   ): Map<string, Tool> {
-    const allowed = overrideAllowed ?? definition.allowedTools;
+    // If both overrideAllowed and definition.allowedTools are present,
+    // use the INTERSECTION to prevent privilege escalation.
+    let allowed: string[] | undefined;
+    if (overrideAllowed && definition.allowedTools) {
+      const definitionSet = new Set(definition.allowedTools);
+      allowed = overrideAllowed.filter((name) => definitionSet.has(name));
+    } else {
+      allowed = overrideAllowed ?? definition.allowedTools;
+    }
 
     let tools: Map<string, Tool>;
     if (!allowed) {

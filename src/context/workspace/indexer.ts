@@ -34,6 +34,10 @@ const SKIP_EXTENSIONS = new Set([
   '.woff', '.woff2', '.ttf', '.eot',
   '.mp3', '.mp4', '.zip', '.tar', '.gz',
   '.lock', '.min.js', '.min.css',
+  // Sensitive key material — never index
+  '.pem', '.key', '.pfx', '.p12', '.jks',
+  // Binaries
+  '.exe', '.dll', '.so', '.dylib', '.o', '.a',
 ]);
 
 const MAX_FILE_SIZE = 1_000_000; // 1MB

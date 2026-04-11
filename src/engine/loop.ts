@@ -64,6 +64,8 @@ export interface LoopConfig {
    * Returns updated text blocks, or null to keep current prompt.
    */
   refreshContext?: (query: string, turnIndex: number) => Promise<string[] | null>;
+  /** Buddy observer — drains observations into context between turns. */
+  buddyObserver?: import('../ui/companion/observer.js').BuddyObserver;
 }
 
 // ─── Loop Events ────────────────────────────────────────
@@ -428,6 +430,14 @@ export async function* runLoop(
 
         // Yield tool_result_message so consumers can track incremental history
         yield { type: 'tool_result_message', message: toolResultMessage };
+
+        // ── Buddy observation injection ──
+        if (config.buddyObserver) {
+          const obs = config.buddyObserver.drain();
+          if (obs) {
+            messages.push({ role: 'user', content: `[Buddy observation] ${obs}` });
+          }
+        }
       }
 
       // ── Per-call context refresh (every 3 turns after tool execution) ──

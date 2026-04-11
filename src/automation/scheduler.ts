@@ -135,6 +135,12 @@ export type JobExecutor = (job: ScheduledJob, signal?: AbortSignal) => Promise<s
 
 // ─── Scheduler ─────────────────────────────────────────
 
+/** Maximum number of concurrent jobs to prevent resource exhaustion. */
+const MAX_JOBS = 50;
+
+/** Minimum interval for interval-based jobs (ms) to prevent CPU exhaustion. */
+const MIN_INTERVAL_MS = 5_000;
+
 export class Scheduler extends EventEmitter {
   private jobs = new Map<string, ScheduledJob>();
   private intervalTimers = new Map<string, ReturnType<typeof setInterval>>();
@@ -188,6 +194,15 @@ export class Scheduler extends EventEmitter {
    * Add a new scheduled job.
    */
   addJob(config: Omit<ScheduledJob, 'id' | 'createdAt' | 'runCount'>): ScheduledJob {
+    if (this.jobs.size >= MAX_JOBS) {
+      throw new Error(`Maximum number of scheduled jobs (${MAX_JOBS}) reached. Remove unused jobs first.`);
+    }
+
+    // Enforce minimum interval to prevent CPU exhaustion
+    if (config.schedule.type === 'interval' && config.schedule.ms < MIN_INTERVAL_MS) {
+      throw new Error(`Minimum interval is ${MIN_INTERVAL_MS}ms. Got: ${config.schedule.ms}ms`);
+    }
+
     const job: ScheduledJob = {
       ...config,
       id: `job-${++this.jobCounter}`,

@@ -105,7 +105,7 @@ describe('Scheduler', () => {
     const job = scheduler.addJob({
       name: 'removable',
       prompt: 'test',
-      schedule: { type: 'interval', ms: 1000 },
+      schedule: { type: 'interval', ms: 5000 },
       enabled: true,
     });
 
@@ -119,7 +119,7 @@ describe('Scheduler', () => {
     const job = scheduler.addJob({
       name: 'toggleable',
       prompt: 'test',
-      schedule: { type: 'interval', ms: 1000 },
+      schedule: { type: 'interval', ms: 5000 },
       enabled: true,
     });
 
@@ -147,7 +147,7 @@ describe('Scheduler', () => {
     const job = scheduler.addJob({
       name: 'no-exec',
       prompt: 'test',
-      schedule: { type: 'interval', ms: 1000 },
+      schedule: { type: 'interval', ms: 5000 },
       enabled: true,
     });
 

@@ -163,17 +163,36 @@ describe('HookRegistry: unregister', () => {
 });
 
 describe('HookRegistry: error handling', () => {
-  it('continues after a hook throws', async () => {
+  it('blocks on high-priority hook crash (fail secure)', async () => {
     const registry = new HookRegistry();
 
     registry.register({
       type: 'PreToolUse',
-      pluginName: 'crashy',
-      priority: 0,
+      pluginName: 'crashy-security',
+      priority: 0, // High-priority (security) hook
       handler: async () => { throw new Error('plugin crash'); },
     });
 
-    // Should not throw, should default to proceed
+    // High-priority hooks (priority < 50) fail secure: block the tool call
+    const result = await registry.runPreToolUse({
+      tool: 'Bash',
+      call: { id: 'x', name: 'Bash', input: {} },
+    });
+    expect(result.proceed).toBe(false);
+    expect(result.blockReason).toContain('crashy-security');
+  });
+
+  it('continues after a low-priority hook throws', async () => {
+    const registry = new HookRegistry();
+
+    registry.register({
+      type: 'PreToolUse',
+      pluginName: 'crashy-optional',
+      priority: 80, // Low-priority (non-security) hook
+      handler: async () => { throw new Error('plugin crash'); },
+    });
+
+    // Low-priority hooks continue on error (fail open)
     const result = await registry.runPreToolUse({
       tool: 'Bash',
       call: { id: 'x', name: 'Bash', input: {} },

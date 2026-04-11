@@ -42,3 +42,62 @@ export interface CompanionSoul {
 export interface Companion extends CompanionBones, CompanionSoul {
   hatchedAt: number;
 }
+
+// ─── Buddy Configuration ──────────────────────────────
+
+export interface BuddyConfig {
+  /** Min seconds between displayed visual reactions (default 30) */
+  cooldownSeconds: number;
+  /** Bubble border style */
+  style: 'classic' | 'round';
+  /** Bubble position relative to sprite */
+  position: 'top' | 'left';
+  /** Show rarity stars in display */
+  showRarity: boolean;
+  /** Whether buddy injects observations into model context */
+  observationsEnabled: boolean;
+  /** Min seconds between context injections (default 45) */
+  observationCooldownSeconds: number;
+}
+
+export const DEFAULT_BUDDY_CONFIG: BuddyConfig = {
+  cooldownSeconds: 30,
+  style: 'classic',
+  position: 'top',
+  showRarity: true,
+  observationsEnabled: false,
+  observationCooldownSeconds: 45,
+};
+
+// ─── Menagerie (Multi-Companion Storage) ──────────────
+
+export interface MenagerieSlot {
+  name: string;
+  seed: string;
+  personality: string;
+  hatchedAt: number;
+  vibeWords?: string[];
+}
+
+export interface Menagerie {
+  activeSlot: string;
+  slots: Record<string, MenagerieSlot>;
+}
+
+// ─── Buddy Observer Types ─────────────────────────────
+
+export type ObservationCategory =
+  | 'security'
+  | 'error_pattern'
+  | 'performance'
+  | 'architecture'
+  | 'test_failure'
+  | 'code_smell';
+
+export interface BuddyObservation {
+  category: ObservationCategory;
+  message: string;
+  timestamp: number;
+  toolName: string;
+  severity: 'info' | 'warn' | 'alert';
+}

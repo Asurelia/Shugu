@@ -20,6 +20,9 @@ import { EventEmitter } from 'node:events';
 import { randomBytes } from 'node:crypto';
 import { timingSafeCompare, buildSafeEnv } from '../utils/security.js';
 
+/** File name for the nonce file (written with 0o600, deleted after read). */
+const NONCE_FILENAME = 'daemon.nonce';
+
 // ─── Daemon Config ─────────────────────────────────────
 
 export interface DaemonConfig {
@@ -80,7 +83,7 @@ export class DaemonController extends EventEmitter {
 
     // Ensure state directory exists
     if (!existsSync(config.stateDir)) {
-      mkdirSync(config.stateDir, { recursive: true });
+      mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
     }
 
     const socketPath = process.platform === 'win32'
@@ -108,18 +111,22 @@ export class DaemonController extends EventEmitter {
 
     try {
       // Generate a cryptographic nonce for IPC authentication.
-      // The child reads this from env and validates every incoming message.
+      // Written to a file (0o600) instead of env to prevent leaking to child processes.
       const ipcNonce = randomBytes(32).toString('hex');
       this.ipcNonce = ipcNonce;
 
-      // Fork with sanitized env — only safe vars + daemon-specific extras
+      const noncePath = join(this.config.stateDir, NONCE_FILENAME);
+      writeFileSync(noncePath, ipcNonce, { mode: 0o600 });
+
+      // Fork with sanitized env — only safe vars + daemon-specific extras.
+      // The nonce file path (not the nonce itself) is passed via env.
       this.child = fork(this.config.entrypoint, ['--daemon'], {
         cwd: this.config.cwd,
         env: buildSafeEnv({
           ...this.config.env,
           PCC_DAEMON: '1',
           PCC_DAEMON_SOCKET: this.state.socketPath,
-          PCC_DAEMON_NONCE: ipcNonce,
+          PCC_DAEMON_NONCE_FILE: noncePath,
         }),
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
@@ -290,7 +297,7 @@ export class DaemonController extends EventEmitter {
 
   private saveState(): void {
     const statePath = join(this.config.stateDir, 'daemon.json');
-    writeFileSync(statePath, JSON.stringify(this.state, null, 2));
+    writeFileSync(statePath, JSON.stringify(this.state, null, 2), { mode: 0o600 });
   }
 
   private appendLog(text: string): void {
@@ -298,7 +305,7 @@ export class DaemonController extends EventEmitter {
     const timestamp = new Date().toISOString();
     const line = `[${timestamp}] ${text.trimEnd()}\n`;
     try {
-      appendFileSync(logPath, line);
+      appendFileSync(logPath, line, { mode: 0o600 });
     } catch {
       // Log write failure is non-critical
     }
@@ -351,8 +358,18 @@ export class DaemonWorker extends EventEmitter {
 
     this.running = true;
 
-    // Read the IPC nonce from env (set by DaemonController at fork time)
-    const expectedNonce = process.env['PCC_DAEMON_NONCE'] ?? '';
+    // Read the IPC nonce from a secure file (not env, to prevent leaking to child processes).
+    // The file is deleted immediately after reading.
+    let expectedNonce = '';
+    const nonceFilePath = process.env['PCC_DAEMON_NONCE_FILE'] ?? '';
+    if (nonceFilePath) {
+      try {
+        expectedNonce = readFileSync(nonceFilePath, 'utf-8').trim();
+        unlinkSync(nonceFilePath);
+      } catch {
+        // If the nonce file can't be read, IPC auth will reject all messages (fail secure)
+      }
+    }
 
     process.on('message', (msg: DaemonMessage) => {
       // Validate IPC nonce — reject messages without valid authentication

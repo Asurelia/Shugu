@@ -30,5 +30,12 @@ export function resolveAuth(): AuthConfig {
     process.env['ANTHROPIC_BASE_URL'] ??
     DEFAULT_BASE_URL;
 
+  // Block cleartext HTTP — API keys must not be sent unencrypted
+  if (baseUrl.startsWith('http://') && !baseUrl.startsWith('http://localhost') && !baseUrl.startsWith('http://127.0.0.1')) {
+    throw new Error(
+      `API base URL must use HTTPS to protect credentials. Got: ${baseUrl.slice(0, 40)}...`,
+    );
+  }
+
   return { apiKey, baseUrl };
 }

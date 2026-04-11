@@ -21,6 +21,7 @@ import type { CredentialProvider } from '../credentials/provider.js';
 import type { Kairos } from '../automation/kairos.js';
 import type { TerminalRenderer } from '../ui/renderer.js';
 import type { FileRevertStack, TurnChangeAccumulator } from '../context/session/file-revert.js';
+import type { BuddyObserver } from '../ui/companion/observer.js';
 
 export interface RuntimeServices {
   readonly client: MiniMaxClient;
@@ -40,6 +41,7 @@ export interface RuntimeServices {
   readonly renderer: TerminalRenderer;
   readonly revertStack: FileRevertStack;
   readonly turnAccumulator: TurnChangeAccumulator;
+  readonly buddyObserver?: BuddyObserver;
 
   dispose(): Promise<void>;
 }

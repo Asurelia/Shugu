@@ -571,6 +571,7 @@ function FullApp({ initialMode, initialStatus, stateRef, onSubmit, onModeChange 
           <Box flexShrink={0} alignSelf="flex-end">
             <CompanionSprite
               companion={liveState.companion}
+              reaction={liveState.companionReaction}
               petted={liveState.companionPetted}
               termWidth={cols}
             />

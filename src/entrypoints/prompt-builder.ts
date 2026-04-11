@@ -11,7 +11,7 @@ import type { MemoryAgent } from '../context/memory/agent.js';
 import { discoverTools } from '../integrations/discovery.js';
 import { generateHints } from '../integrations/adapter.js';
 import { generateSkillsPrompt, type SkillRegistry } from '../skills/index.js';
-import { getCompanion, getCompanionPrompt } from '../ui/companion/index.js';
+import { getCompanion, generatePersonalityPrompt, loadBuddyConfig } from '../ui/companion/index.js';
 import { logger } from '../utils/logger.js';
 
 // ─── Base System Prompt (static, cacheable) ─────────────
@@ -171,10 +171,13 @@ export async function buildSystemPrompt(
     if (skillsPrompt) parts.push(skillsPrompt);
   }
 
-  // Companion introduction (sync after first call — cached in module)
+  // Companion introduction with observer role (if observations enabled)
   try {
     const companion = getCompanion();
-    parts.push('\n' + getCompanionPrompt(companion));
+    const buddyConfig = loadBuddyConfig();
+    parts.push('\n' + generatePersonalityPrompt(companion, {
+      observationsEnabled: buddyConfig.observationsEnabled,
+    }));
   } catch (e) {
     warnings.push(`Companion failed: ${e instanceof Error ? e.message : String(e)}`);
   }

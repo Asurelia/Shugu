@@ -35,29 +35,29 @@ const PET_HEARTS = [
   '·    ·   ·  ',
 ];
 
-// ─── Speech Bubble Component ───────────────────────────
+// ─── Speech Bubble Component (renders LEFT of sprite) ──
+
+const BUBBLE_MAX_WIDTH = 24;
 
 function SpeechBubble({ text, fading }: { text: string; fading: boolean }): React.ReactElement {
-  // Word wrap to max 28 chars
-  const lines = wordWrap(text, 28);
+  const lines = wordWrap(text, BUBBLE_MAX_WIDTH);
+  const color = fading ? 'gray' : 'cyan';
 
   return (
-    <Box flexDirection="column" alignItems="flex-end" marginRight={1}>
+    <Box flexDirection="row" alignItems="center">
+      {/* Bubble box */}
       <Box
         flexDirection="column"
         borderStyle="round"
-        borderColor={fading ? 'gray' : 'cyan'}
+        borderColor={color}
         paddingX={1}
-        width={32}
       >
         {lines.map((line, i) => (
           <Text key={i} italic dimColor={fading} color={fading ? 'gray' : undefined}>{line}</Text>
         ))}
       </Box>
-      <Box flexDirection="column" alignItems="flex-end" paddingRight={6}>
-        <Text color={fading ? 'gray' : 'cyan'}>╲ </Text>
-        <Text color={fading ? 'gray' : 'cyan'}>╲</Text>
-      </Box>
+      {/* Connector pointing right toward the sprite */}
+      <Text color={color}>{'─╮'}</Text>
     </Box>
   );
 }
@@ -173,25 +173,30 @@ export function CompanionSprite({
     return line;
   });
 
-  return (
-    <Box flexDirection="column" alignItems="flex-end">
-      {/* Pet hearts */}
+  // Sprite + name as a vertical column
+  const spriteColumn = (
+    <Box flexDirection="column" alignItems="flex-end" flexShrink={0}>
+      {/* Pet hearts above sprite */}
       {petFrame >= 0 && petFrame < PET_FRAMES && (
         <Text color="red">{PET_HEARTS[petFrame]}</Text>
       )}
-
-      {/* Speech bubble */}
-      {currentReaction && (
-        <SpeechBubble text={currentReaction} fading={fading} />
-      )}
-
-      {/* Sprite */}
+      {/* Sprite lines */}
       {renderedLines.map((line, i) => (
         <Text key={i} color={companion.shiny ? 'yellow' : 'cyan'}>{line}</Text>
       ))}
-
-      {/* Name + rarity */}
+      {/* Name */}
       <Text dimColor>  {companion.name}</Text>
+    </Box>
+  );
+
+  return (
+    <Box flexDirection="row" alignItems="center">
+      {/* Speech bubble on the LEFT of sprite */}
+      {currentReaction && (
+        <SpeechBubble text={currentReaction} fading={fading} />
+      )}
+      {/* Sprite on the RIGHT */}
+      {spriteColumn}
     </Box>
   );
 }

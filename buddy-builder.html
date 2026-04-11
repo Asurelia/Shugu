@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Shugu Buddy Builder</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap');
+:root{--bg:#0d1117;--s:#161b22;--e:#1c2333;--bd:#30363d;--t:#e6edf3;--td:#7d8590;--cy:#58d4f1;--gn:#3fb950;--yl:#d29922;--rd:#f85149;--mg:#db61a2;--pr:#a371f7;--gr:#6e7681;--gd:#ffc107}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--t);font-family:'JetBrains Mono',monospace;overflow:hidden;height:100vh}
+
+/* ── Layout ── */
+.app{display:flex;height:100vh}
+.sidebar{width:280px;background:var(--s);border-right:1px solid var(--bd);overflow-y:auto;flex-shrink:0;padding:16px}
+.canvas-wrap{flex:1;position:relative;overflow:hidden}
+
+/* ── Sidebar ── */
+.sidebar h2{font-size:14px;color:var(--cy);margin-bottom:16px;letter-spacing:1px}
+.section{margin-bottom:20px}
+.section-title{font-size:10px;color:var(--td);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;border-bottom:1px solid var(--bd);padding-bottom:4px}
+.row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.row label{font-size:11px;color:var(--td);min-width:70px;flex-shrink:0}
+.row select,.row input[type=text],.row input[type=number]{font-family:inherit;font-size:11px;padding:4px 8px;border:1px solid var(--bd);border-radius:4px;background:var(--e);color:var(--t);outline:none;flex:1;min-width:0}
+.row input[type=range]{flex:1}
+.row .val{font-size:10px;color:var(--cy);min-width:24px;text-align:right}
+.row input:focus,.row select:focus{border-color:var(--cy)}
+.btn-row{display:flex;gap:4px;flex-wrap:wrap}
+.btn-sm{font-family:inherit;font-size:10px;padding:3px 8px;border:1px solid var(--bd);border-radius:3px;background:var(--e);color:var(--td);cursor:pointer}
+.btn-sm:hover{border-color:var(--cy);color:var(--cy)}
+.btn-sm.active{background:rgba(88,212,241,.15);border-color:var(--cy);color:var(--cy)}
+.checkbox{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--td);cursor:pointer;margin-bottom:6px}
+.checkbox input{accent-color:var(--cy)}
+
+/* ── Canvas ── */
+.canvas{position:absolute;inset:0;background:#0a0e14;cursor:default}
+.canvas::before{content:'';position:absolute;inset:0;background-image:radial-gradient(circle,rgba(88,212,241,.03) 1px,transparent 1px);background-size:20px 20px;pointer-events:none}
+
+/* ── Prompt simulation ── */
+.prompt-sim{position:absolute;bottom:0;left:0;right:0;background:#0d1117;border-top:1px solid var(--bd);padding:12px 20px;font-size:13px}
+.prompt-bar{color:var(--gr);font-size:11px;margin-bottom:4px}
+.prompt-input{color:var(--t)}
+.prompt-input .cursor{opacity:.4;animation:blink-cursor 1s infinite}
+.prompt-status{color:var(--td);font-size:10px;margin-top:4px}
+@keyframes blink-cursor{0%,49%{opacity:.4}50%,100%{opacity:0}}
+
+/* ── Draggable elements on canvas ── */
+.drag-el{position:absolute;cursor:move;user-select:none;transition:box-shadow .15s}
+.drag-el:hover{box-shadow:0 0 0 1px var(--cy)}
+.drag-el.dragging{box-shadow:0 0 0 2px var(--cy);z-index:100}
+.drag-el .handle{position:absolute;top:-8px;left:50%;transform:translateX(-50%);font-size:8px;color:var(--cy);opacity:0;transition:opacity .15s;pointer-events:none}
+.drag-el:hover .handle{opacity:1}
+
+/* ── Sprite ── */
+.sprite-el{white-space:pre;font-size:13px;line-height:1.35;color:var(--cy);padding:4px}
+
+/* ── Bubble ── */
+.bubble-el{border-radius:8px;padding:6px 10px;min-width:60px;min-height:30px;resize:both;overflow:hidden;font-size:12px;font-style:italic;color:var(--t);line-height:1.4;word-break:break-word}
+.bubble-el.classic{border:1px solid var(--gr);border-radius:3px}
+.bubble-el.round{border:1px solid var(--gr);border-radius:14px}
+.bubble-el.minimal{border:none;color:var(--gr);font-style:italic;padding:2px}
+.bubble-el.double{border:2px solid var(--cy);border-radius:3px}
+
+/* ── Connector line (SVG) ── */
+.connector-svg{position:absolute;inset:0;pointer-events:none;z-index:50}
+
+/* ── Export box ── */
+.export-box{margin-top:12px;background:var(--e);border:1px solid var(--bd);border-radius:6px;padding:10px;font-size:10px;color:var(--cy);white-space:pre-wrap;word-break:break-all;max-height:120px;overflow-y:auto}
+
+/* ── Species picker ── */
+.sp-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.sp-item{background:var(--e);border:1px solid var(--bd);border-radius:4px;padding:4px;text-align:center;cursor:pointer;font-size:8px;color:var(--td);white-space:pre;line-height:1.1}
+.sp-item:hover{border-color:var(--cy)}
+.sp-item.active{border-color:var(--cy);background:rgba(88,212,241,.1);color:var(--cy)}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- ═══ Sidebar Controls ═══ -->
+<div class="sidebar">
+<h2>BUDDY BUILDER</h2>
+
+<div class="section">
+<div class="section-title">Espece</div>
+<div class="sp-grid" id="spGrid"></div>
+</div>
+
+<div class="section">
+<div class="section-title">Bulle</div>
+<div class="row"><label>Texte</label><input type="text" id="bubText" value="*narrows eyes* SQL injection detected" oninput="updateBubble()"/></div>
+<div class="row"><label>Style</label>
+<div class="btn-row">
+<button class="btn-sm active" onclick="setStyle('classic',this)">Classic</button>
+<button class="btn-sm" onclick="setStyle('round',this)">Round</button>
+<button class="btn-sm" onclick="setStyle('minimal',this)">Minimal</button>
+<button class="btn-sm" onclick="setStyle('double',this)">Double</button>
+</div></div>
+<div class="row"><label>Max width</label><input type="range" id="bubMaxW" min="100" max="320" value="220" oninput="updateBubble();document.getElementById('bubMaxWVal').textContent=this.value+'px'"/><span class="val" id="bubMaxWVal">220px</span></div>
+<div class="row"><label>Font size</label><input type="range" id="bubFS" min="9" max="16" value="12" oninput="updateBubble();document.getElementById('bubFSVal').textContent=this.value+'px'"/><span class="val" id="bubFSVal">12px</span></div>
+<div class="row"><label>Padding</label><input type="range" id="bubPad" min="2" max="16" value="6" oninput="updateBubble();document.getElementById('bubPadVal').textContent=this.value+'px'"/><span class="val" id="bubPadVal">6px</span></div>
+<div class="row"><label>Radius</label><input type="range" id="bubRad" min="0" max="20" value="8" oninput="updateBubble();document.getElementById('bubRadVal').textContent=this.value+'px'"/><span class="val" id="bubRadVal">8px</span></div>
+<label class="checkbox"><input type="checkbox" id="bubShow" checked onchange="toggleBubble()"/> Afficher la bulle</label>
+</div>
+
+<div class="section">
+<div class="section-title">Connecteur</div>
+<div class="row"><label>Style</label>
+<div class="btn-row">
+<button class="btn-sm active" onclick="setConn('line',this)">Line</button>
+<button class="btn-sm" onclick="setConn('arrow',this)">Arrow</button>
+<button class="btn-sm" onclick="setConn('dots',this)">Dots</button>
+<button class="btn-sm" onclick="setConn('none',this)">None</button>
+</div></div>
+</div>
+
+<div class="section">
+<div class="section-title">Sprite</div>
+<div class="row"><label>Taille</label><input type="range" id="spSize" min="10" max="18" value="13" oninput="updateSprite();document.getElementById('spSizeVal').textContent=this.value+'px'"/><span class="val" id="spSizeVal">13px</span></div>
+<div class="row"><label>Couleur</label>
+<div class="btn-row">
+<button class="btn-sm active" onclick="setColor('--cy',this)">Cyan</button>
+<button class="btn-sm" onclick="setColor('--gn',this)">Green</button>
+<button class="btn-sm" onclick="setColor('--yl',this)">Gold</button>
+<button class="btn-sm" onclick="setColor('--pr',this)">Purple</button>
+<button class="btn-sm" onclick="setColor('--mg',this)">Pink</button>
+</div></div>
+</div>
+
+<div class="section">
+<div class="section-title">Config Export</div>
+<div class="export-box" id="exportBox">// Positions will appear here</div>
+<button class="btn-sm" style="margin-top:8px;width:100%" onclick="copyExport()">Copy Config</button>
+</div>
+</div>
+
+<!-- ═══ Canvas ═══ -->
+<div class="canvas-wrap">
+<div class="canvas" id="canvas">
+  <svg class="connector-svg" id="connSvg"></svg>
+
+  <!-- Bubble element (draggable + resizable) -->
+  <div class="drag-el bubble-el classic" id="bubbleEl" style="left:40px;top:80px;width:220px">
+    <span class="handle">drag</span>
+    *narrows eyes* SQL injection detected
+  </div>
+
+  <!-- Sprite element (draggable) -->
+  <div class="drag-el sprite-el" id="spriteEl" style="left:300px;top:60px">
+    <span class="handle">drag</span>
+  </div>
+</div>
+
+<!-- Prompt simulation at bottom -->
+<div class="prompt-sim">
+  <div class="prompt-bar">──────────────────────── session-abc12 ──</div>
+  <div class="prompt-input"><span style="color:var(--gn);font-weight:bold">&gt; </span>help me fix the auth bug<span class="cursor">|</span></div>
+  <div class="prompt-bar">─────────────────────────────────────────</div>
+  <div class="prompt-status">model: minimax-m2.7 | tokens: 12.4k/204k | $0.03</div>
+  <div class="prompt-status">  <span style="color:var(--gr)">\u23F5\u23F5</span> <span style="color:var(--gn)">normal</span> permissions on</div>
+</div>
+</div>
+
+</div>
+
+<script>
+// ── Sprite Data ──
+const BODIES={cat:[['   /\\_/\\    ','  ( o   o)  ','  (  \u03C9  )   ','  (")_(")   '],['   /\\_/\\    ','  ( o   o)  ','  (  \u03C9  )   ','  (")_(")~  '],['   /\\-/\\    ','  ( o   o)  ','  (  \u03C9  )   ','  (")_(")   ']],duck:[['    __      ','  <(o )___  ','   (  ._>   ','    `--\u00B4    ']],goose:[['     (o>    ','     ||     ','   _(__)_   ','    ^^^^    ']],dragon:[['  /^\\  /^\\  ',' <  o  o  > ',' (   ~~   ) ','  `-vvvv-\u00B4  ']],owl:[['   /\\  /\\   ','  ((o)(o))  ','  (  ><  )  ','   `----\u00B4   ']],ghost:[['   .----.   ','  / o  o \\  ','  |      |  ','  ~`~``~`~  ']],robot:[['   .[||].   ','  [ o  o ]  ','  [ ==== ]  ','  `------\u00B4  ']],axolotl:[['}~(______)~{','}~(o .. o)~{','  ( .--. )  ','  (_/  \\_)  ']],capybara:[['  n______n  ',' ( o    o ) ',' (   oo   ) ','  `------\u00B4  ']],blob:[['   .----.   ','  ( o  o )  ','  (      )  ','   `----\u00B4   ']],octopus:[['   .----.   ','  ( o  o )  ','  (______)  ','  /\\/\\/\\/\\  ']],penguin:[['  .---.     ','  (o>o)     ',' /(   )\\    ','  `---\u00B4     ']],turtle:[['   _,--._   ','  ( o  o )  ',' /[______]\\ ','  ``    ``  ']],snail:[[' o    .--.  ','  \\  ( @ )  ','   \\_`--\u00B4   ','  ~~~~~~~   ']],cactus:[[' n  ____  n ',' | |o  o| | ',' |_|    |_| ','   |    |   ']],rabbit:[['   (\\__/)   ','  ( o  o )  ',' =(  ..  )= ','  (")__(")  ']],mushroom:[[' .-o-OO-o-. ','(__________)','   |o  o|   ','   |____|   ']],chonk:[['  /\\    /\\  ',' ( o    o ) ',' (   ..   ) ','  `------\u00B4  ']]};
+
+let currentSpecies='cat', currentStyle='classic', connStyle='line', spriteColor='--cy', af=0;
+
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+
+// ── Species Grid ──
+function buildSpeciesGrid(){
+  const g=document.getElementById('spGrid');
+  for(const sp of Object.keys(BODIES)){
+    const d=document.createElement('div');
+    d.className='sp-item'+(sp==='cat'?' active':'');
+    const lines=BODIES[sp][0].slice(0,2);
+    d.textContent=lines.join('\n')+'\n'+sp;
+    d.onclick=()=>{g.querySelectorAll('.sp-item').forEach(el=>el.classList.remove('active'));d.classList.add('active');currentSpecies=sp;updateSprite()};
+    g.appendChild(d);
+  }
+}
+
+// ── Sprite rendering ──
+function updateSprite(){
+  const el=document.getElementById('spriteEl');
+  const frames=BODIES[currentSpecies]||BODIES.cat;
+  const frame=frames[af%frames.length];
+  const size=document.getElementById('spSize').value;
+  el.style.fontSize=size+'px';
+  el.style.color='var('+spriteColor+')';
+  // Keep handle, rebuild content
+  el.textContent='';
+  const handle=document.createElement('span');
+  handle.className='handle';handle.textContent='drag';
+  el.appendChild(handle);
+  const pre=document.createTextNode(frame.join('\n')+'\n   '+currentSpecies);
+  el.appendChild(pre);
+  updateConnector();
+  updateExport();
+}
+
+// ── Bubble ──
+function updateBubble(){
+  const el=document.getElementById('bubbleEl');
+  const text=document.getElementById('bubText').value;
+  const maxW=document.getElementById('bubMaxW').value;
+  const fs=document.getElementById('bubFS').value;
+  const pad=document.getElementById('bubPad').value;
+  const rad=document.getElementById('bubRad').value;
+
+  el.style.maxWidth=maxW+'px';
+  el.style.fontSize=fs+'px';
+  el.style.padding=pad+'px '+(parseInt(pad)+4)+'px';
+
+  if(currentStyle!=='minimal'){
+    el.style.borderRadius=rad+'px';
+  }
+
+  // Update text (keep handle)
+  const handle=el.querySelector('.handle');
+  el.textContent=text;
+  el.prepend(handle);
+  updateConnector();
+  updateExport();
+}
+
+function toggleBubble(){
+  const el=document.getElementById('bubbleEl');
+  el.style.display=document.getElementById('bubShow').checked?'block':'none';
+  updateConnector();
+}
+
+function setStyle(s,btn){
+  currentStyle=s;
+  btn.parentElement.querySelectorAll('.btn-sm').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  const el=document.getElementById('bubbleEl');
+  el.className='drag-el bubble-el '+s;
+  updateBubble();
+}
+
+function setConn(s,btn){
+  connStyle=s;
+  btn.parentElement.querySelectorAll('.btn-sm').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  updateConnector();
+}
+
+function setColor(c,btn){
+  spriteColor=c;
+  btn.parentElement.querySelectorAll('.btn-sm').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  updateSprite();
+}
+
+// ── Connector SVG ──
+function updateConnector(){
+  const svg=document.getElementById('connSvg');
+  svg.textContent='';
+  if(connStyle==='none') return;
+  if(!document.getElementById('bubShow').checked) return;
+
+  const bub=document.getElementById('bubbleEl');
+  const spr=document.getElementById('spriteEl');
+  const bRect=bub.getBoundingClientRect();
+  const sRect=spr.getBoundingClientRect();
+  const cRect=document.getElementById('canvas').getBoundingClientRect();
+
+  // From right-center of bubble to left-center of sprite
+  const x1=bRect.right-cRect.left;
+  const y1=bRect.top+bRect.height/2-cRect.top;
+  const x2=sRect.left-cRect.left;
+  const y2=sRect.top+sRect.height/2-cRect.top;
+
+  if(connStyle==='line'){
+    const line=document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1',x1);line.setAttribute('y1',y1);
+    line.setAttribute('x2',x2);line.setAttribute('y2',y2);
+    line.setAttribute('stroke','#58d4f1');line.setAttribute('stroke-width','1.5');
+    line.setAttribute('stroke-dasharray','4,3');
+    svg.appendChild(line);
+  } else if(connStyle==='arrow'){
+    const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+    const mx=(x1+x2)/2;
+    path.setAttribute('d',`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`);
+    path.setAttribute('stroke','#58d4f1');path.setAttribute('stroke-width','1.5');
+    path.setAttribute('fill','none');path.setAttribute('marker-end','url(#arrowhead)');
+    // Arrowhead
+    const defs=document.createElementNS('http://www.w3.org/2000/svg','defs');
+    const marker=document.createElementNS('http://www.w3.org/2000/svg','marker');
+    marker.setAttribute('id','arrowhead');marker.setAttribute('markerWidth','8');marker.setAttribute('markerHeight','6');
+    marker.setAttribute('refX','8');marker.setAttribute('refY','3');marker.setAttribute('orient','auto');
+    const poly=document.createElementNS('http://www.w3.org/2000/svg','polygon');
+    poly.setAttribute('points','0 0, 8 3, 0 6');poly.setAttribute('fill','#58d4f1');
+    marker.appendChild(poly);defs.appendChild(marker);svg.appendChild(defs);
+    svg.appendChild(path);
+  } else if(connStyle==='dots'){
+    const steps=5;
+    for(let i=0;i<=steps;i++){
+      const t=i/steps;
+      const cx=x1+(x2-x1)*t;
+      const cy=y1+(y2-y1)*t;
+      const dot=document.createElementNS('http://www.w3.org/2000/svg','circle');
+      dot.setAttribute('cx',cx);dot.setAttribute('cy',cy);dot.setAttribute('r','2');
+      dot.setAttribute('fill','#58d4f1');
+      svg.appendChild(dot);
+    }
+  }
+}
+
+// ── Drag Logic ──
+function makeDraggable(el){
+  let ox,oy,sx,sy,dragging=false;
+  el.addEventListener('mousedown',ev=>{
+    if(ev.target.tagName==='INPUT') return;
+    dragging=true;el.classList.add('dragging');
+    ox=ev.clientX;oy=ev.clientY;
+    sx=el.offsetLeft;sy=el.offsetTop;
+    ev.preventDefault();
+  });
+  document.addEventListener('mousemove',ev=>{
+    if(!dragging) return;
+    el.style.left=(sx+ev.clientX-ox)+'px';
+    el.style.top=(sy+ev.clientY-oy)+'px';
+    updateConnector();
+    updateExport();
+  });
+  document.addEventListener('mouseup',()=>{
+    if(dragging){dragging=false;el.classList.remove('dragging')}
+  });
+}
+
+// ── Resize observer for bubble (CSS resize) ──
+new ResizeObserver(()=>{updateConnector();updateExport()}).observe(document.getElementById('bubbleEl'));
+
+// ── Export ──
+function updateExport(){
+  const bub=document.getElementById('bubbleEl');
+  const spr=document.getElementById('spriteEl');
+  const config={
+    species:currentSpecies,
+    bubble:{
+      style:currentStyle,
+      position:{x:parseInt(bub.style.left),y:parseInt(bub.style.top)},
+      maxWidth:document.getElementById('bubMaxW').value+'px',
+      fontSize:document.getElementById('bubFS').value+'px',
+      padding:document.getElementById('bubPad').value+'px',
+      borderRadius:document.getElementById('bubRad').value+'px',
+      visible:document.getElementById('bubShow').checked,
+    },
+    sprite:{
+      position:{x:parseInt(spr.style.left),y:parseInt(spr.style.top)},
+      fontSize:document.getElementById('spSize').value+'px',
+      color:spriteColor.replace('--',''),
+    },
+    connector:connStyle,
+    text:document.getElementById('bubText').value,
+  };
+  document.getElementById('exportBox').textContent=JSON.stringify(config,null,2);
+}
+
+function copyExport(){
+  const text=document.getElementById('exportBox').textContent;
+  navigator.clipboard.writeText(text).then(()=>{
+    const btn=document.querySelector('.section:last-child .btn-sm');
+    btn.textContent='Copied!';btn.style.color='var(--gn)';
+    setTimeout(()=>{btn.textContent='Copy Config';btn.style.color=''},1500);
+  });
+}
+
+// ── Init ──
+buildSpeciesGrid();
+makeDraggable(document.getElementById('bubbleEl'));
+makeDraggable(document.getElementById('spriteEl'));
+updateSprite();
+updateBubble();
+updateConnector();
+updateExport();
+
+// ── Animation ──
+setInterval(()=>{af=(af+1)%3;updateSprite()},800);
+</script>
+</body>
+</html>

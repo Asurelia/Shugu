@@ -25,17 +25,30 @@ export async function sshExec(
   command: string,
   options: SSHExecOptions = {},
 ): Promise<SSHResult> {
+  if (!options.unsafeAllowMetachars) {
+    validateSSHCommand(command);
+  }
+
   const sshArgs = buildSSHArgs(config, options);
-  sshArgs.push(command);
+  sshArgs.push('--', command);
+
+  const timeoutMs = options.timeoutMs ?? 60_000;
 
   return new Promise((resolve, reject) => {
     const child = spawn('ssh', sshArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: options.timeoutMs ?? 60_000,
     });
 
     let stdout = '';
     let stderr = '';
+    let timedOut = false;
+
+    // Enforce timeout via AbortController (spawn's timeout option is not reliable)
+    const timeoutHandle = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+      setTimeout(() => child.kill('SIGKILL'), 3000);
+    }, timeoutMs);
 
     child.stdout?.on('data', (d: Buffer) => {
       stdout += d.toString();
@@ -53,10 +66,16 @@ export async function sshExec(
     }
 
     child.on('error', (err) => {
+      clearTimeout(timeoutHandle);
       reject(new Error(`SSH connection failed: ${err.message}. Is 'ssh' installed?`));
     });
 
     child.on('close', (code) => {
+      clearTimeout(timeoutHandle);
+      if (timedOut) {
+        reject(new Error(`SSH command timed out after ${timeoutMs}ms`));
+        return;
+      }
       resolve({
         stdout: stdout.trim(),
         stderr: stderr.trim(),
@@ -74,6 +93,9 @@ export async function scpUpload(
   localPath: string,
   remotePath: string,
 ): Promise<void> {
+  if (remotePath.includes('..')) {
+    throw new Error(`SCP remote path rejected: must not contain ".." traversal. Got: ${remotePath}`);
+  }
   const args = [
     '-i', config.keyPath,
     '-P', String(config.port),
@@ -103,6 +125,9 @@ export async function scpDownload(
   remotePath: string,
   localPath: string,
 ): Promise<void> {
+  if (remotePath.includes('..')) {
+    throw new Error(`SCP remote path rejected: must not contain ".." traversal. Got: ${remotePath}`);
+  }
   const args = [
     '-i', config.keyPath,
     '-P', String(config.port),
@@ -177,11 +202,37 @@ export function openSOCKSProxy(
   };
 }
 
+// ─── Security ──────────────────────────────────────────
+
+/**
+ * Shell metacharacters that enable command chaining/injection when
+ * passed as a single-string SSH command. We reject commands containing
+ * these unless they are inside single-quoted strings.
+ */
+const SHELL_INJECTION_PATTERN = /[;|&`$(){}!<>\n\r]/;
+
+/**
+ * Validate that an SSH command string does not contain unescaped shell
+ * metacharacters that could enable command injection.
+ * Throws if the command is unsafe.
+ */
+function validateSSHCommand(command: string): void {
+  if (SHELL_INJECTION_PATTERN.test(command)) {
+    throw new Error(
+      `SSH command rejected: contains shell metacharacters that could enable injection. ` +
+      `Command must be a simple single command without pipes, chains, or subshells. ` +
+      `Got: ${command.slice(0, 80)}`,
+    );
+  }
+}
+
 // ─── Helpers ────────────────────────────────────────────
 
 interface SSHExecOptions {
   timeoutMs?: number;
   abortSignal?: AbortSignal;
+  /** Skip command validation (only for trusted internal callers). */
+  unsafeAllowMetachars?: boolean;
 }
 
 function buildSSHArgs(config: VPSConfig, options: SSHExecOptions): string[] {
