@@ -22,7 +22,7 @@ export {
 
 // Bundled skills
 export { vibeSkill } from './bundled/vibe.js';
-export { dreamSkill } from './bundled/dream.js';
+export { exploreSkill } from './bundled/dream.js';
 export { hunterSkill } from './bundled/hunter.js';
 export { loopSkill } from './bundled/loop.js';
 export { scheduleSkill } from './bundled/schedule.js';
@@ -32,7 +32,7 @@ export { secondBrainSkill } from './bundled/secondbrain.js';
 
 import { SkillRegistry } from './loader.js';
 import { vibeSkill } from './bundled/vibe.js';
-import { dreamSkill } from './bundled/dream.js';
+import { exploreSkill } from './bundled/dream.js';
 import { hunterSkill } from './bundled/hunter.js';
 import { loopSkill } from './bundled/loop.js';
 import { scheduleSkill } from './bundled/schedule.js';
@@ -49,7 +49,7 @@ export function createDefaultSkillRegistry(): SkillRegistry {
   registry.register(vibeSkill);
 
   // Analysis skills
-  registry.register(dreamSkill);
+  registry.register(exploreSkill);
   registry.register(hunterSkill);
 
   // Automation skills

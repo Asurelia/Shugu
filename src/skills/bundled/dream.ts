@@ -1,34 +1,34 @@
 /**
- * Bundled Skill: Dream Mode
+ * Bundled Skill: Explore Mode (formerly Dream Mode)
  *
  * An exploration/brainstorming mode where the agent freely investigates
  * the codebase, identifies patterns, and generates insights. The agent
  * doesn't modify files — it only reads and analyzes.
  *
  * Use cases:
- * - "Dream about this codebase" → architecture analysis
- * - "Dream about performance" → performance investigation
- * - "Dream about security" → security review
+ * - "Explore this codebase" → architecture analysis
+ * - "Explore performance" → performance investigation
+ * - "Explore security" → security review
  */
 
 import type { Skill, SkillContext, SkillResult } from '../loader.js';
 
-export const dreamSkill: Skill = {
-  name: 'dream',
+export const exploreSkill: Skill = {
+  name: 'explore',
   description: 'Explore and analyze the codebase freely, generating insights without modifying files',
   category: 'analysis',
   triggers: [
-    { type: 'command', command: 'dream' },
-    { type: 'keyword', keywords: ['dream about', 'explore codebase', 'analyze architecture'] },
+    { type: 'command', command: 'explore' },
+    { type: 'keyword', keywords: ['explore codebase', 'analyze architecture', 'dream about'] },
   ],
   requiredTools: ['Read', 'Glob', 'Grep', 'Bash'],
 
   async execute(ctx: SkillContext): Promise<SkillResult> {
     const focus = ctx.args.trim() || 'architecture and patterns';
 
-    ctx.info(`\n💭 Dream Mode — exploring: ${focus}\n`);
+    ctx.info(`\n🔍 Explore Mode — investigating: ${focus}\n`);
 
-    const prompt = `You are in DREAM MODE — an exploration mode where you freely investigate the codebase.
+    const prompt = `You are in EXPLORE MODE — an exploration mode where you freely investigate the codebase.
 
 Focus area: "${focus}"
 

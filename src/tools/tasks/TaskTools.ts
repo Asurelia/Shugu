@@ -64,7 +64,7 @@ export function getTaskStore(): TaskStore {
 
 export const TaskCreateDefinition: ToolDefinition = {
   name: 'TaskCreate',
-  description: 'Create a task to track progress on a multi-step operation.',
+  description: 'Create a task to track progress on a multi-step operation. Use for complex tasks with 3+ steps. Tasks help the user understand your progress.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -98,7 +98,7 @@ export class TaskCreateTool implements Tool {
 
 export const TaskUpdateDefinition: ToolDefinition = {
   name: 'TaskUpdate',
-  description: 'Update a task status (pending → in_progress → completed).',
+  description: 'Update a task status. Set to in_progress when starting work, completed when done. Only mark completed when fully finished — not when partially done.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -136,7 +136,7 @@ export class TaskUpdateTool implements Tool {
 
 export const TaskListDefinition: ToolDefinition = {
   name: 'TaskList',
-  description: 'List all tasks with their current status.',
+  description: 'List all tasks with their current status. Use to check progress and find what to work on next.',
   inputSchema: {
     type: 'object',
     properties: {},

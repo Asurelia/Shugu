@@ -17,13 +17,76 @@ const DEFAULT_TIMEOUT_MS = 120_000; // 2 minutes
 
 export const BashToolDefinition: ToolDefinition = {
   name: 'Bash',
-  description: `Executes a bash command and returns its output. Each command runs in a fresh shell rooted at the project directory. Use absolute paths or chain with && for multi-step operations. Use for: running commands, installing packages, checking system state, git operations. Avoid for: reading files (use Read), searching files (use Grep/Glob), writing files (use Write).`,
+  description: `Executes a given bash command and returns its output.
+
+The working directory persists between commands, but shell state does not. Each command runs in a fresh shell rooted at the project directory.
+
+IMPORTANT: Do NOT use Bash to run grep, cat, head, tail, sed, awk, or echo when a dedicated tool exists:
+ - File search: Use Glob (NOT find or ls)
+ - Content search: Use Grep (NOT grep or rg)
+ - Read files: Use Read (NOT cat/head/tail)
+ - Edit files: Use Edit (NOT sed/awk)
+ - Write files: Use Write (NOT echo >/cat <<EOF)
+The dedicated tools provide better user experience and make it easier to review actions.
+
+# Instructions
+ - Use absolute paths or chain with && for multi-step operations.
+ - Always quote file paths that contain spaces with double quotes.
+ - Try to maintain your current working directory by using absolute paths and avoiding cd.
+ - You may specify an optional timeout in milliseconds (up to 600000ms / 10 minutes). Default: 120000ms (2 minutes).
+ - IMPORTANT: Do not use commands with the -i flag (like git rebase -i or git add -i) since they require interactive input which is not supported.
+
+# Committing changes with git
+
+Only create commits when requested by the user. Follow these steps:
+
+Git Safety Protocol:
+- NEVER update the git config
+- NEVER run destructive git commands (push --force, reset --hard, checkout ., clean -f, branch -D) unless the user explicitly requests it
+- NEVER skip hooks (--no-verify, --no-gpg-sign) unless the user explicitly requests it
+- NEVER force push to main/master — warn the user if they request it
+- ALWAYS create NEW commits rather than amending, unless the user explicitly requests amend
+- When staging files, prefer adding specific files by name rather than using "git add -A" or "git add ."
+- NEVER commit unless the user explicitly asks you to
+
+When committing:
+1. Run git status and git diff to see changes
+2. Run git log to match the repo's commit message style
+3. Draft a concise commit message (1-2 sentences) focused on the "why"
+4. Always pass the commit message via a HEREDOC:
+   git commit -m "$(cat <<'EOF'
+   Commit message here.
+
+   Co-Authored-By: Shugu <noreply@shugu.dev>
+   EOF
+   )"
+5. Run git status after to verify success
+
+# Creating pull requests
+
+Use gh for GitHub tasks (issues, PRs, checks, releases).
+When creating PRs:
+1. Check git status, git diff, git log to understand all changes
+2. Keep the PR title short (under 70 characters)
+3. Create PR with:
+   gh pr create --title "the pr title" --body "$(cat <<'EOF'
+   ## Summary
+   <bullet points>
+
+   ## Test plan
+   [checklist]
+   EOF
+   )"`,
   inputSchema: {
     type: 'object',
     properties: {
       command: {
         type: 'string',
         description: 'The bash command to execute',
+      },
+      description: {
+        type: 'string',
+        description: 'Clear, concise description of what this command does (5-10 words for simple commands, more for complex ones)',
       },
       timeout: {
         type: 'number',

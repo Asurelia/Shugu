@@ -11,7 +11,13 @@ import type { Tool, ToolCall, ToolResult, ToolContext, ToolDefinition } from '..
 
 export const WebSearchToolDefinition: ToolDefinition = {
   name: 'WebSearch',
-  description: `Search the web and return results. Uses MiniMax Search API for code-related queries and DuckDuckGo for general searches. Returns titles, URLs, and snippets.`,
+  description: `Search the web and return results with titles, URLs, and snippets.
+
+Usage:
+- Use type "code" for programming-related queries (uses MiniMax Search API)
+- Use type "general" for other queries (uses DuckDuckGo)
+- Returns up to 5 results by default (configurable via limit)
+- Use WebFetch to read the full content of a specific result URL`,
   inputSchema: {
     type: 'object',
     properties: {

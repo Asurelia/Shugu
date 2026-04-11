@@ -27,6 +27,7 @@ import { Scheduler } from '../automation/scheduler.js';
 import { createBgCommand, createProactiveCommand } from '../commands/automation.js';
 import { createTeamCommand } from '../commands/team.js';
 import { createVaultCommand } from '../commands/vault.js';
+import { createDreamCommand } from '../commands/dream.js';
 import { createDefaultCommands } from '../commands/index.js';
 import { loadMarkdownCommands } from '../commands/markdown-loader.js';
 import { loadMarkdownAgents } from '../agents/markdown-loader.js';
@@ -345,6 +346,7 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
     complexity: 'simple',
   });
   commands.register(createVaultCommand(vault));
+  commands.register(createDreamCommand(sessionMgr, memoryAgent, client));
   commands.register(createFileRevertCommand(revertStack));
   commands.register(createBgCommand(bgManager, loopConfigFactory));
   commands.register(createProactiveCommand(async (prompt) => {

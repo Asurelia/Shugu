@@ -14,7 +14,14 @@ import { IndexStore } from '../../context/workspace/store.js';
 
 export const SemSearchToolDefinition: ToolDefinition = {
   name: 'SemSearch',
-  description: `Search the workspace index for files, symbols, and code chunks. Faster than Grep for broad discovery queries. Requires /workspace init to build the index first. Use Grep for live exact-match regex searches; use SemSearch for "find code related to X" queries.`,
+  description: `Search the pre-built workspace index for files, symbols, and code chunks.
+
+Usage:
+- Faster than Grep for broad discovery and "find code related to X" queries
+- Requires /workspace init to build the index first — returns an error if the index doesn't exist
+- Use Grep for live exact-match regex searches on the current filesystem
+- Use SemSearch for semantic/fuzzy searches when you don't know the exact pattern
+- Supports language filtering and symbol-only mode for navigating large codebases`,
   inputSchema: {
     type: 'object',
     properties: {

@@ -13,7 +13,16 @@ import { validateWorkspacePath } from '../../policy/workspace.js';
 
 export const GrepToolDefinition: ToolDefinition = {
   name: 'Grep',
-  description: `Search file contents using regex patterns. Uses ripgrep if available. Supports glob filtering and output modes: "content" (matching lines), "files_with_matches" (file paths only), "count" (match counts).`,
+  description: `A powerful content search tool built on ripgrep.
+
+Usage:
+- ALWAYS use Grep for content search tasks. NEVER invoke grep or rg as a Bash command.
+- Supports full regex syntax (e.g., "log.*Error", "function\\s+\\w+")
+- Filter files with glob parameter (e.g., "*.js", "**/*.tsx")
+- Output modes: "content" shows matching lines, "files_with_matches" shows only file paths (default), "count" shows match counts
+- Use -C parameter for context lines around each match
+- Use -i for case-insensitive search
+- Use Agent tool with type "explore" for open-ended searches requiring multiple rounds`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -43,7 +52,23 @@ export const GrepToolDefinition: ToolDefinition = {
       },
       '-C': {
         type: 'number',
-        description: 'Lines of context around each match',
+        description: 'Lines of context before and after each match',
+      },
+      '-A': {
+        type: 'number',
+        description: 'Number of lines to show after each match',
+      },
+      '-B': {
+        type: 'number',
+        description: 'Number of lines to show before each match',
+      },
+      multiline: {
+        type: 'boolean',
+        description: 'Enable multiline mode where patterns can span multiple lines. Default: false.',
+      },
+      head_limit: {
+        type: 'number',
+        description: 'Limit output to first N lines. Default: 250.',
       },
     },
     required: ['pattern'],
@@ -71,6 +96,10 @@ export class GrepTool implements Tool {
     const outputMode = (call.input['output_mode'] as string) ?? 'files_with_matches';
     const caseInsensitive = call.input['-i'] as boolean | undefined;
     const contextLines = call.input['-C'] as number | undefined;
+    const afterLines = call.input['-A'] as number | undefined;
+    const beforeLines = call.input['-B'] as number | undefined;
+    const multiline = call.input['multiline'] as boolean | undefined;
+    const headLimit = call.input['head_limit'] as number | undefined;
 
     const absPath = searchPath
       ? (isAbsolute(searchPath) ? searchPath : resolve(context.cwd, searchPath))
@@ -94,12 +123,16 @@ export class GrepTool implements Tool {
       outputMode,
       caseInsensitive,
       contextLines,
+      afterLines,
+      beforeLines,
+      multiline,
     });
 
     if (rgResult !== null) {
+      const output = rgResult || `No matches found for pattern "${pattern}"`;
       return {
         tool_use_id: call.id,
-        content: rgResult || `No matches found for pattern "${pattern}"`,
+        content: applyHeadLimit(output, headLimit),
       };
     }
 
@@ -110,9 +143,10 @@ export class GrepTool implements Tool {
         outputMode,
         caseInsensitive,
       });
+      const output = result || `No matches found for pattern "${pattern}"`;
       return {
         tool_use_id: call.id,
-        content: result || `No matches found for pattern "${pattern}"`,
+        content: applyHeadLimit(output, headLimit),
       };
     } catch (error) {
       return {
@@ -131,6 +165,19 @@ interface GrepOptions {
   outputMode: string;
   caseInsensitive?: boolean;
   contextLines?: number;
+  afterLines?: number;
+  beforeLines?: number;
+  multiline?: boolean;
+}
+
+/**
+ * Limit output to first N lines.
+ */
+function applyHeadLimit(output: string, limit?: number): string {
+  if (!limit || limit <= 0) return output;
+  const lines = output.split('\n');
+  if (lines.length <= limit) return output;
+  return lines.slice(0, limit).join('\n') + `\n... [${lines.length - limit} more lines truncated]`;
 }
 
 async function tryRipgrep(
@@ -147,6 +194,9 @@ async function tryRipgrep(
 
     if (options.caseInsensitive) args.push('-i');
     if (options.contextLines) args.push('-C', String(options.contextLines));
+    if (options.afterLines) args.push('-A', String(options.afterLines));
+    if (options.beforeLines) args.push('-B', String(options.beforeLines));
+    if (options.multiline) args.push('-U', '--multiline-dotall');
     if (options.glob) args.push('--glob', options.glob);
 
     // Skip common non-code directories

@@ -49,3 +49,9 @@ export {
   type KairosState,
   type KairosNotification,
 } from './kairos.js';
+
+export {
+  DreamConsolidationService,
+  type ConsolidationResult,
+  type DreamConfig,
+} from './dream.js';

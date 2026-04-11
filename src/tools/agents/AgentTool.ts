@@ -18,30 +18,48 @@ import { tracer } from '../../utils/tracer.js';
 
 export const AgentToolDefinition: ToolDefinition = {
   name: 'Agent',
-  description: `Launch a sub-agent to handle a complex task autonomously. The sub-agent gets its own conversation and can use tools independently. Use for: research tasks, code exploration, parallel work, isolated modifications.
+  description: `Launch a sub-agent to handle a complex task autonomously. Each agent gets its own conversation loop, tool set, and budget.
 
 Available agent types:
-- "general": General-purpose agent with all tools (default)
-- "explore": Read-only code exploration (Glob, Grep, Read, Bash)
-- "code": Code writing agent (all tools, focused on changes)
-- "review": Code review agent (read-only, analysis focused)
-- "test": Testing agent (write tests, run them)
+- "general": General-purpose agent with all tools (default). Use for multi-step tasks.
+- "explore": Fast read-only code exploration (Glob, Grep, Read, Bash). Use for codebase research.
+- "code": Code writing agent (all tools, focused on changes). Use for implementation tasks.
+- "review": Code review agent (read-only, adversarial). Use for finding bugs and quality issues.
+- "test": Testing agent (write tests, run them). Use for test creation and validation.
+- "verify": Verification agent (read-only + execution). Runs tests and produces PASS/FAIL verdict.
 
-The sub-agent's result is returned as text. It cannot see your conversation — provide complete context in the prompt.`,
+## When to use
+Use this tool for research tasks, code exploration, parallel work, or isolated modifications. Launch multiple agents concurrently when tasks are independent — use a single message with multiple Agent tool calls.
+
+## Writing the prompt
+Brief the agent like a smart colleague who just walked into the room — it hasn't seen this conversation, doesn't know what you've tried, doesn't understand why this task matters.
+- Explain what you're trying to accomplish and why.
+- Describe what you've already learned or ruled out.
+- Give enough context that the agent can make judgment calls.
+- If you need a short response, say so.
+
+**Never delegate understanding.** Don't write "based on your findings, fix the bug." Write prompts that prove you understood: include file paths, line numbers, what specifically to change.
+
+## Result
+The sub-agent's result is returned as text. It cannot see your conversation — the prompt must be self-contained. Relay findings to the user since the agent result is not directly visible to them.`,
   inputSchema: {
     type: 'object',
     properties: {
       prompt: {
         type: 'string',
-        description: 'Complete task description for the sub-agent. Include all necessary context.',
+        description: 'Complete task description for the sub-agent. Include all necessary context — it cannot see your conversation.',
       },
       subagent_type: {
         type: 'string',
-        description: 'Agent type: "general", "explore", "code", "review", "test". Default: "general".',
+        description: 'Agent type: "general", "explore", "code", "review", "test", "verify". Default: "general".',
       },
       context: {
         type: 'string',
         description: 'Optional additional context (e.g., file contents, previous findings).',
+      },
+      isolation: {
+        type: 'string',
+        description: 'Isolation mode. "worktree" creates a temporary git worktree so the agent works on an isolated copy of the repo.',
       },
     },
     required: ['prompt'],
@@ -109,10 +127,12 @@ export class AgentTool implements Tool {
     const prompt = call.input['prompt'] as string;
     const agentType = (call.input['subagent_type'] as string) ?? 'general';
     const additionalContext = call.input['context'] as string | undefined;
+    const isolation = call.input['isolation'] as 'worktree' | undefined;
 
     const options: SpawnOptions = {
       context: additionalContext,
       depth: this.depth,
+      isolation,
       onEvent: (event) => {
         if (event.type === 'tool_executing') {
           // Extract detail from tool input

@@ -28,7 +28,7 @@ export interface CompactionConfig {
 
 export const DEFAULT_COMPACTION_CONFIG: CompactionConfig = {
   keepRecentTurns: 6,
-  summaryMaxTokens: 2048,
+  summaryMaxTokens: 3072,
 };
 
 // ─── Compaction ─────────────────────────────────────────
@@ -144,28 +144,46 @@ function identifyTurns(messages: Message[]): Turn[] {
 
 // ─── Summary Generation ─────────────────────────────────
 
-const COMPACTION_PROMPT = `Summarize the following conversation as a structured action log for Shugu (AI coding agent).
+const COMPACTION_PROMPT = `Summarize the following conversation as a structured knowledge block for Shugu (AI coding agent).
 
 This summary replaces older turns in context — it is the ONLY record of what happened. If you lose a detail here, it is gone forever for the current session. (Persistent memories are handled separately by MemoryAgent.)
 
-## Format
-- [TOOL: name] path/target → outcome (success/error/partial)
-- [DECISION] what was decided and why (critical — decisions guide future turns)
-- [FINDING] what was discovered or learned about the codebase
-- [MEMORY] any user preferences, corrections, or project facts mentioned (MemoryAgent may not have captured these yet)
-- [PENDING] unresolved issues, next steps, or interrupted work
-- [VAULT] any Obsidian vault notes referenced or created
-- [AGENT] any sub-agents spawned and their verdicts
+## Required Sections
+
+[GOAL] The user's original request or task — quote the first user message verbatim if possible. This anchors all subsequent work.
+
+[TOOL: name] path/target → outcome (success/error/partial)
+List every tool call and its outcome. A missing tool call means lost context. Include file paths, line numbers, and specific results.
+
+[DECISION] what was decided and why
+Critical — decisions guide future turns. Include the reasoning, not just the choice.
+
+[FINDING] what was discovered or learned about the codebase
+Architecture patterns, file locations, function signatures, dependencies found.
+
+[ERROR] exact error messages with file paths and line numbers
+Preserve error text verbatim — paraphrasing errors loses diagnostic information.
+
+[MEMORY] user preferences, corrections, or project facts mentioned
+Preserve the user's exact wording (e.g., "don't mock the database", "use snake_case"). MemoryAgent may not have captured these yet.
+
+[PENDING] unresolved issues, next steps, or interrupted work
+If work was interrupted (pending tool_use without result), mark it here.
+
+[VAULT] any Obsidian vault notes referenced or created
+
+[AGENT] any sub-agents spawned, their types, and their verdicts
 
 ## Rules
 - Preserve ALL file paths, tool names, error messages, and specific results verbatim
-- Preserve user corrections and preferences word-for-word (e.g., "don't mock the database", "use snake_case")
-- Preserve the current goal / task description from the first user message
+- Preserve user corrections and preferences word-for-word
+- Preserve the current goal / task description from the first user message in [GOAL]
 - Do NOT paraphrase code — note the file path, line range, and what changed
 - Do NOT include conversational filler, greetings, or assistant acknowledgments
 - Include every tool call and its outcome — a missing tool call means lost context
 - If work was interrupted (pending tool_use without result), mark it [PENDING]
-- Keep under 600 words — but completeness over brevity. Missing a file path is worse than extra words.`;
+- Keep under 800 words — but completeness over brevity. Missing a file path is worse than extra words.
+- Start with [GOAL] always — it is the anchor for the entire session.`;
 
 async function generateSummary(
   messages: Message[],
@@ -181,9 +199,12 @@ async function generateSummary(
     } else {
       content = msg.content.map(blockToText).join('\n');
     }
-    // Truncate very long content per message
-    if (content.length > 2000) {
-      content = content.slice(0, 2000) + '... [truncated]';
+    // Truncate very long content per message — tool results get a higher limit
+    const hasToolResult = Array.isArray(msg.content) &&
+      msg.content.some((block) => isToolResultBlock(block));
+    const truncateLimit = hasToolResult ? 4000 : 2000;
+    if (content.length > truncateLimit) {
+      content = content.slice(0, truncateLimit) + '... [truncated]';
     }
     return `[${role}]: ${content}`;
   }).join('\n\n');
@@ -215,8 +236,8 @@ function blockToText(block: ContentBlock): string {
       const content = typeof block.content === 'string'
         ? block.content
         : JSON.stringify(block.content);
-      const truncated = content.length > 300
-        ? content.slice(0, 300) + '...'
+      const truncated = content.length > 500
+        ? content.slice(0, 500) + '...'
         : content;
       return `[Result: ${truncated}]`;
     }
