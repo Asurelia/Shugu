@@ -10,6 +10,7 @@ import { createInterface, type Interface as ReadlineInterface } from 'node:readl
 import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { validateRegexSafety } from '../utils/security.js';
 import type { Tool, ToolCall, ToolResult, ToolContext, ToolDefinition } from '../protocol/tools.js';
 import type { HookHandler, HookType } from './hooks.js';
 import type { Command, CommandContext, CommandResult } from '../commands/registry.js';
@@ -679,9 +680,14 @@ export class PluginHost extends EventEmitter {
     // Reconstruct triggers — deserialize RegExp from pattern/flags
     const triggers: SkillTrigger[] = reg.triggers.map((t: SerializedSkillTrigger): SkillTrigger => {
       if (t.type === 'pattern') {
-        // ReDoS guard: limit pattern length
-        const safePattern = t.pattern.length > 500 ? t.pattern.slice(0, 500) : t.pattern;
-        return { type: 'pattern', regex: new RegExp(safePattern, t.flags) };
+        // ReDoS guard: validate pattern safety before compilation
+        const validation = validateRegexSafety(t.pattern, 200);
+        if (!validation.safe) {
+          // Unsafe pattern — fall back to literal string match
+          const escaped = t.pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          return { type: 'pattern', regex: new RegExp(escaped, t.flags) };
+        }
+        return { type: 'pattern', regex: new RegExp(t.pattern, t.flags) };
       }
       return t as SkillTrigger;
     });

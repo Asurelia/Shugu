@@ -15,6 +15,7 @@
 
 import { createServer, type Server } from 'node:http';
 import type { LoopEvent } from '../engine/loop.js';
+import { timingSafeCompare } from '../utils/security.js';
 
 // ─── Gateway Protocol ───────────────────────────────────
 
@@ -45,7 +46,7 @@ export interface GatewayConfig {
 
 export const DEFAULT_GATEWAY_CONFIG: GatewayConfig = {
   port: 9377, // PCC on phone keypad
-  host: '0.0.0.0',
+  host: '127.0.0.1', // Localhost only by default — use Cloudflare tunnel for remote access
 };
 
 /**
@@ -93,11 +94,11 @@ export class SessionGateway {
       const wss = new WebSocketServer({ server: this.server });
 
       wss.on('connection', (socket: WebSocketLike, req: { url?: string; headers: Record<string, string | string[] | undefined> }) => {
-        // Auth check
+        // Auth check — constant-time comparison to prevent timing attacks
         if (this.config.password) {
           const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
-          const token = url.searchParams.get('token');
-          if (token !== this.config.password) {
+          const token = url.searchParams.get('token') ?? '';
+          if (!timingSafeCompare(token, this.config.password)) {
             socket.close(4001, 'Unauthorized');
             return;
           }

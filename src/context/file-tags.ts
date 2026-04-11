@@ -11,8 +11,8 @@
  *   @src/foo.ts:10-20    → lines 10–20 inclusive
  */
 
-import { readFile, stat } from 'node:fs/promises';
-import { resolve, isAbsolute, relative } from 'node:path';
+import { readFile, stat, realpath } from 'node:fs/promises';
+import { resolve, isAbsolute, relative, normalize } from 'node:path';
 import { READ_LIMITS } from './read-limits.js';
 
 /* ------------------------------------------------------------------ */
@@ -26,6 +26,8 @@ export interface FileTag {
   resolvedPath: string;
   /** Whether the file exists on disk */
   exists: boolean;
+  /** Whether this tag was blocked (path outside workspace boundary) */
+  blocked?: boolean;
   /** Optional line range parsed from the `:START-END` suffix */
   lineRange?: { start: number; end: number };
 }
@@ -101,10 +103,19 @@ export function parseFileTags(input: string, cwd: string = process.cwd()): FileT
 
     const resolvedPath = isAbsolute(filePart) ? filePart : resolve(cwd, filePart);
 
+    // Workspace boundary check: block paths that resolve outside cwd.
+    // Normalizes backslashes on Windows and does case-insensitive check.
+    const normalizedResolved = normalize(resolvedPath).toLowerCase();
+    const normalizedCwd = normalize(cwd).toLowerCase();
+    const isWithinBoundary = normalizedResolved.startsWith(normalizedCwd + (normalizedCwd.endsWith('/') || normalizedCwd.endsWith('\\') ? '' : '/'))
+      || normalizedResolved.startsWith(normalizedCwd + '\\')
+      || normalizedResolved === normalizedCwd;
+
     tags.push({
       raw,
       resolvedPath,
       exists: false, // caller or expandFileTags will fill this in
+      blocked: !isWithinBoundary,
       lineRange,
     });
   }
@@ -170,6 +181,12 @@ export async function expandFileTags(
 
   for (const tag of tags) {
     const relPath = relative(cwd, tag.resolvedPath);
+
+    // Block paths outside workspace boundary
+    if (tag.blocked) {
+      replacements.set(tag.raw, `<file path="${relPath}">[blocked: path resolves outside workspace]</file>`);
+      continue;
+    }
 
     if (!tag.exists) {
       replacements.set(tag.raw, `<file path="${relPath}">[file not found: ${tag.resolvedPath}]</file>`);

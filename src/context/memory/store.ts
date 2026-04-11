@@ -8,7 +8,7 @@
  * Storage: ~/.pcc/memory/ (global) or .pcc/memory/ (project-local)
  */
 
-import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, readdir, rename } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -71,7 +71,9 @@ type: ${memory.type}
 ${memory.content}
 `;
 
-    await writeFile(filePath, content, 'utf-8');
+    const tmpPath = filePath + '.tmp';
+    await writeFile(tmpPath, content, { encoding: 'utf-8', mode: 0o600 });
+    await rename(tmpPath, filePath);
 
     // Update MEMORY.md index
     await this.updateIndex(dir);
@@ -166,7 +168,10 @@ ${memory.content}
       (m) => `- [${m.name}](${m.filename}) — ${m.description}`,
     );
     const indexContent = lines.join('\n') + '\n';
-    await writeFile(join(dir, 'MEMORY.md'), indexContent, 'utf-8');
+    const indexPath = join(dir, 'MEMORY.md');
+    const tmpIndex = indexPath + '.tmp';
+    await writeFile(tmpIndex, indexContent, { encoding: 'utf-8', mode: 0o600 });
+    await rename(tmpIndex, indexPath);
   }
 
   private slugify(text: string): string {

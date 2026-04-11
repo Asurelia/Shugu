@@ -14,7 +14,7 @@ import {
   createCipheriv, createDecipheriv,
   pbkdf2Sync, randomBytes, timingSafeEqual,
 } from 'node:crypto';
-import { readFile, writeFile, mkdir, access } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, access, rename } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import type { Credential, ServiceType } from './types.js';
@@ -99,6 +99,8 @@ export class CredentialVault {
     try {
       await this.save();
     } catch (err: unknown) {
+      if (this.masterKey) this.masterKey.fill(0);
+      if (this.salt) this.salt.fill(0);
       this.masterKey = null;
       this.salt = null;
       this.credentials = [];
@@ -163,7 +165,9 @@ export class CredentialVault {
       const vaultData = JSON.parse(decrypted.toString('utf-8')) as VaultData;
       this.credentials = vaultData.credentials;
     } catch {
-      // Auth tag mismatch = wrong password. Clear state.
+      // Auth tag mismatch = wrong password. Zero and clear state.
+      if (this.masterKey) this.masterKey.fill(0);
+      if (this.salt) this.salt.fill(0);
       this.masterKey = null;
       this.credentials = [];
       this.salt = null;
@@ -277,6 +281,11 @@ export class CredentialVault {
    * Lock the vault (clear all secrets from memory).
    */
   lock(): void {
+    // Zero sensitive buffers before releasing references.
+    // buffer.fill(0) overwrites the external memory immediately,
+    // rather than waiting for GC to reclaim and OS to overwrite.
+    if (this.masterKey) this.masterKey.fill(0);
+    if (this.salt) this.salt.fill(0);
     this.masterKey = null;
     this.credentials = [];
     this.salt = null;
@@ -298,7 +307,7 @@ export class CredentialVault {
     this.ensureUnlocked();
 
     try {
-      await mkdir(dirname(this.vaultPath), { recursive: true });
+      await mkdir(dirname(this.vaultPath), { recursive: true, mode: 0o700 });
     } catch (err: unknown) {
       throw new VaultDiskError('disk_write', this.vaultPath, err);
     }
@@ -326,8 +335,16 @@ export class CredentialVault {
       data: ciphertext.toString('base64'),
     };
 
+    // Atomic write: write to temp file, then rename.
+    // rename() is atomic on both POSIX and NTFS (same volume),
+    // so a crash mid-write never corrupts the vault.
+    const tmpPath = this.vaultPath + '.tmp';
     try {
-      await writeFile(this.vaultPath, JSON.stringify(encrypted, null, 2), 'utf-8');
+      await writeFile(tmpPath, JSON.stringify(encrypted, null, 2), {
+        encoding: 'utf-8',
+        mode: 0o600,
+      });
+      await rename(tmpPath, this.vaultPath);
     } catch (err: unknown) {
       throw new VaultDiskError('disk_write', this.vaultPath, err);
     }
