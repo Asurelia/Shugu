@@ -5,8 +5,8 @@
  * chunks files, and persists everything to `.pcc/index/` via IndexStore.
  */
 
-import { readdir, readFile, stat } from 'node:fs/promises';
-import { join, relative, extname } from 'node:path';
+import { readdir, readFile, stat, lstat, realpath } from 'node:fs/promises';
+import { join, relative, extname, normalize } from 'node:path';
 import { createHash } from 'node:crypto';
 import { IndexStore } from './store.js';
 import type { IndexedFile, IndexMeta } from './store.js';
@@ -210,11 +210,34 @@ export class WorkspaceIndexer {
       return; // Unreadable directory
     }
 
+    const normalizedRoot = normalize(this.root).toLowerCase();
+
     for (const entry of entries) {
       // Skip hidden directories (except those we explicitly handle)
       if (SKIP_DIRS.has(entry)) continue;
 
       const absPath = join(dir, entry);
+
+      // Check for symlinks first — use lstat() which doesn't follow symlinks
+      let linkStat;
+      try {
+        linkStat = await lstat(absPath);
+      } catch {
+        continue; // Permission issue
+      }
+
+      // If it's a symlink, resolve its real target and verify it stays within workspace
+      if (linkStat.isSymbolicLink()) {
+        try {
+          const realTarget = await realpath(absPath);
+          const normalizedTarget = normalize(realTarget).toLowerCase();
+          if (!normalizedTarget.startsWith(normalizedRoot)) {
+            continue; // Symlink points outside workspace — skip
+          }
+        } catch {
+          continue; // Broken symlink
+        }
+      }
 
       let fileStat;
       try {

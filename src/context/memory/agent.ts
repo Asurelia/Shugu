@@ -17,7 +17,7 @@
  * - automation/obsidian-agent.ts → maintenance() method
  */
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { ObsidianVault } from './obsidian.js';
@@ -154,7 +154,9 @@ export class MemoryAgent {
       const dir = join(this.indexPath, '..');
       await mkdir(dir, { recursive: true });
       this.index.lastSync = new Date().toISOString();
-      await writeFile(this.indexPath, JSON.stringify(this.index, null, 2), 'utf-8');
+      const tmpPath = this.indexPath + '.tmp';
+      await writeFile(tmpPath, JSON.stringify(this.index, null, 2), { encoding: 'utf-8', mode: 0o600 });
+      await rename(tmpPath, this.indexPath);
       this.dirty = false;
     } catch (err) {
       logger.debug('memory index flush failed', err instanceof Error ? err.message : String(err));

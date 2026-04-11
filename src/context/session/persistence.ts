@@ -5,7 +5,7 @@
  * Storage: ~/.pcc/sessions/{sessionId}.json
  */
 
-import { readFile, writeFile, mkdir, readdir, stat } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, readdir, stat, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -48,6 +48,17 @@ export interface SessionSnapshot {
   createdAt: string;
 }
 
+// ─── Session ID Validation ────────────────────────────
+
+/** Safe session ID: alphanumeric + hyphens only. Rejects path traversal attempts. */
+const SAFE_SESSION_ID = /^[a-zA-Z0-9_-]+$/;
+
+function validateSessionId(id: string): void {
+  if (!SAFE_SESSION_ID.test(id)) {
+    throw new Error(`Invalid session ID: "${id}" — must be alphanumeric/hyphen only`);
+  }
+}
+
 // ─── Session Manager ────────────────────────────────────
 
 export class SessionManager {
@@ -77,10 +88,13 @@ export class SessionManager {
    * Save a session to disk.
    */
   async save(session: SessionData): Promise<string> {
-    await mkdir(this.sessionsDir, { recursive: true });
+    validateSessionId(session.id);
+    await mkdir(this.sessionsDir, { recursive: true, mode: 0o700 });
     const filePath = join(this.sessionsDir, `${session.id}.json`);
     session.updatedAt = new Date().toISOString();
-    await writeFile(filePath, JSON.stringify(session, null, 2), 'utf-8');
+    const tmpPath = filePath + '.tmp';
+    await writeFile(tmpPath, JSON.stringify(session, null, 2), { encoding: 'utf-8', mode: 0o600 });
+    await rename(tmpPath, filePath);
     return filePath;
   }
 
@@ -106,6 +120,7 @@ export class SessionManager {
    * Throws SessionCorruptedError if the file exists but cannot be parsed.
    */
   async load(sessionId: string): Promise<SessionData | null> {
+    validateSessionId(sessionId);
     const filePath = join(this.sessionsDir, `${sessionId}.json`);
     let content: string;
     try {
@@ -204,6 +219,7 @@ export class SessionManager {
    * Directory for a session's snapshots: ~/.pcc/sessions/snapshots/{sessionId}/
    */
   private snapshotsDir(sessionId: string): string {
+    validateSessionId(sessionId);
     return join(this.sessionsDir, 'snapshots', sessionId);
   }
 
@@ -222,9 +238,11 @@ export class SessionManager {
     };
 
     const dir = this.snapshotsDir(session.id);
-    await mkdir(dir, { recursive: true });
+    await mkdir(dir, { recursive: true, mode: 0o700 });
     const filePath = join(dir, `${snapshot.id}.json`);
-    await writeFile(filePath, JSON.stringify(snapshot, null, 2), 'utf-8');
+    const tmpPath = filePath + '.tmp';
+    await writeFile(tmpPath, JSON.stringify(snapshot, null, 2), { encoding: 'utf-8', mode: 0o600 });
+    await rename(tmpPath, filePath);
 
     return snapshot;
   }
@@ -264,6 +282,7 @@ export class SessionManager {
    * Returns null if the snapshot file does not exist.
    */
   async loadSnapshot(snapshotId: string, sessionId: string): Promise<SessionSnapshot | null> {
+    validateSessionId(snapshotId);
     const filePath = join(this.snapshotsDir(sessionId), `${snapshotId}.json`);
     let content: string;
     try {

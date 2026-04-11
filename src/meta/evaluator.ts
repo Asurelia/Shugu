@@ -18,6 +18,7 @@ import { resolveGitRoot } from '../utils/git.js';
 import { tracer } from '../utils/tracer.js';
 import { bootstrapMeta } from './runtime.js';
 import { runStructuredQuery } from './collect.js';
+import { buildSafeEnv } from '../utils/security.js';
 import { redactMessages, redactTraceEvents } from './redact.js';
 import type { MetaArchive } from './archive.js';
 import type {
@@ -116,7 +117,7 @@ export class MetaEvaluator {
       // Run setup command if provided
       if (task.setupCommand) {
         try {
-          await execAsync(task.setupCommand, { cwd: taskCwd, timeout: 30_000 });
+          await execAsync(task.setupCommand, { cwd: taskCwd, timeout: 30_000, env: buildSafeEnv() });
         } catch (err) {
           return this.errorResult(task, candidateId, runId, repeatIndex, startMs,
             `Setup command failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -197,7 +198,7 @@ export class MetaEvaluator {
 
       case 'command': {
         try {
-          const { stdout } = await execAsync(task.scorer.command, { cwd, timeout: 30_000 });
+          const { stdout } = await execAsync(task.scorer.command, { cwd, timeout: 30_000, env: buildSafeEnv() });
           if (task.scorer.parseScore === 'exit_code') {
             return { score: 1.0, criteriaResults: [], success: true };
           }
@@ -282,7 +283,7 @@ export class MetaEvaluator {
 
       case 'command_succeeds': {
         try {
-          await execAsync(String(criterion.value), { cwd, timeout: 30_000 });
+          await execAsync(String(criterion.value), { cwd, timeout: 30_000, env: buildSafeEnv() });
           return true;
         } catch {
           return false;
@@ -312,7 +313,7 @@ export class MetaEvaluator {
     try {
       const { stdout } = await execAsync(
         'git diff --name-only HEAD 2>/dev/null || find . -name "*.ts" -o -name "*.js" -o -name "*.md" | head -20',
-        { cwd, timeout: 5_000 },
+        { cwd, timeout: 5_000, env: buildSafeEnv() },
       );
       return stdout.trim().split('\n').filter(Boolean).map(f => join(cwd, f));
     } catch {

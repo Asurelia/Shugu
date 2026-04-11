@@ -18,17 +18,19 @@ import { isTextBlock } from '../protocol/messages.js';
 // ─── JSON Extraction ────────────────────────────────────
 
 export function extractJSON<T>(text: string): { data: T | null; error?: string } {
+  let lastError: string | undefined;
+
   // 1. Try full text as JSON
   try {
     return { data: JSON.parse(text) as T };
-  } catch {}
+  } catch (e) { lastError = e instanceof Error ? e.message : String(e); }
 
   // 2. Strip markdown fences: ```json ... ``` or ``` ... ```
   const fenceMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
   if (fenceMatch) {
     try {
       return { data: JSON.parse(fenceMatch[1]!) as T };
-    } catch {}
+    } catch (e) { lastError = e instanceof Error ? e.message : String(e); }
   }
 
   // 3. Find first { ... } block
@@ -36,7 +38,7 @@ export function extractJSON<T>(text: string): { data: T | null; error?: string }
   if (braceMatch) {
     try {
       return { data: JSON.parse(braceMatch[1]!) as T };
-    } catch {}
+    } catch (e) { lastError = e instanceof Error ? e.message : String(e); }
   }
 
   // 4. Find first [ ... ] block
@@ -44,10 +46,10 @@ export function extractJSON<T>(text: string): { data: T | null; error?: string }
   if (bracketMatch) {
     try {
       return { data: JSON.parse(bracketMatch[1]!) as T };
-    } catch {}
+    } catch (e) { lastError = e instanceof Error ? e.message : String(e); }
   }
 
-  return { data: null, error: `Could not extract JSON from model output:\n${text.slice(0, 500)}` };
+  return { data: null, error: `Could not extract JSON from model output (${lastError ?? 'no JSON found'}):\n${text.slice(0, 500)}` };
 }
 
 // ─── File Path Normalization ────────────────────────────

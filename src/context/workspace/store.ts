@@ -5,7 +5,7 @@
  * Stores indexed files, symbols, and metadata in `.pcc/index/`.
  */
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
@@ -76,13 +76,12 @@ export class IndexStore {
     }
   }
 
-  /** Write meta.json. */
+  /** Write meta.json (atomic: write to .tmp then rename). */
   async saveMeta(meta: IndexMeta): Promise<void> {
-    await writeFile(
-      join(this.indexDir, 'meta.json'),
-      JSON.stringify(meta, null, 2),
-      'utf-8',
-    );
+    const filePath = join(this.indexDir, 'meta.json');
+    const tmpPath = filePath + '.tmp';
+    await writeFile(tmpPath, JSON.stringify(meta, null, 2), { encoding: 'utf-8', mode: 0o600 });
+    await rename(tmpPath, filePath);
   }
 
   /** Read files.jsonl into a Map keyed by relative path. Memory-efficient streaming. */
@@ -111,17 +110,16 @@ export class IndexStore {
     return map;
   }
 
-  /** Write all indexed files to files.jsonl (one JSON object per line). */
+  /** Write all indexed files to files.jsonl (atomic: write to .tmp then rename). */
   async saveAll(files: Map<string, IndexedFile>): Promise<void> {
     const lines: string[] = [];
     for (const entry of files.values()) {
       lines.push(JSON.stringify(entry));
     }
-    await writeFile(
-      join(this.indexDir, 'files.jsonl'),
-      lines.join('\n') + (lines.length > 0 ? '\n' : ''),
-      'utf-8',
-    );
+    const filePath = join(this.indexDir, 'files.jsonl');
+    const tmpPath = filePath + '.tmp';
+    await writeFile(tmpPath, lines.join('\n') + (lines.length > 0 ? '\n' : ''), { encoding: 'utf-8', mode: 0o600 });
+    await rename(tmpPath, filePath);
   }
 
   /** Read symbols.jsonl as a flat list of symbol entries with path. */
@@ -170,10 +168,9 @@ export class IndexStore {
         lines.push(JSON.stringify(flat));
       }
     }
-    await writeFile(
-      join(this.indexDir, 'symbols.jsonl'),
-      lines.join('\n') + (lines.length > 0 ? '\n' : ''),
-      'utf-8',
-    );
+    const filePath = join(this.indexDir, 'symbols.jsonl');
+    const tmpPath = filePath + '.tmp';
+    await writeFile(tmpPath, lines.join('\n') + (lines.length > 0 ? '\n' : ''), { encoding: 'utf-8', mode: 0o600 });
+    await rename(tmpPath, filePath);
   }
 }

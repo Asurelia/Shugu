@@ -12,6 +12,7 @@ import type { Tool, ToolCall, ToolResult, ToolContext, ToolDefinition } from '..
 import { BASH_MAX_OUTPUT_CHARS, BASH_MAX_STDERR_CHARS, truncateBashOutput } from '../outputLimits.js';
 import { resolveShell } from './shells.js';
 import type { ShellConfig } from './shells.js';
+import { buildSafeEnv } from '../../utils/security.js';
 
 const DEFAULT_TIMEOUT_MS = 120_000; // 2 minutes
 
@@ -160,7 +161,7 @@ function runBash(
     const shell = getShell();
     const child = spawn(shell.path, [...shell.args, command], {
       cwd,
-      env: { ...process.env },
+      env: buildSafeEnv(),
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: timeoutMs,
     });

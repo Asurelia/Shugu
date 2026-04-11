@@ -10,6 +10,7 @@
 
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
 import { EventEmitter } from 'node:events';
+import { timingSafeCompare } from '../utils/security.js';
 
 // ─── Trigger Definition ────────────────────────────────
 
@@ -51,16 +52,29 @@ export type TriggerExecutor = (prompt: string, triggerName: string) => Promise<s
 
 // ─── Trigger Server ────────────────────────────────────
 
+// ─── Security Constants ───────────────────────────────
+
+/** Maximum request body size (1 MB). Prevents memory exhaustion DoS. */
+const MAX_BODY_BYTES = 1_048_576;
+
+/** Default rate limit: 60 requests per minute per IP. */
+const DEFAULT_RATE_LIMIT_PER_MINUTE = 60;
+
+// ─── Trigger Server ────────────────────────────────────
+
 export class TriggerServer extends EventEmitter {
   private server: Server | null = null;
   private triggers = new Map<string, TriggerDefinition>();
   private executor: TriggerExecutor | null = null;
   private port: number;
   private triggerCounter = 0;
+  private rateLimitPerMinute: number;
+  private rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 
-  constructor(port: number = 7799) {
+  constructor(port: number = 7799, rateLimitPerMinute: number = DEFAULT_RATE_LIMIT_PER_MINUTE) {
     super();
     this.port = port;
+    this.rateLimitPerMinute = rateLimitPerMinute;
   }
 
   /**
@@ -153,14 +167,20 @@ export class TriggerServer extends EventEmitter {
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
 
-    // CORS headers for webhook sources
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    // Security headers — no CORS (CLI tool, no browser clients needed)
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'no-store');
 
     if (req.method === 'OPTIONS') {
       res.writeHead(204);
       res.end();
+      return;
+    }
+
+    // Rate limiting per source IP
+    const sourceIP = req.socket.remoteAddress ?? 'unknown';
+    if (this.isRateLimited(sourceIP)) {
+      this.sendJson(res, 429, { error: 'Too many requests' });
       return;
     }
 
@@ -251,10 +271,10 @@ export class TriggerServer extends EventEmitter {
       return;
     }
 
-    // Auth check
+    // Auth check — constant-time comparison to prevent timing attacks
     if (trigger.authToken) {
-      const auth = req.headers['authorization'];
-      if (auth !== `Bearer ${trigger.authToken}`) {
+      const auth = req.headers['authorization'] ?? '';
+      if (!timingSafeCompare(auth, `Bearer ${trigger.authToken}`)) {
         this.sendJson(res, 401, { error: 'Unauthorized' });
         return;
       }
@@ -326,7 +346,16 @@ export class TriggerServer extends EventEmitter {
   private async readBody(req: IncomingMessage): Promise<unknown> {
     return new Promise((resolve, reject) => {
       let body = '';
-      req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+      let received = 0;
+      req.on('data', (chunk: Buffer) => {
+        received += chunk.length;
+        if (received > MAX_BODY_BYTES) {
+          req.destroy();
+          reject(new Error('Request body too large'));
+          return;
+        }
+        body += chunk.toString();
+      });
       req.on('end', () => {
         try {
           resolve(body ? JSON.parse(body) : {});
@@ -336,6 +365,28 @@ export class TriggerServer extends EventEmitter {
       });
       req.on('error', reject);
     });
+  }
+
+  /**
+   * Simple in-memory rate limiter per source IP.
+   * Returns true if the request should be rejected.
+   */
+  private isRateLimited(ip: string): boolean {
+    const now = Date.now();
+    const entry = this.rateLimitMap.get(ip);
+
+    if (!entry || now >= entry.resetAt) {
+      // New window
+      this.rateLimitMap.set(ip, { count: 1, resetAt: now + 60_000 });
+      return false;
+    }
+
+    entry.count++;
+    if (entry.count > this.rateLimitPerMinute) {
+      return true;
+    }
+
+    return false;
   }
 
   private sendJson(res: ServerResponse, status: number, data: unknown): void {

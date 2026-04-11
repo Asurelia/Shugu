@@ -17,6 +17,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, unl
 import { join } from 'node:path';
 import { createServer, type Server } from 'node:net';
 import { EventEmitter } from 'node:events';
+import { randomBytes } from 'node:crypto';
+import { timingSafeCompare, buildSafeEnv } from '../utils/security.js';
 
 // ─── Daemon Config ─────────────────────────────────────
 
@@ -54,6 +56,8 @@ export interface DaemonMessage {
   type: 'prompt' | 'status' | 'stop' | 'result' | 'heartbeat' | 'log';
   payload?: unknown;
   timestamp: string;
+  /** IPC authentication nonce — validated by the worker on every message */
+  nonce?: string;
 }
 
 // ─── Daemon Controller ─────────────────────────────────
@@ -68,6 +72,7 @@ export class DaemonController extends EventEmitter {
   private state: DaemonState;
   private ipcServer: Server | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private ipcNonce: string | null = null;
 
   constructor(config: DaemonConfig) {
     super();
@@ -102,15 +107,20 @@ export class DaemonController extends EventEmitter {
     this.saveState();
 
     try {
-      // Fork the CLI entrypoint in daemon mode
+      // Generate a cryptographic nonce for IPC authentication.
+      // The child reads this from env and validates every incoming message.
+      const ipcNonce = randomBytes(32).toString('hex');
+      this.ipcNonce = ipcNonce;
+
+      // Fork with sanitized env — only safe vars + daemon-specific extras
       this.child = fork(this.config.entrypoint, ['--daemon'], {
         cwd: this.config.cwd,
-        env: {
-          ...process.env,
+        env: buildSafeEnv({
           ...this.config.env,
           PCC_DAEMON: '1',
           PCC_DAEMON_SOCKET: this.state.socketPath,
-        },
+          PCC_DAEMON_NONCE: ipcNonce,
+        }),
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
       });
@@ -186,7 +196,7 @@ export class DaemonController extends EventEmitter {
 
     // Send stop message via IPC
     try {
-      this.child.send({ type: 'stop', timestamp: new Date().toISOString() });
+      this.child.send({ type: 'stop', timestamp: new Date().toISOString(), nonce: this.ipcNonce ?? undefined });
     } catch {
       // IPC might be disconnected
     }
@@ -224,6 +234,7 @@ export class DaemonController extends EventEmitter {
       type: 'prompt',
       payload: { prompt },
       timestamp: new Date().toISOString(),
+      nonce: this.ipcNonce ?? undefined,
     };
 
     this.child.send(msg);
@@ -300,6 +311,7 @@ export class DaemonController extends EventEmitter {
           this.child.send({
             type: 'heartbeat',
             timestamp: new Date().toISOString(),
+            nonce: this.ipcNonce ?? undefined,
           });
         } catch {
           // IPC broken — child may have died
@@ -339,7 +351,16 @@ export class DaemonWorker extends EventEmitter {
 
     this.running = true;
 
+    // Read the IPC nonce from env (set by DaemonController at fork time)
+    const expectedNonce = process.env['PCC_DAEMON_NONCE'] ?? '';
+
     process.on('message', (msg: DaemonMessage) => {
+      // Validate IPC nonce — reject messages without valid authentication
+      if (expectedNonce && !timingSafeCompare(msg.nonce ?? '', expectedNonce)) {
+        // Drop unauthenticated message silently (don't reveal nonce exists)
+        return;
+      }
+
       switch (msg.type) {
         case 'prompt':
           this.emit('prompt', (msg.payload as { prompt: string }).prompt);
