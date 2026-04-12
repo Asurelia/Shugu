@@ -22,6 +22,7 @@ import type {
   ContentBlock,
   Usage,
 } from '../protocol/messages.js';
+import { logger } from '../utils/logger.js';
 
 // ─── SSE Line Parser ────────────────────────────────────
 
@@ -63,8 +64,9 @@ export async function* parseSSEStream(
           try {
             const event = JSON.parse(jsonStr) as StreamEvent;
             yield event;
-          } catch {
-            // Skip malformed JSON lines — MiniMax sometimes sends partial lines
+          } catch (err) {
+            // MiniMax sometimes sends partial lines — log for debugging
+            logger.debug('SSE JSON parse failed', `${jsonStr.slice(0, 80)} | ${err instanceof Error ? err.message : 'unknown'}`);
           }
         }
       }

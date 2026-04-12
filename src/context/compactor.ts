@@ -17,6 +17,7 @@ import type { Message, UserMessage, AssistantMessage, ContentBlock } from '../pr
 import type { MiniMaxClient } from '../transport/client.js';
 import { isToolUseBlock, isToolResultBlock } from '../protocol/messages.js';
 import { sanitizeUntrustedContent } from '../utils/security.js';
+import { logger } from '../utils/logger.js';
 
 // ─── Configuration ──────────────────────────────────────
 
@@ -66,7 +67,8 @@ export async function compactConversation(
   let summary: string;
   try {
     summary = await generateSummary(messagesToSummarize, client, config.summaryMaxTokens);
-  } catch {
+  } catch (err) {
+    logger.warn('compaction summary generation failed — context may grow unbounded:', err instanceof Error ? err.message : String(err));
     return { messages, wasCompacted: false, removedTurns: 0 };
   }
 

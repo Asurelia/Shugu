@@ -320,14 +320,21 @@ export async function* runLoop(
               if (hookResult.modifiedCall) effectiveCall = hookResult.modifiedCall;
             }
 
-            if (config.toolContext?.askPermission) {
-              const granted = await config.toolContext.askPermission(call.name, summarizeToolAction(effectiveCall));
+            // Permission check — deny by default if askPermission is not provided (unless bypass mode)
+            const askPerm = config.toolContext?.askPermission;
+            if (askPerm) {
+              const granted = await askPerm(call.name, summarizeToolAction(effectiveCall));
               if (!granted) {
                 const result: ToolResult = { tool_use_id: call.id, content: `Permission denied for ${call.name}`, is_error: true };
                 toolResults.push(result);
                 yield { type: 'tool_result', result };
                 continue;
               }
+            } else if (config.toolContext?.permissionMode !== 'bypass') {
+              const result: ToolResult = { tool_use_id: call.id, content: `Permission denied for ${call.name}: no permission handler configured`, is_error: true };
+              toolResults.push(result);
+              yield { type: 'tool_result', result };
+              continue;
             }
 
             approved.push({ call: effectiveCall, tool });
@@ -453,20 +460,30 @@ export async function* runLoop(
               }
             }
 
-            // Permission check — consult the resolver via toolContext.askPermission
-            if (config.toolContext?.askPermission) {
+            // Permission check — deny by default if askPermission is not provided (unless bypass mode)
+            const askPermSeq = config.toolContext?.askPermission;
+            if (askPermSeq) {
               const actionSummary = summarizeToolAction(call);
-              const granted = await config.toolContext.askPermission(call.name, actionSummary);
+              const granted = await askPermSeq(call.name, actionSummary);
               if (!granted) {
                 const result: ToolResult = {
                   tool_use_id: call.id,
-                  content: `Permission denied for ${call.name}. Mode: ${config.toolContext.permissionMode}`,
+                  content: `Permission denied for ${call.name}. Mode: ${config.toolContext!.permissionMode}`,
                   is_error: true,
                 };
                 toolResults.push(result);
                 yield { type: 'tool_result', result };
                 continue;
               }
+            } else if (config.toolContext?.permissionMode !== 'bypass') {
+              const result: ToolResult = {
+                tool_use_id: call.id,
+                content: `Permission denied for ${call.name}: no permission handler configured`,
+                is_error: true,
+              };
+              toolResults.push(result);
+              yield { type: 'tool_result', result };
+              continue;
             }
 
             // Execute with timeout and abort signal

@@ -17,6 +17,15 @@ import { getToolCategory, getDefaultDecision, type PermissionDecision } from './
 import { evaluateRules, BUILTIN_RULES, type PermissionRule } from './rules.js';
 import { classifyBashRisk, type RiskLevel } from './classifier.js';
 
+// Simple string hash for compound command deduplication
+function hashCode(s: string): number {
+  let hash = 0;
+  for (let i = 0; i < s.length; i++) {
+    hash = ((hash << 5) - hash + s.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
 // ─── Permission Result ──────────────────────────────────
 
 export interface PermissionResult {
@@ -135,16 +144,24 @@ export class PermissionResolver {
   }
 
   private getSessionKey(call: ToolCall): string {
-    // SECURITY: For bash, key on the first TWO tokens to prevent approval
-    // cascade. Previously keyed on first word only: approving "npm install"
-    // auto-approved ALL npm commands including "npm run evil-script".
-    // Now: "npm install" → Bash:npm:install, "git push" → Bash:git:push.
+    // SECURITY: For bash, key on up to THREE non-flag tokens to prevent
+    // approval cascade. Example: "npm install lodash" → Bash:npm:install:lodash
+    // This prevents "npm install lodash" from auto-approving "npm install evil-pkg".
+    //
+    // Compound commands (&&, ||, ;, |) are rejected for session approval:
+    // each compound segment could have different risk levels.
     //
     // Also normalizes:
     // - Path prefixes: /usr/bin/npm → npm (prevents key mismatch)
     // - Env var prefixes: NODE_ENV=prod npm → npm (strips KEY=val tokens)
     if (call.name === 'Bash') {
       const cmd = (call.input['command'] as string) ?? '';
+
+      // Compound commands get unique keys (no session caching)
+      if (/[;&|]{1,2}/.test(cmd)) {
+        return `Bash:compound:${cmd.length}:${hashCode(cmd)}`;
+      }
+
       let tokens = cmd.trim().split(/\s+/);
 
       // Strip leading env var assignments (KEY=value patterns)
@@ -153,7 +170,6 @@ export class PermissionResolver {
       }
 
       let first = tokens[0] ?? '';
-      const second = tokens[1] ?? '';
 
       // Strip path prefix: /usr/bin/npm → npm, ./node_modules/.bin/tsc → tsc
       const slashIdx = first.lastIndexOf('/');
@@ -163,11 +179,13 @@ export class PermissionResolver {
         first = first.slice(pathSep + 1);
       }
 
-      // Include second token if it's a subcommand (not a flag)
-      if (second && !second.startsWith('-')) {
-        return `Bash:${first}:${second}`;
+      // Collect up to 3 non-flag tokens for the key
+      const keyParts = [first];
+      for (let i = 1; i < tokens.length && keyParts.length < 3; i++) {
+        const t = tokens[i]!;
+        if (!t.startsWith('-')) keyParts.push(t);
       }
-      return `Bash:${first}`;
+      return `Bash:${keyParts.join(':')}`;
     }
     // For file tools, key on tool name (allow all file reads, etc.)
     return call.name;
