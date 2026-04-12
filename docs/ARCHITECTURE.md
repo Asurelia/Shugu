@@ -1760,5 +1760,354 @@ Cross-cutting:
 
 ---
 
-*Document generated for Shugu v0.2.0.  159 source files, ~25,500 LOC,
-37 test files, ~5,500 test LOC.  Last verified: 2026-04-08.*
+---
+
+## Operational Guide
+
+### First Launch Flow
+
+When a user runs `pcc` (or `shugu`) for the first time:
+
+```
+bin/pcc.mjs → cli.ts:main() → bootstrap()
+                                  │
+                                  ├─ 1. resolveAuth() — checks MINIMAX_API_KEY / ANTHROPIC_AUTH_TOKEN
+                                  │     └─ Missing? → error + exit(1) with env var names
+                                  │
+                                  ├─ 2. Vault check — ~/.pcc/credentials.enc exists?
+                                  │     ├─ NO  → initializeNewVault() — prompts for master password
+                                  │     │        Creates ~/.pcc/credentials.enc (AES-256-GCM)
+                                  │     └─ YES → unlockExistingVault() — prompts for password (3 attempts)
+                                  │
+                                  ├─ 3. Service initialization — creates all runtime services:
+                                  │     MiniMaxClient, ToolRegistry, PermissionResolver, MemoryAgent,
+                                  │     Kairos, SessionManager, Renderer, ObsidianVault (if found)
+                                  │
+                                  ├─ 4. Plugin loading — scans ~/.pcc/plugins/ and .pcc/plugins/
+                                  │     └─ Local plugins → user confirmation required (except bypass mode)
+                                  │
+                                  ├─ 5. System prompt assembly — buildSystemPrompt() gathers:
+                                  │     Base prompt + git context + project context + vault + memory +
+                                  │     skills + companion + harness fragments
+                                  │
+                                  └─ 6. Dispatch → runREPL() (interactive) or runSingleQuery() (single-shot)
+```
+
+**Per-project initialization** (`/init` command):
+- Creates `SHUGU.md` — auto-detected project instructions (language, framework, commands)
+- Creates `.pcc/` directory + `.pcc/memory/` for local memory index
+- Detects: package.json → Node.js/React/Next.js/Vue/Express, Cargo.toml → Rust, go.mod → Go, pyproject.toml → Python
+
+**Directories created automatically:**
+| Path | When | Contents |
+|------|------|----------|
+| `~/.pcc/` | First vault creation | Global config root |
+| `~/.pcc/credentials.enc` | First launch | Encrypted credential vault |
+| `~/.pcc/sessions/` | First session save | Session JSON files |
+| `~/.pcc/plugins/` | Manual | Global plugins |
+| `.pcc/` | `/init` command | Project-local config |
+| `.pcc/memory/index.json` | First memory save | Local memory cache |
+| `.pcc/plugins/` | Manual | Project-local plugins |
+
+### Memory System
+
+#### Creation Pipeline
+
+Memories are created from 3 sources, running in parallel:
+
+```
+User input ──► extractHints() ──► Regex detection (synchronous)
+                                    "Remember that..." → confidence 0.9
+                                    "I'm a..."         → confidence 0.8
+                                    "Don't..."         → confidence 0.6
+
+Post-turn  ──► saveLLMExtracted() ──► LLM extraction (async, fire-and-forget)
+                                       Model extracts facts → confidence 0.7
+
+Manual     ──► saveMemory() ──► User/vault direct creation → confidence 0.95
+```
+
+#### Storage Architecture
+
+```
+Primary: Obsidian vault (if connected)
+  └─ One .md note per memory with YAML frontmatter
+  └─ Folder: Agent/ (write-scoped, path-validated)
+
+Cache: .pcc/memory/index.json (always present)
+  └─ JSON array of MemoryItems
+  └─ Flushed at: end of each turn + session close + SIGINT/SIGTERM/SIGHUP
+  └─ Atomic write: temp file + rename (prevents corruption)
+```
+
+#### Deduplication
+
+Before saving, each memory is checked:
+1. **Title match** — `slugify(newTitle) === slugify(existingTitle)`
+2. **Content overlap** — first 100 chars identical
+3. If duplicate found: update existing only if `newConfidence > existingConfidence`
+
+#### Context Injection (when memories enter the prompt)
+
+| Injection point | When | How many | Query filter |
+|----------------|------|----------|-------------|
+| `getStartupContext()` | Once at session start | Top 10 recent | None (all recent) |
+| `getRelevantContext(query)` | Every turn (volatile refresh) | Top 5 matching | Semantic + keyword |
+
+**Relevance scoring algorithm:**
+- Query expansion via synonym groups (e.g., "auth" → "jwt", "oauth", "session")
+- Title match: +3 points, Tag match: +2, Content match: +1, Prefix: +0.5
+- Recency boost: exponential decay over 30 days
+- Minimum threshold: 0.5 (weak matches filtered out)
+
+#### Archival & Cleanup
+
+- **Auto-archive**: Notes > 30 days idle moved to archive folder during `maintenance()`
+- **Maintenance runs**: At bootstrap (startup), idempotent
+- **No explicit "forget"**: Delete from vault/index manually, or let archive handle it
+
+#### Fallback
+
+- Vault unavailable? → Memory still works via index.json only (no vault sync)
+- index.json corrupted? → Empty array, memories lost but no crash (agent.ts:148)
+- LLM extraction fails? → Fire-and-forget, logged, no impact on session
+
+### Session Lifecycle
+
+#### Save Points
+
+```
+Session data saved at:
+  1. End of each turn     → saveSession()     [repl.ts:645]
+  2. SIGINT  (Ctrl+C)     → gracefulShutdown() [repl.ts:254-264]
+  3. SIGTERM (kill/docker) → gracefulShutdown() [repl.ts:254-264]
+  4. SIGHUP  (terminal)   → gracefulShutdown() [repl.ts:254-264]
+  5. /quit command         → explicit save      [repl.ts:392]
+
+Memory index flushed at:
+  - services.dispose() → memoryAgent.flushIndex()  [bootstrap.ts:494]
+  - Called by all shutdown paths above
+```
+
+#### What gets saved
+
+```json
+// ~/.pcc/sessions/{8-char-uuid}.json
+{
+  "id": "a1b2c3d4",
+  "projectDir": "/path/to/project",
+  "messages": [...],           // Full conversation history
+  "model": "MiniMax-M2.7",
+  "totalUsage": { "input_tokens": 50000, "output_tokens": 12000 },
+  "turnCount": 15,
+  "createdAt": "2026-04-11T...",
+  "updatedAt": "2026-04-11T...",
+  "workContext": {             // Rehydration data for /resume
+    "activeFiles": ["src/main.ts", "tests/main.test.ts"],
+    "currentGoal": "Fix authentication bug",
+    "toolHistory": ["Read", "Edit", "Bash"],
+    "pendingWork": null
+  }
+}
+```
+
+#### Crash & Data Loss
+
+| Scenario | Data preserved | Data lost |
+|----------|---------------|-----------|
+| Ctrl+C (SIGINT) | Session + memory | Nothing (graceful) |
+| `kill <pid>` (SIGTERM) | Session + memory | Nothing (graceful) |
+| Terminal closed (SIGHUP) | Session + memory | Nothing (graceful) |
+| `kill -9` (SIGKILL) | Last saved state | Current turn's changes |
+| Power loss / crash | Last saved state | Current turn's changes |
+| OOM kill | Last saved state | Current turn's changes |
+
+**Recovery**: `pcc --continue` resumes latest session for current directory. `pcc --resume` lists recent sessions to pick from.
+
+#### File Change Tracking
+
+- `TurnChangeAccumulator` records file states before each tool execution
+- Enables `/file-revert` to undo changes per-turn
+- **In-memory only** — not persisted to disk (lost on crash)
+
+### Kairos (Time Awareness)
+
+**What it does:** Tracks session time, suggests breaks, generates summaries.
+
+| Feature | Trigger | Threshold | Output |
+|---------|---------|-----------|--------|
+| Time context injection | Every 5 turns | Automatic | `[TIME: Session 23m elapsed, 20m active, 15 turns]` |
+| Away summary | User returns after idle | > 10 minutes | "Welcome back! You were away for 15m." |
+| Break suggestion | Deep work session | > 45 minutes active | "Consider a short break." (once per session) |
+| Session summary | `/quit` command | Always | Duration, turn count, topics covered |
+
+**Autonomous?** Yes — Kairos runs automatically with zero configuration. It tracks time passively and injects context into prompts on its own schedule. The user never needs to interact with it directly.
+
+**Limitations:** No time-of-day awareness, no timezone handling, no calendar integration.
+
+### Plugin Development Guide
+
+#### Minimal Plugin
+
+```
+my-plugin/
+├── plugin.json
+└── index.js
+```
+
+**plugin.json:**
+```json
+{
+  "name": "my-plugin",
+  "version": "1.0.0",
+  "description": "What this plugin does",
+  "entry": "index.js",
+  "isolation": "brokered",
+  "capabilities": ["fs.read"],
+  "permissions": ["tools"]
+}
+```
+
+**index.js:**
+```javascript
+export default async function init(api) {
+  api.registerTool({
+    definition: {
+      name: 'MyTool',
+      description: 'Does something useful',
+      input_schema: { type: 'object', properties: { query: { type: 'string' } } }
+    },
+    async execute(call, context) {
+      return { tool_use_id: call.id, content: `Result for: ${call.input.query}` };
+    }
+  });
+}
+```
+
+#### Isolation Modes
+
+| Mode | Process | Filesystem | Network | Use case |
+|------|---------|-----------|---------|----------|
+| `trusted` | Same process | Full access | Full access | Your own plugins |
+| `brokered` | Child process | Capability-gated | SSRF-protected | Third-party plugins |
+
+#### Brokered Sandbox Layers (applied in order)
+
+1. **Docker** (if available): `--net=none --read-only --cap-drop=ALL`
+2. **Node --permission** (Node >= 22): `--allow-fs-read=<scoped> --allow-fs-write=<scoped>`
+3. **Capability Broker**: validates every fs/network operation via JSON-RPC
+
+#### Available Capabilities
+
+| Capability | What it allows | Path validation |
+|-----------|---------------|-----------------|
+| `fs.read` | Read files in plugin dir or project dir | `realpath()` + boundary check |
+| `fs.write` | Write files in plugin `.data/` dir only | Parent dir validated |
+| `fs.list` | List directories | Path boundary enforced |
+| `http.fetch` | HTTP GET/POST | SSRF protection (isBlockedUrl + redirect validation) |
+
+#### Plugin Discovery
+
+- **Global**: `~/.pcc/plugins/<plugin-name>/plugin.json` — auto-loaded, trusted
+- **Local**: `.pcc/plugins/<plugin-name>/plugin.json` — requires user confirmation
+- **Name collision**: Plugins cannot register tools named Read, Write, Edit, Glob, Grep, Bash, Agent, WebFetch, WebSearch (blocked by BUILTIN_TOOL_NAMES)
+
+#### Plugin Permissions
+
+Declared in `plugin.json` → `permissions` array:
+- `"tools"` — can register tools
+- `"hooks"` — can register Pre/PostToolUse hooks
+- `"commands"` — can register slash commands
+- `"skills"` — can register skills
+
+Missing permission → registration silently rejected with debug log.
+
+### Prompt Construction Order
+
+```
+System prompt (built once at session start, refreshed every 3 turns):
+
+  ┌─────────────────────────────────────────────────┐
+  │ 1. BASE_SYSTEM_PROMPT (immutable, ~2K tokens)   │ ← Cached
+  │    "You are Shugu, an AI coding agent..."        │
+  ├─────────────────────────────────────────────────┤
+  │ 2. Harness systemPromptAppend                    │ ← Cached
+  ├─────────────────────────────────────────────────┤
+  │ 3. Environment (cwd, platform, date)             │ ← Cached
+  ├─────────────────────────────────────────────────┤
+  │ 4. Git context (branch, recent commits)          │ ← Sanitized
+  ├─────────────────────────────────────────────────┤
+  │ 5. Project context + SHUGU.md instructions       │ ← Sanitized + wrapped
+  ├─────────────────────────────────────────────────┤
+  │ 6. CLI tool hints (npm, cargo, etc.)             │ ← Cached
+  ├─────────────────────────────────────────────────┤
+  │ 7. Vault context (Obsidian summary)              │ ← Sanitized, refreshed/60s
+  ├─────────────────────────────────────────────────┤
+  │ 8. Memory context (startup memories)             │ ← Sanitized
+  ├─────────────────────────────────────────────────┤
+  │ 9. Skills descriptions                           │ ← Sanitized
+  ├─────────────────────────────────────────────────┤
+  │ 10. Companion personality                        │ ← Cached
+  ├─────────────────────────────────────────────────┤
+  │ 11. Harness promptFragments                      │ ← Sanitized
+  └─────────────────────────────────────────────────┘
+
+  Volatile parts (rebuilt every turn):
+  ┌─────────────────────────────────────────────────┐
+  │ - Mode directive (plan/default/acceptEdits/etc.) │
+  │ - Strategy prompt (if complex task)              │
+  │ - Kairos time context (every 5 turns)            │
+  │ - Relevant memories (per-turn search)            │
+  └─────────────────────────────────────────────────┘
+```
+
+**Max size**: ~200K tokens (MiniMax M2.7 context window). Auto-compaction triggers at 80% usage — older turns summarized, tool outcomes preserved.
+
+### Failure Modes
+
+| Failure | Detection | Impact | Recovery |
+|---------|-----------|--------|----------|
+| No API key | `resolveAuth()` at startup | Cannot start | Set MINIMAX_API_KEY env var |
+| Invalid API key | HTTP 401 from API | Blocked after retries | Fix env var, restart |
+| No internet | fetch() ECONNREFUSED | Blocked until network restored | Wait or exit |
+| Vault corrupted | JSON parse fails in `unlock()` | Cannot start | Delete ~/.pcc/credentials.enc, restart |
+| Wrong vault password | 3 attempts in `unlockExistingVault()` | Cannot start | Remember password or delete vault |
+| Plugin crash (trusted) | Error thrown during init/hook | Plugin disabled, session continues | Fix plugin, restart |
+| Plugin crash (brokered) | Child process exits, RPC timeout | Plugin disabled, session continues | Fix plugin, restart |
+| Context window full | tokenTracker > 80% | Auto-compaction triggered | Automatic (up to 3 retries) |
+| Compaction failure (3x) | Circuit breaker trips | No more compaction, eventual API error | Start new session |
+| Tool timeout | 5-minute default | Error returned to model | Model retries or reports |
+| Model rate limit | HTTP 429 | Exponential backoff retry | Automatic |
+
+### Security Architecture (Post-Audit)
+
+All untrusted content entering the LLM context passes through `sanitizeUntrustedContent()`:
+
+```
+Untrusted sources:           Sanitization pipeline:
+  Git commits/branches  ─┐
+  Project instructions  ─┤   Phase 1: Normalize CRLF → LF
+  File content (Read)   ─┤   Phase 2: Strip zero-width Unicode chars
+  Bash stdout/stderr    ─┤   Phase 3: Replace Cyrillic homoglyphs → ASCII
+  Grep results          ─┼─► Phase 4: Strip numeric HTML entities
+  Web search results    ─┤   Phase 5: Strip role-switching markers (Human:/System:/etc.)
+  Web page content      ─┤   Phase 6: Strip XML role tags (<system>, </user>)
+  Vault notes           ─┤   Phase 7: Strip HTML comments (<!-- -->)
+  Memory content        ─┤
+  Error messages        ─┤   Applied at 13 injection points across the codebase.
+  Skill descriptions    ─┤
+  Harness fragments     ─┤
+  Buddy observations    ─┘
+```
+
+Network requests (WebFetch, plugin broker) use `ssrfSafeFetch()`:
+- Blocks localhost, RFC1918, link-local, cloud metadata endpoints
+- Manual redirect following with per-hop re-validation
+- IPv6-mapped, hex, decimal, octal IP normalization
+
+Permission system: 5 modes × risk classifier × session approval caching (2-token granularity with path/env normalization).
+
+---
+
+*Document updated for Shugu v0.2.0. 165 source files, ~26,500 LOC,
+60 test files, ~8,500 test LOC. Last verified: 2026-04-11.*
