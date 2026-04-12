@@ -102,6 +102,7 @@ function renderContentBlock(block: ContentBlock, renderer: TerminalRenderer): vo
 
 /** Track tool_use_id → tool context for result enrichment */
 const _toolContextMap = new Map<string, { name: string; detail: string }>();
+let _streamingTextAccumulator = '';
 
 export function handleEventForApp(
   event: LoopEvent,
@@ -110,9 +111,27 @@ export function handleEventForApp(
 ): void {
   switch (event.type) {
     case 'turn_start':
+      _streamingTextAccumulator = '';
       break;
 
+    // ── Real-time streaming events (arrive token by token) ──
+    case 'stream_text': {
+      _streamingTextAccumulator += event.text;
+      app.updateLastText(_streamingTextAccumulator);
+      break;
+    }
+    case 'stream_thinking':
+      // Thinking tokens arrive during extended thinking — currently silent.
+      // Future: could update a "thinking..." indicator with partial content.
+      break;
+    case 'stream_tool_start':
+      // Tool call detected in the stream before it's fully parsed.
+      // Future: show spinner with tool name before execution starts.
+      break;
+
+    // ── Complete message (arrives after streaming is done) ──
     case 'assistant_message': {
+      _streamingTextAccumulator = '';
       app.pushMessage({ type: 'assistant_header' });
       for (const block of event.message.content) {
         if (isThinkingBlock(block)) {

@@ -248,6 +248,121 @@ function finalizeBlock(block: AccumulatingBlock): ContentBlock {
   }
 }
 
+// ─── Streaming Generator ──────────────────────────────
+
+/**
+ * Events yielded by streamWithDeltas during real-time streaming.
+ * Allows runLoop to forward deltas to the UI as they arrive
+ * instead of waiting for the full response.
+ */
+export type StreamingEvent =
+  | { type: 'delta'; index: number; delta: ContentDelta }
+  | { type: 'block_start'; index: number; blockType: string; toolName?: string; toolId?: string }
+  | { type: 'thinking'; text: string }
+  | { type: 'complete'; response: AccumulatedResponse };
+
+/**
+ * AsyncGenerator version of accumulateStream that yields deltas as they arrive.
+ * The final yield is always { type: 'complete', response } with the full message.
+ *
+ * This powers real-time token streaming in the UI while still producing the
+ * same AccumulatedResponse that the rest of the engine expects.
+ */
+export async function* streamWithDeltas(
+  events: AsyncGenerator<StreamEvent>,
+): AsyncGenerator<StreamingEvent> {
+  const indexedBlocks: AccumulatingBlock[] = [];
+  const reasoningBlocks: AccumulatingBlock[] = [];
+
+  let messageId = '';
+  let model = '';
+  let stopReason: string | null = null;
+  const usage: Usage = { input_tokens: 0, output_tokens: 0 };
+
+  for await (const event of events) {
+    switch (event.type) {
+      case 'message_start': {
+        messageId = event.message.id;
+        model = event.message.model;
+        usage.input_tokens = event.message.usage.input_tokens;
+        usage.output_tokens = event.message.usage.output_tokens;
+        if (event.message.usage.cache_creation_input_tokens) {
+          usage.cache_creation_input_tokens = event.message.usage.cache_creation_input_tokens;
+        }
+        if (event.message.usage.cache_read_input_tokens) {
+          usage.cache_read_input_tokens = event.message.usage.cache_read_input_tokens;
+        }
+        if (event.message.reasoning_details) {
+          for (const detail of event.message.reasoning_details) {
+            const block = createAccumulatingBlock({ type: 'thinking' });
+            block.thinking = detail.text;
+            reasoningBlocks.push(block);
+          }
+        }
+        break;
+      }
+
+      case 'content_block_start': {
+        const block = createAccumulatingBlock(event.content_block);
+        indexedBlocks[event.index] = block;
+        yield {
+          type: 'block_start',
+          index: event.index,
+          blockType: event.content_block.type,
+          toolName: (event.content_block as { name?: string }).name,
+          toolId: (event.content_block as { id?: string }).id,
+        };
+        break;
+      }
+
+      case 'content_block_delta': {
+        const block = indexedBlocks[event.index];
+        if (!block) break;
+        applyDelta(block, event.delta);
+        yield { type: 'delta', index: event.index, delta: event.delta };
+        break;
+      }
+
+      case 'content_block_stop': {
+        // Block complete — no need to yield, the complete event has the full message
+        break;
+      }
+
+      case 'message_delta': {
+        stopReason = event.delta.stop_reason;
+        if (event.usage) {
+          usage.output_tokens = event.usage.output_tokens;
+        }
+        break;
+      }
+
+      case 'message_stop': {
+        break;
+      }
+
+      case 'reasoning.text': {
+        const re = event as import('../protocol/events.js').ReasoningDelta;
+        let streamBlock = reasoningBlocks.find((b) => b.toolId === '_reasoning_stream');
+        if (!streamBlock) {
+          streamBlock = createAccumulatingBlock({ type: 'thinking' });
+          streamBlock.toolId = '_reasoning_stream';
+          reasoningBlocks.push(streamBlock);
+        }
+        streamBlock.thinking += re.text;
+        yield { type: 'thinking', text: re.text };
+        break;
+      }
+    }
+  }
+
+  // Build final response (same as accumulateStream)
+  const allBlocks = [...reasoningBlocks, ...indexedBlocks.filter(Boolean)];
+  const contentBlocks = allBlocks.map(finalizeBlock);
+  const message: AssistantMessage = { role: 'assistant', content: contentBlocks };
+
+  yield { type: 'complete', response: { messageId, model, message, stopReason, usage } };
+}
+
 // ─── Types ──────────────────────────────────────────────
 
 export interface AccumulatedResponse {
