@@ -159,7 +159,10 @@ function buildToolContext(serialized: SerializedToolContext): ToolContext {
     cwd: serialized.cwd,
     abortSignal: new AbortController().signal,
     permissionMode: serialized.permissionMode as ToolContext['permissionMode'],
-    askPermission: async () => true, // Host handles permissions before IPC
+    // Security: deny by default in isolated plugin context.
+    // Plugins must use only their declared capabilities, not arbitrary tool calls.
+    // The host validates plugin capabilities at registration time, not at runtime.
+    askPermission: async () => serialized.permissionMode === 'bypass',
   };
 }
 

@@ -340,23 +340,29 @@ describe('ssrfSafeFetch — redirect validation', () => {
 import { PermissionResolver } from '../src/policy/permissions.js';
 
 describe('session allowlist granularity', () => {
-  it('keys bash commands on first two tokens', () => {
+  it('keys bash commands on first three tokens', () => {
     const resolver = new PermissionResolver('default');
 
-    // Approve npm install
+    // Approve npm install express
     resolver.allowForSession({
       id: '1', name: 'Bash', input: { command: 'npm install express' },
     });
 
-    // npm install should be allowed (session-cached)
-    const installResult = resolver.resolve({
-      id: '2', name: 'Bash', input: { command: 'npm install lodash' },
+    // Same exact command should be allowed
+    const sameResult = resolver.resolve({
+      id: '2', name: 'Bash', input: { command: 'npm install express' },
     });
-    expect(installResult.decision).toBe('allow');
+    expect(sameResult.decision).toBe('allow');
+
+    // npm install with DIFFERENT package should NOT be auto-allowed (3-token key)
+    const differentPkgResult = resolver.resolve({
+      id: '3', name: 'Bash', input: { command: 'npm install evil-pkg' },
+    });
+    expect(differentPkgResult.decision).not.toBe('allow');
 
     // npm run should NOT be auto-allowed — different subcommand
     const runResult = resolver.resolve({
-      id: '3', name: 'Bash', input: { command: 'npm run evil-script' },
+      id: '4', name: 'Bash', input: { command: 'npm run evil-script' },
     });
     expect(runResult.decision).not.toBe('allow');
   });
@@ -406,9 +412,9 @@ describe('session allowlist granularity', () => {
       id: '1', name: 'Bash', input: { command: 'npm install express' },
     });
 
-    // Same command via absolute path should match
+    // Same command via absolute path should match (same 3 tokens after normalization)
     const result = resolver.resolve({
-      id: '2', name: 'Bash', input: { command: '/usr/bin/npm install lodash' },
+      id: '2', name: 'Bash', input: { command: '/usr/bin/npm install express' },
     });
     expect(result.decision).toBe('allow');
   });

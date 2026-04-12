@@ -298,10 +298,20 @@ export class AgentOrchestrator {
       const systemPrompt = this.buildAgentPrompt(definition, options.context, depth, effectiveCwd);
 
       // Create tool context for sub-agent (worktree-aware cwd, fresh abort)
+      // Security: cap permission mode for restricted agent roles.
+      // Only 'general' and 'code' agents inherit the parent's mode;
+      // read-only/verification roles are capped at 'default' to prevent
+      // privilege escalation when the parent runs in bypass/fullAuto.
+      const UNRESTRICTED_ROLES = new Set(['general', 'code']);
+      const ELEVATED_MODES = new Set(['fullAuto', 'bypass']);
+      const parentMode = this.parentToolContext.permissionMode;
+      const cappedMode = (!UNRESTRICTED_ROLES.has(definition.name) && ELEVATED_MODES.has(parentMode))
+        ? 'default' as const
+        : parentMode;
       const agentToolContext: ToolContext = {
         cwd: effectiveCwd,
         abortSignal: interrupt.signal,
-        permissionMode: this.parentToolContext.permissionMode,
+        permissionMode: cappedMode,
         askPermission: this.parentToolContext.askPermission,
       };
 
