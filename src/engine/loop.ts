@@ -26,7 +26,7 @@ import type {
 import type { ToolDefinition, Tool, ToolCall, ToolResult, ToolContext } from '../protocol/tools.js';
 import type { StreamEvent, ContentDelta } from '../protocol/events.js';
 import { MiniMaxClient, type StreamOptions } from '../transport/client.js';
-import { accumulateStream } from '../transport/stream.js';
+import { accumulateStream, streamWithDeltas } from '../transport/stream.js';
 import { analyzeTurn, buildToolResultMessage, ensureToolResultPairing, shouldContinue, DEFAULT_MAX_TURNS, ContinuationTracker } from './turns.js';
 import { BudgetTracker } from './budget.js';
 import { InterruptController, isAbortError } from './interrupts.js';
@@ -156,27 +156,37 @@ export async function* runLoop(
         streamOptions,
       );
 
-      const accumulated = await accumulateStream(eventStream, {
-        onDelta(index, delta) {
-          // Forward deltas to the UI
-          if (delta.type === 'text_delta') {
-            // We can't yield from a callback, so we buffer these.
-            // The accumulated result will have the full text.
-          }
-        },
-        onContentBlockStart(index, type) {
-          // Tracked by accumulator
-        },
-        onContentBlockComplete(index, block) {
-          // Tracked by accumulator
-        },
-      });
+      // Stream deltas in real-time to the UI instead of waiting for the full response.
+      // streamWithDeltas yields each text/thinking delta as it arrives from the SSE stream,
+      // then yields {type:'complete'} with the full AccumulatedResponse at the end.
+      for await (const streamEvent of streamWithDeltas(eventStream)) {
+        switch (streamEvent.type) {
+          case 'delta':
+            if (streamEvent.delta.type === 'text_delta') {
+              yield { type: 'stream_text', text: (streamEvent.delta as { text: string }).text };
+            }
+            break;
+          case 'thinking':
+            yield { type: 'stream_thinking', thinking: streamEvent.text };
+            break;
+          case 'block_start':
+            if (streamEvent.blockType === 'tool_use' && streamEvent.toolName) {
+              yield { type: 'stream_tool_start', toolName: streamEvent.toolName, toolId: streamEvent.toolId ?? '' };
+            }
+            break;
+          case 'complete':
+            assistantMessage = streamEvent.response.message;
+            stopReason = streamEvent.response.stopReason;
+            turnUsage = streamEvent.response.usage;
+            break;
+        }
+      }
 
-      assistantMessage = accumulated.message;
-      stopReason = accumulated.stopReason;
-      turnUsage = accumulated.usage;
+      if (!assistantMessage) {
+        throw new Error('Stream completed without a response');
+      }
 
-      // Yield the complete assistant message
+      // Yield the complete assistant message (for history sync and tool extraction)
       yield { type: 'assistant_message', message: assistantMessage };
       tracer.logTimed('model_response', {
         turnIndex,

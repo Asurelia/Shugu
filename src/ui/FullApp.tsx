@@ -661,6 +661,9 @@ export function launchFullApp(
         msgs.push({ type: 'assistant_text', text });
       }
       updateState({ messages: msgs });
+      // Force immediate re-render for streaming (don't wait for 80ms poll)
+      const flush = (stateRef.current as ExternalState & { _flush?: () => void })._flush;
+      if (flush) flush();
     },
     waitForInput(): Promise<string> {
       updateState({ showInput: true, isStreaming: false });
