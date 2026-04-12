@@ -199,6 +199,9 @@ function auditDeadCode() {
   if (!heading(2, 'DEAD CODE & ORPHAN FILES')) return;
   const findings: Finding[] = [];
 
+  // Files that are alive via dynamic import(), child process spawn, or build entry points
+  const DYNAMIC_OR_ENTRY = new Set(['export-html', 'export-json', 'child-entry', 'cli']);
+
   const allFiles = walkTs(SRC);
   let orphanCount = 0;
 
@@ -208,6 +211,7 @@ function auditDeadCode() {
 
     if (rel.startsWith('entrypoints/cli.ts')) continue;
     if (base === 'index') continue;
+    if (DYNAMIC_OR_ENTRY.has(base)) continue;
 
     const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const count = grepCount(`from.*['\"].*/${escaped}(\\.js)?['\"]`, SRC);
@@ -219,6 +223,14 @@ function auditDeadCode() {
   if (orphanCount === 0) {
     findings.push({ severity: 'PASS', message: 'No orphan files detected' });
   }
+
+  // Unused locals/parameters (tsc strict check)
+  const unusedOutput = runNpx(['tsc', '--noEmit', '--noUnusedLocals', '--noUnusedParameters']);
+  const unusedCount = (unusedOutput.match(/is declared but/g) ?? []).length;
+  findings.push(unusedCount === 0
+    ? { severity: 'PASS', message: 'No unused locals or parameters (tsc)' }
+    : { severity: 'WARN', message: `${unusedCount} unused local/parameter warning(s)`, fix: 'npx tsc --noEmit --noUnusedLocals --noUnusedParameters' }
+  );
 
   // Phantom types in LoopEvent — check if each type is yielded in loop.ts
   const loopTs = readFile(resolve(SRC, 'engine/loop.ts'));
@@ -352,28 +364,40 @@ function auditTests() {
   if (!heading(6, 'TESTS')) return;
   const findings: Finding[] = [];
 
-  // vitest outputs to stderr — capture both streams
-  let testOutput = '';
+  // Use JSON reporter for reliable parsing on all platforms
+  let testJson = '';
   try {
-    testOutput = execFileSync('npx', ['vitest', 'run'], {
+    testJson = execFileSync('npx', ['vitest', 'run', '--reporter=json'], {
       cwd: ROOT, encoding: 'utf-8', timeout: 300000,
     });
   } catch (e: unknown) {
-    const err = e as { stdout?: string; stderr?: string; output?: (string | null)[] };
-    testOutput = [err.stdout, err.stderr, ...(err.output ?? [])].filter(Boolean).join('\n');
+    const err = e as { stdout?: string; stderr?: string };
+    testJson = (err.stdout ?? '') + (err.stderr ?? '');
   }
 
-  const passMatch = testOutput.match(/(\d+)\s+passed/);
-  const failMatch = testOutput.match(/(\d+)\s+failed/);
-  const fileMatch = testOutput.match(/Test Files\s+(\d+)\s+passed/);
-
-  if (passMatch) {
-    findings.push({ severity: 'PASS', message: `${fileMatch?.[1] ?? '?'} test files, ${passMatch[1]} tests passed` });
-  }
-  if (failMatch && parseInt(failMatch[1]!) > 0) {
-    findings.push({ severity: 'FAIL', message: `${failMatch[1]} test(s) FAILED` });
-  }
-  if (!passMatch && !failMatch) {
+  // Extract the JSON object from potential surrounding output
+  const jsonStart = testJson.indexOf('{');
+  const jsonEnd = testJson.lastIndexOf('}');
+  if (jsonStart >= 0 && jsonEnd > jsonStart) {
+    try {
+      const result = JSON.parse(testJson.slice(jsonStart, jsonEnd + 1));
+      const passed = result.numPassedTests ?? 0;
+      const failed = result.numFailedTests ?? 0;
+      const suites = result.numPassedTestSuites ?? result.numTotalTestSuites ?? '?';
+      findings.push({ severity: 'PASS', message: `${suites} test files, ${passed} tests passed` });
+      if (failed > 0) {
+        findings.push({ severity: 'FAIL', message: `${failed} test(s) FAILED` });
+      }
+    } catch {
+      // JSON parse failed — fallback to text matching
+      const passMatch = testJson.match(/(\d+)\s+passed/);
+      if (passMatch) {
+        findings.push({ severity: 'PASS', message: `${passMatch[1]} tests passed` });
+      } else {
+        findings.push({ severity: 'WARN', message: 'Could not parse test output — run manually: npx vitest run' });
+      }
+    }
+  } else {
     findings.push({ severity: 'WARN', message: 'Could not parse test output — run manually: npx vitest run' });
   }
 
@@ -426,6 +450,28 @@ function auditDependencies() {
     findings.push({ severity: 'PASS', message: 'npm audit completed' });
   }
 
+  // npm outdated
+  const outdatedOutput = runNpm(['outdated', '--json']);
+  try {
+    const outdated = JSON.parse(outdatedOutput || '{}');
+    const count = Object.keys(outdated).length;
+    if (count === 0) {
+      findings.push({ severity: 'PASS', message: 'All dependencies up to date' });
+    } else {
+      const majorUpdates = Object.entries(outdated).filter(([, v]) => {
+        const info = v as { current?: string; wanted?: string; latest?: string };
+        return info.current?.split('.')[0] !== info.latest?.split('.')[0];
+      });
+      findings.push(majorUpdates.length > 0
+        ? { severity: 'WARN', message: `${count} outdated dep(s) (${majorUpdates.length} major)`, fix: 'npm outdated' }
+        : { severity: 'PASS', message: `${count} outdated dep(s) (minor/patch only)` }
+      );
+    }
+  } catch {
+    findings.push({ severity: 'PASS', message: 'Dependency freshness check completed' });
+  }
+
+  // package-lock.json
   findings.push(existsSync(resolve(ROOT, 'package-lock.json'))
     ? { severity: 'PASS', message: 'package-lock.json exists' }
     : { severity: 'WARN', message: 'No package-lock.json' }
