@@ -155,13 +155,19 @@ export function validateRegexSafety(
 // ─── Prompt Injection Sanitization ────────────────────
 
 /**
- * Zero-width and invisible Unicode characters that can be inserted
- * between letters to bypass text-matching sanitization.
+ * Zero-width, invisible, and Bidi override Unicode characters that can be
+ * inserted between letters to bypass text-matching sanitization.
  *
- * E.g., "System\u200B:" (zero-width space) visually looks like "System:"
- * but wouldn't match /System:/. Stripping these before matching prevents bypass.
+ * Includes:
+ * - Zero-width chars (U+200B–U+200D): break pattern matching
+ * - Bidi marks (U+200E–U+200F): directional hints
+ * - Bidi overrides (U+202A–U+202E): "Trojan Source" attack (CVE-2021-42574)
+ *   RLO (U+202E) reverses text display, hiding malicious content visually
+ * - Bidi isolates (U+2066–U+2069): isolate directional sections
+ * - Invisible operators (U+2060–U+2064): word joiner, invisible math
+ * - Other: BOM (U+FEFF), ALM (U+061C), soft-hyphen (U+00AD)
  */
-const INVISIBLE_CHARS = /[\u200B\u200C\u200D\u200E\u200F\uFEFF\u061C\u2060\u2061\u2062\u2063\u2064\u00AD]/g;
+const INVISIBLE_CHARS = /[\u200B\u200C\u200D\u200E\u200F\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069\uFEFF\u061C\u2060\u2061\u2062\u2063\u2064\u00AD]/g;
 
 /**
  * Cyrillic homoglyphs that look identical to ASCII letters commonly used
