@@ -8,7 +8,7 @@
 
 import type { Tool, ToolCall, ToolResult, ToolContext, ToolDefinition } from '../../protocol/tools.js';
 import type { CredentialProvider } from '../../credentials/provider.js';
-import { isBlockedUrl } from '../../utils/network.js';
+import { isBlockedUrl, ssrfSafeFetch } from '../../utils/network.js';
 
 export const WebFetchToolDefinition: ToolDefinition = {
   name: 'WebFetch',
@@ -99,7 +99,10 @@ export class WebFetchTool implements Tool {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
-      const response = await fetch(url, {
+      // SECURITY: Use ssrfSafeFetch to re-validate redirect targets.
+      // Native fetch() auto-follows redirects without checking the target URL,
+      // allowing SSRF bypass via redirect to localhost/metadata endpoints.
+      const response = await ssrfSafeFetch(url, {
         method,
         headers,
         body: method === 'POST' ? body : undefined,

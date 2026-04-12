@@ -8,6 +8,7 @@
  */
 
 import type { Tool, ToolCall, ToolResult, ToolContext, ToolDefinition } from '../../protocol/tools.js';
+import { sanitizeUntrustedContent } from '../../utils/security.js';
 
 export const WebSearchToolDefinition: ToolDefinition = {
   name: 'WebSearch',
@@ -71,8 +72,11 @@ export class WebSearchTool implements Tool {
         };
       }
 
+      // SECURITY: Search results (titles, URLs, snippets) come from external
+      // sources and can be attacker-controlled via search engine poisoning.
+      // Sanitize to prevent prompt injection via crafted page titles/snippets.
       const formatted = results.map((r, i) =>
-        `${i + 1}. **${r.title}**\n   ${r.url}\n   ${r.snippet}`,
+        `${i + 1}. **${sanitizeUntrustedContent(r.title)}**\n   ${r.url}\n   ${sanitizeUntrustedContent(r.snippet)}`,
       ).join('\n\n');
 
       return {

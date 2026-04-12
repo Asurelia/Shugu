@@ -23,6 +23,7 @@ import { homedir } from 'node:os';
 import type { ObsidianVault } from './obsidian.js';
 import { detectMemoryHints, type MemoryCandidate } from './extract.js';
 import { logger } from '../../utils/logger.js';
+import { sanitizeUntrustedContent } from '../../utils/security.js';
 import { slugify } from '../../utils/strings.js';
 
 // ─── Types ────────────────────────────────────────────
@@ -290,9 +291,12 @@ export class MemoryAgent {
 
     if (items.length === 0) return '';
 
-    const lines = items.map(m =>
-      `- [${m.type}] ${m.title}: ${redactSensitive(m.content.slice(0, 150))}`
-    );
+    // SECURITY: Sanitize memory content before injection into prompt
+    const lines = items.map(m => {
+      const safeTitle = sanitizeUntrustedContent(m.title);
+      const safeContent = sanitizeUntrustedContent(redactSensitive(m.content.slice(0, 150)));
+      return `- [${m.type}] ${safeTitle}: ${safeContent}`;
+    });
     return `\n\n# Relevant memories\n${lines.join('\n')}`;
   }
 
@@ -302,12 +306,16 @@ export class MemoryAgent {
   getStartupContext(): string {
     if (this.index.items.length === 0) return '';
     // Return top 10 most recent, sorted by timestamp
+    // SECURITY: Memory content may contain prompt injection payloads if
+    // saved from untrusted file content in a previous session.
     const recent = [...this.index.items]
       .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
       .slice(0, 10);
-    const lines = recent.map(m =>
-      `- [${m.type}] ${m.title}: ${redactSensitive(m.content.slice(0, 150))}`
-    );
+    const lines = recent.map(m => {
+      const safeTitle = sanitizeUntrustedContent(m.title);
+      const safeContent = sanitizeUntrustedContent(redactSensitive(m.content.slice(0, 150)));
+      return `- [${m.type}] ${safeTitle}: ${safeContent}`;
+    });
     return `\n\n# Memories from previous sessions\n${lines.join('\n')}`;
   }
 

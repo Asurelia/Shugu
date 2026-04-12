@@ -23,6 +23,7 @@ import { readFile, writeFile, mkdir, readdir, stat, access, unlink, rename, copy
 import { join, relative, basename, dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { slugify } from '../../utils/strings.js';
+import { sanitizeUntrustedContent } from '../../utils/security.js';
 
 // ─── Types ──────────────────────────────────────────────
 
@@ -483,6 +484,8 @@ export class ObsidianVault {
     const parts: string[] = [];
 
     // Recent agent memories
+    // SECURITY: Vault content may contain prompt injection if vault was
+    // modified externally. Sanitize before injecting into system prompt.
     const agentNotes = await this.listNotes(this.config.agentFolder);
     if (agentNotes.length > 0) {
       parts.push(`\n# Obsidian vault (${this.config.path})`);
@@ -493,8 +496,9 @@ export class ObsidianVault {
       for (const path of recentAgent) {
         const note = await this.readNote(path);
         if (note) {
-          const preview = note.body.slice(0, 100).replace(/\n/g, ' ');
-          parts.push(`  - ${note.title}: ${preview}...`);
+          const preview = sanitizeUntrustedContent(note.body.slice(0, 100).replace(/\n/g, ' '));
+          const safeTitle = sanitizeUntrustedContent(note.title);
+          parts.push(`  - ${safeTitle}: ${preview}...`);
         }
       }
     }
@@ -505,8 +509,10 @@ export class ObsidianVault {
       if (relevant.length > 0) {
         parts.push('\nRelevant vault notes:');
         for (const note of relevant) {
-          const preview = note.body.slice(0, 150).replace(/\n/g, ' ');
-          parts.push(`  - [[${note.title}]] (${note.tags.join(', ')}): ${preview}`);
+          const preview = sanitizeUntrustedContent(note.body.slice(0, 150).replace(/\n/g, ' '));
+          const safeTitle = sanitizeUntrustedContent(note.title);
+          const safeTags = note.tags.map(t => sanitizeUntrustedContent(t));
+          parts.push(`  - [[${safeTitle}]] (${safeTags.join(', ')}): ${preview}`);
         }
       }
     }

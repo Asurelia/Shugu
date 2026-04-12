@@ -17,6 +17,7 @@ import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { ToolResult } from '../protocol/tools.js';
+import { sanitizeUntrustedContent } from '../utils/security.js';
 
 // ─── Limits (from OpenClaude toolLimits.ts) ────────────
 
@@ -39,21 +40,30 @@ const SPILL_PREVIEW_CHARS = 2_000;
 
 /**
  * Truncate a single tool result if it exceeds MAX_RESULT_CHARS.
- * Returns the (potentially truncated) result.
+ * Also sanitizes content to strip prompt injection markers before
+ * the content enters the LLM context.
  */
 export function truncateToolResult(result: ToolResult): ToolResult {
   const content = typeof result.content === 'string'
     ? result.content
     : JSON.stringify(result.content);
 
-  if (content.length <= MAX_RESULT_CHARS) return result;
+  // SECURITY: Sanitize role-switching markers from tool output.
+  // Tool results come from untrusted sources (file content, bash output,
+  // grep matches, web pages) and could contain prompt injection payloads.
+  const sanitized = sanitizeUntrustedContent(content);
 
-  const truncated = content.slice(0, MAX_RESULT_CHARS);
-  const droppedChars = content.length - MAX_RESULT_CHARS;
+  if (sanitized.length <= MAX_RESULT_CHARS) {
+    if (sanitized === content) return result;
+    return { ...result, content: sanitized };
+  }
+
+  const truncated = sanitized.slice(0, MAX_RESULT_CHARS);
+  const droppedChars = sanitized.length - MAX_RESULT_CHARS;
 
   return {
     ...result,
-    content: `${truncated}\n\n[TRUNCATED — ${droppedChars.toLocaleString()} chars omitted. Full output: ${content.length.toLocaleString()} chars total]`,
+    content: `${truncated}\n\n[TRUNCATED — ${droppedChars.toLocaleString()} chars omitted. Full output: ${sanitized.length.toLocaleString()} chars total]`,
   };
 }
 
@@ -116,7 +126,7 @@ export async function enforceMessageLimit(results: ToolResult[]): Promise<ToolRe
 
 /**
  * Truncate bash stdout and stderr to their respective limits.
- * Returns truncated strings with markers.
+ * Also sanitizes output to strip prompt injection markers.
  */
 export function truncateBashOutput(
   stdout: string,
@@ -125,13 +135,15 @@ export function truncateBashOutput(
   let stdoutTruncated = false;
   let stderrTruncated = false;
 
-  let out = stdout;
+  // SECURITY: Sanitize bash output before it enters LLM context.
+  // Adversarial programs can emit role-switching markers in stdout/stderr.
+  let out = sanitizeUntrustedContent(stdout);
   if (out.length > BASH_MAX_OUTPUT_CHARS) {
     out = out.slice(0, BASH_MAX_OUTPUT_CHARS);
     stdoutTruncated = true;
   }
 
-  let err = stderr;
+  let err = sanitizeUntrustedContent(stderr);
   if (err.length > BASH_MAX_STDERR_CHARS) {
     err = err.slice(0, BASH_MAX_STDERR_CHARS);
     stderrTruncated = true;

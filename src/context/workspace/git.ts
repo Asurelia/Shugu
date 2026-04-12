@@ -6,6 +6,7 @@
 
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
+import { sanitizeUntrustedContent } from '../../utils/security.js';
 
 export interface GitContext {
   isGitRepo: boolean;
@@ -53,6 +54,10 @@ export async function getGitContext(cwd: string): Promise<GitContext> {
 
 /**
  * Format git context for system prompt injection.
+ *
+ * SECURITY: Branch names and commit messages come from git history which may
+ * be attacker-controlled (e.g., cloned untrusted repo). Content is sanitized
+ * to prevent prompt injection via role-switching markers in commit messages.
  */
 export function formatGitContext(git: GitContext): string {
   if (!git.isGitRepo) {
@@ -60,14 +65,17 @@ export function formatGitContext(git: GitContext): string {
   }
 
   const lines: string[] = [];
-  lines.push(`  - Git branch: ${git.branch ?? 'unknown'}`);
+  const safeBranch = sanitizeUntrustedContent(git.branch ?? 'unknown');
+  lines.push(`  - Git branch: ${safeBranch}`);
   if (git.hasUncommittedChanges) {
     lines.push('  - Uncommitted changes: yes');
   }
   if (git.recentCommits && git.recentCommits.length > 0) {
     lines.push('  - Recent commits:');
     for (const commit of git.recentCommits.slice(0, 3)) {
-      lines.push(`    ${commit}`);
+      // Truncate individual commit messages and sanitize
+      const safeCommit = sanitizeUntrustedContent(commit.slice(0, 120));
+      lines.push(`    ${safeCommit}`);
     }
   }
   return lines.join('\n');

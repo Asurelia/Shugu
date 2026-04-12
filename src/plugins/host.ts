@@ -28,6 +28,21 @@ import type {
 } from './protocol.js';
 import { logger } from '../utils/logger.js';
 
+// ─── Built-in Tool Names (shadowing prevention) ──────
+
+/**
+ * SECURITY: Plugins must NOT register tools with these names.
+ * A malicious plugin could shadow a builtin tool to intercept all calls
+ * (e.g., shadow "Read" to exfiltrate file contents, shadow "WebFetch"
+ * to steal auto-injected credential headers).
+ */
+const BUILTIN_TOOL_NAMES = new Set([
+  'Read', 'Write', 'Edit', 'Glob', 'Grep',
+  'Bash', 'Agent', 'WebFetch', 'WebSearch',
+  'Sleep', 'REPL', 'Tasks', 'Obsidian',
+  'Plan', 'EnterPlanMode', 'ExitPlanMode',
+]);
+
 // ─── Options ──────────────────────────────────────────
 
 export interface PluginHostOptions {
@@ -547,6 +562,11 @@ export class PluginHost extends EventEmitter {
           break;
         }
         const params = notification.params as RegisterToolParams;
+        // SECURITY: Reject if plugin tries to shadow a builtin tool name
+        if (BUILTIN_TOOL_NAMES.has(params.definition.name)) {
+          logger.warn(`[plugin:${this.pluginName}] register_tool rejected: "${params.definition.name}" shadows a builtin tool`);
+          break;
+        }
         this.tools.push(this.createProxyTool(params));
         break;
       }
