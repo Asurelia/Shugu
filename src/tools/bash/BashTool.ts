@@ -22,13 +22,14 @@ export const BashToolDefinition: ToolDefinition = {
 
 The working directory persists between commands, but shell state does not. Each command runs in a fresh shell rooted at the project directory.
 
-IMPORTANT: Do NOT use Bash to run grep, cat, head, tail, sed, awk, or echo when a dedicated tool exists:
+IMPORTANT: Avoid using Bash to run find, grep, cat, head, tail, sed, awk, or echo commands. Use the appropriate dedicated tool instead — this provides a much better experience for the user:
  - File search: Use Glob (NOT find or ls)
  - Content search: Use Grep (NOT grep or rg)
  - Read files: Use Read (NOT cat/head/tail)
  - Edit files: Use Edit (NOT sed/awk)
  - Write files: Use Write (NOT echo >/cat <<EOF)
-The dedicated tools provide better user experience and make it easier to review actions.
+ - Communication: Output text directly (NOT echo/printf)
+Reserve Bash exclusively for system commands and terminal operations that require shell execution. If you are unsure and there is a relevant dedicated tool, default to using the dedicated tool.
 
 # Instructions
  - Use absolute paths or chain with && for multi-step operations.
