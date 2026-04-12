@@ -19,6 +19,7 @@
 import type { Message, AssistantMessage } from '../protocol/messages.js';
 import { isTextBlock } from '../protocol/messages.js';
 import type { MiniMaxClient } from '../transport/client.js';
+import { logger } from '../utils/logger.js';
 
 // ─── 1. Prompt Suggestion ──────────────────────────────
 
@@ -98,7 +99,8 @@ export async function generatePromptSuggestion(
     if (suggestion.endsWith('?')) return null;                                                // question
 
     return suggestion;
-  } catch {
+  } catch (err) {
+    logger.debug('generatePromptSuggestion failed:', err instanceof Error ? err.message : String(err));
     return null;
   }
 }
@@ -176,7 +178,8 @@ export async function speculate(
     if (!analysis || analysis.length < 10) return null;
 
     return { analysis, suggestedPrompt };
-  } catch {
+  } catch (err) {
+    logger.debug('speculate failed:', err instanceof Error ? err.message : String(err));
     return null;
   }
 }
@@ -274,7 +277,8 @@ export async function extractMemories(
     }
 
     return memories;
-  } catch {
+  } catch (err) {
+    logger.debug('extractMemories failed:', err instanceof Error ? err.message : String(err));
     return [];
   }
 }

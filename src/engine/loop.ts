@@ -24,14 +24,13 @@ import type {
   ContentBlock,
 } from '../protocol/messages.js';
 import type { ToolDefinition, Tool, ToolCall, ToolResult, ToolContext } from '../protocol/tools.js';
-import type { StreamEvent, ContentDelta } from '../protocol/events.js';
 import { MiniMaxClient, type StreamOptions } from '../transport/client.js';
-import { accumulateStream, streamWithDeltas } from '../transport/stream.js';
+import { streamWithDeltas } from '../transport/stream.js';
 import { analyzeTurn, buildToolResultMessage, ensureToolResultPairing, shouldContinue, DEFAULT_MAX_TURNS, ContinuationTracker } from './turns.js';
 import { BudgetTracker } from './budget.js';
 import { InterruptController, isAbortError } from './interrupts.js';
 import type { HookRegistry } from '../plugins/hooks.js';
-import { truncateToolResult, enforceMessageLimit } from '../tools/outputLimits.js';
+import { enforceMessageLimit } from '../tools/outputLimits.js';
 import { ActionTriggerBy } from '../protocol/actions.js';
 import { logger } from '../utils/logger.js';
 import { shouldReflect, buildReflectionPrompt } from './reflection.js';
@@ -73,7 +72,6 @@ export interface LoopConfig {
 
 export type LoopEvent =
   | { type: 'turn_start'; turnIndex: number }
-  | { type: 'stream_delta'; delta: ContentDelta; blockIndex: number }
   | { type: 'stream_text'; text: string }
   | { type: 'stream_thinking'; thinking: string }
   | { type: 'stream_tool_start'; toolName: string; toolId: string }
