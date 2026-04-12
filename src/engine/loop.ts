@@ -278,7 +278,111 @@ export async function* runLoop(
 
         const toolResults: ToolResult[] = [];
 
-        for (let call of turnResult.toolCalls) {
+        // ── Partition: concurrency-safe tools (Read, Glob, Grep, Agent) run
+        // in parallel; mutating tools (Write, Edit, Bash) run sequentially.
+        // This gives ~Nx speedup when the model spawns N agents at once.
+        const concurrentBatch: ToolCall[] = [];
+        const sequentialCalls: ToolCall[] = [];
+
+        for (const call of turnResult.toolCalls) {
+          const tool = tools.get(call.name);
+          if (tool?.definition.concurrencySafe && turnResult.toolCalls.length > 1) {
+            concurrentBatch.push(call);
+          } else {
+            sequentialCalls.push(call);
+          }
+        }
+
+        // ── Phase A: Execute concurrent batch in parallel ──
+        if (concurrentBatch.length > 1) {
+          // Pre-flight: validate, hooks, permissions (sequential — must be interactive)
+          const approved: Array<{ call: ToolCall; tool: Tool }> = [];
+          for (const call of concurrentBatch) {
+            const tool = tools.get(call.name)!;
+
+            if (tool.validateInput) {
+              const error = tool.validateInput(call.input);
+              if (error) {
+                const result: ToolResult = { tool_use_id: call.id, content: `Validation error: ${error}`, is_error: true };
+                toolResults.push(result);
+                yield { type: 'tool_result', result };
+                continue;
+              }
+            }
+
+            let effectiveCall = call;
+            if (config.hookRegistry) {
+              const hookResult = await config.hookRegistry.runPreToolUse({ tool: call.name, call });
+              if (!hookResult.proceed) {
+                const result: ToolResult = { tool_use_id: call.id, content: `Blocked by hook: ${hookResult.blockReason ?? 'unknown'}`, is_error: true };
+                toolResults.push(result);
+                yield { type: 'tool_result', result };
+                continue;
+              }
+              if (hookResult.modifiedCall) effectiveCall = hookResult.modifiedCall;
+            }
+
+            if (config.toolContext?.askPermission) {
+              const granted = await config.toolContext.askPermission(call.name, summarizeToolAction(effectiveCall));
+              if (!granted) {
+                const result: ToolResult = { tool_use_id: call.id, content: `Permission denied for ${call.name}`, is_error: true };
+                toolResults.push(result);
+                yield { type: 'tool_result', result };
+                continue;
+              }
+            }
+
+            approved.push({ call: effectiveCall, tool });
+            yield { type: 'tool_executing', call: effectiveCall, triggeredBy: ActionTriggerBy.Agent };
+          }
+
+          // Parallel execution: all approved tools at once
+          if (approved.length > 0) {
+            const TIMEOUT = config.harnessRuntime?.toolTimeoutMs ?? 300_000;
+            const execStarts = approved.map(() => Date.now());
+
+            const promises = approved.map(({ call, tool }, i) => {
+              const execPromise = tool.execute(call, config.toolContext!);
+              const timeoutPromise = new Promise<never>((_, rej) => {
+                const timer = setTimeout(() => rej(new Error(`Tool "${call.name}" timed out after ${TIMEOUT / 1000}s`)), TIMEOUT);
+                if (typeof timer === 'object' && 'unref' in timer) timer.unref();
+              });
+              const abortPromise = new Promise<never>((_, rej) => {
+                if (interrupt.signal.aborted) { rej(new Error('Aborted')); return; }
+                interrupt.signal.addEventListener('abort', () => rej(new Error('Aborted')), { once: true });
+              });
+              return Promise.race([execPromise, timeoutPromise, abortPromise]).catch(err => ({
+                tool_use_id: call.id,
+                content: `Error: ${sanitizeUntrustedContent(err instanceof Error ? err.message : String(err))}`,
+                is_error: true,
+              } as ToolResult));
+            });
+
+            const results = await Promise.all(promises);
+
+            // Post-flight: hooks + yield results
+            for (let i = 0; i < results.length; i++) {
+              let result = results[i]!;
+              const { call } = approved[i]!;
+              const duration = Date.now() - execStarts[i]!;
+
+              if (config.hookRegistry) {
+                const postResult = await config.hookRegistry.runPostToolUse({ tool: call.name, call, result, durationMs: duration });
+                if (postResult.modifiedResult) result = postResult.modifiedResult;
+              }
+
+              toolResults.push(result);
+              tracer.logTimed('tool_result', { tool: call.name, is_error: result.is_error ?? false, content_length: typeof result.content === 'string' ? result.content.length : 0 }, execStarts[i]!);
+              yield { type: 'tool_result', result, durationMs: duration };
+            }
+          }
+        } else if (concurrentBatch.length === 1) {
+          // Single concurrent tool — just add to sequential queue
+          sequentialCalls.unshift(concurrentBatch[0]!);
+        }
+
+        // ── Phase B: Execute sequential calls one by one (existing logic) ──
+        for (let call of sequentialCalls) {
           // Loop detection: check if same tool+args called 3x in a row
           const callSig = `${call.name}:${JSON.stringify(call.input).slice(0, 100)}`;
           recentToolCalls.push(callSig);

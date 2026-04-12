@@ -464,10 +464,14 @@ export async function runREPL(
     }
 
     // ── Build volatile prompt parts ──
-    let memoryContext: string | undefined;
-    if (memoryAgent && effectiveInput.length > 10) {
-      memoryContext = await memoryAgent.getRelevantContext(effectiveInput, 5) ?? undefined;
-    }
+    // Start memory search early (fire-and-forget pattern) so it runs in
+    // parallel with the rest of volatile prompt construction.
+    const memoryPromise = (memoryAgent && effectiveInput.length > 10)
+      ? memoryAgent.getRelevantContext(effectiveInput, 5)
+      : undefined;
+
+    // Await memory result (typically <15ms, runs concurrently with above setup)
+    const memoryContext = memoryPromise ? (await memoryPromise ?? undefined) : undefined;
 
     const volatileParts = buildVolatilePromptParts({
       mode: permResolver.getMode(),
