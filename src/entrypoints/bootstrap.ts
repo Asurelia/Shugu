@@ -68,7 +68,10 @@ export interface CliArgs {
 
 export function parseArgs(): CliArgs {
   const args = process.argv.slice(2);
-  let mode: PermissionMode = 'default';
+  // Default to fullAuto: auto-approve everything except high-risk bash commands.
+  // The risk classifier still blocks destructive commands (rm -rf, sudo, etc.).
+  // Use --mode=default or --mode=plan for stricter control.
+  let mode: PermissionMode = 'fullAuto';
   let continueSession = false;
   let resumeSession: string | true | false = false;
   let verbose = false;
