@@ -11,6 +11,7 @@ import { homedir } from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { Command, CommandContext, CommandResult } from './registry.js';
+import { isBlockedUrl } from '../utils/network.js';
 
 const execAsync = promisify(execFile);
 
@@ -35,7 +36,14 @@ async function runChecks(cwd: string): Promise<CheckResult[]> {
   if (apiKey.length > 10) {
     try {
       const baseUrl = process.env['MINIMAX_BASE_URL'] ?? 'https://api.minimax.io/anthropic/v1';
-      const resp = await fetch(`${baseUrl}/messages`, {
+      // SECURITY: MINIMAX_BASE_URL is user-controlled — validate against SSRF
+      const targetUrl = `${baseUrl}/messages`;
+      const ssrfBlock = isBlockedUrl(targetUrl);
+      if (ssrfBlock) {
+        checks.push({ name: 'API Connectivity', ok: false, detail: `Blocked: ${ssrfBlock}` });
+        return checks;
+      }
+      const resp = await fetch(targetUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
         body: JSON.stringify({ model: 'MiniMax-M2.7', max_tokens: 1, messages: [{ role: 'user', content: 'ping' }], temperature: 0.01, stream: false }),

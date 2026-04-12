@@ -135,11 +135,39 @@ export class PermissionResolver {
   }
 
   private getSessionKey(call: ToolCall): string {
-    // For bash, key on the command prefix (first word)
+    // SECURITY: For bash, key on the first TWO tokens to prevent approval
+    // cascade. Previously keyed on first word only: approving "npm install"
+    // auto-approved ALL npm commands including "npm run evil-script".
+    // Now: "npm install" → Bash:npm:install, "git push" → Bash:git:push.
+    //
+    // Also normalizes:
+    // - Path prefixes: /usr/bin/npm → npm (prevents key mismatch)
+    // - Env var prefixes: NODE_ENV=prod npm → npm (strips KEY=val tokens)
     if (call.name === 'Bash') {
       const cmd = (call.input['command'] as string) ?? '';
-      const firstWord = cmd.trim().split(/\s+/)[0] ?? '';
-      return `Bash:${firstWord}`;
+      let tokens = cmd.trim().split(/\s+/);
+
+      // Strip leading env var assignments (KEY=value patterns)
+      while (tokens.length > 0 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[0]!)) {
+        tokens = tokens.slice(1);
+      }
+
+      let first = tokens[0] ?? '';
+      const second = tokens[1] ?? '';
+
+      // Strip path prefix: /usr/bin/npm → npm, ./node_modules/.bin/tsc → tsc
+      const slashIdx = first.lastIndexOf('/');
+      const backslashIdx = first.lastIndexOf('\\');
+      const pathSep = Math.max(slashIdx, backslashIdx);
+      if (pathSep >= 0) {
+        first = first.slice(pathSep + 1);
+      }
+
+      // Include second token if it's a subcommand (not a flag)
+      if (second && !second.startsWith('-')) {
+        return `Bash:${first}:${second}`;
+      }
+      return `Bash:${first}`;
     }
     // For file tools, key on tool name (allow all file reads, etc.)
     return call.name;

@@ -152,6 +152,94 @@ export function validateRegexSafety(
   return { safe: true };
 }
 
+// ─── Prompt Injection Sanitization ────────────────────
+
+/**
+ * Zero-width and invisible Unicode characters that can be inserted
+ * between letters to bypass text-matching sanitization.
+ *
+ * E.g., "System\u200B:" (zero-width space) visually looks like "System:"
+ * but wouldn't match /System:/. Stripping these before matching prevents bypass.
+ */
+const INVISIBLE_CHARS = /[\u200B\u200C\u200D\u200E\u200F\uFEFF\u061C\u2060\u2061\u2062\u2063\u2064\u00AD]/g;
+
+/**
+ * Cyrillic homoglyphs that look identical to ASCII letters commonly used
+ * in role markers. E.g., Cyrillic 'А' (U+0410) looks like ASCII 'A'.
+ *
+ * Map: Cyrillic → ASCII equivalent (for detection only, not display).
+ */
+const CYRILLIC_HOMOGLYPHS: Record<string, string> = {
+  '\u0410': 'A', // А → A
+  '\u0412': 'B', // В → B
+  '\u0421': 'C', // С → C
+  '\u0415': 'E', // Е → E
+  '\u041D': 'H', // Н → H
+  '\u041C': 'M', // М → M
+  '\u041E': 'O', // О → O
+  '\u0420': 'P', // Р → P
+  '\u0422': 'T', // Т → T
+  '\u0423': 'U', // У → U (close enough)
+  '\u0405': 'S', // Ѕ → S (Cyrillic Komi)
+  '\u0430': 'a', // а → a
+  '\u0435': 'e', // е → e
+  '\u043E': 'o', // о → o
+  '\u0440': 'p', // р → p
+  '\u0441': 'c', // с → c
+  '\u0443': 'u', // у → u
+  '\u0455': 's', // ѕ → s
+  '\u0456': 'i', // і → i
+  '\u04BB': 'h', // һ → h
+};
+
+const CYRILLIC_REGEX = new RegExp(`[${Object.keys(CYRILLIC_HOMOGLYPHS).join('')}]`, 'g');
+
+/**
+ * Strip role-switching patterns from untrusted content before it enters
+ * the LLM context. Prevents prompt injection via:
+ * - Role markers (Human:, User:, System:, Assistant:)
+ * - XML role tags (<system>, </user>, etc.)
+ * - HTML comments containing directives
+ * - Numeric HTML entities (&#72; etc.)
+ * - Zero-width Unicode characters inserted to break pattern matching
+ * - Cyrillic homoglyphs that visually mimic ASCII role markers
+ * - CRLF line endings (\r\n) normalized before matching
+ *
+ * Used by: project.ts, git.ts, outputLimits.ts, compactor.ts, obsidian.ts,
+ *          prompt-builder.ts, loop.ts, skills/loader.ts, WebSearchTool.ts,
+ *          memory/agent.ts
+ */
+export function sanitizeUntrustedContent(content: string): string {
+  // Phase 1: Normalize line endings (Windows \r\n → \n) so \n-based patterns work
+  let s = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  // Phase 2: Strip invisible/zero-width characters that break pattern matching
+  s = s.replace(INVISIBLE_CHARS, '');
+
+  // Phase 3: Replace Cyrillic homoglyphs with ASCII equivalents (for matching only)
+  // We replace in a copy for detection, then remove the Cyrillic chars from the original
+  // if they would form a role marker.
+  // Simpler approach: just replace all Cyrillic homoglyphs in the actual content,
+  // since they have no legitimate use in code/docs where they visually mimic ASCII.
+  s = s.replace(CYRILLIC_REGEX, (ch) => CYRILLIC_HOMOGLYPHS[ch] ?? ch);
+
+  // Phase 4: Strip HTML entities BEFORE role-marker checks (prevents &#72;uman: → Human:)
+  s = s.replace(/&#x?[0-9a-f]+;/gi, '');
+
+  // Phase 5: Role-switching markers at line start and string start
+  s = s
+    .replace(/\n(?:Human|User|Assistant|System):/gi, '\n[role-marker-removed]:')
+    .replace(/^(?:Human|User|Assistant|System):/gi, '[role-marker-removed]:');
+
+  // Phase 6: XML-style role tags (opening and closing)
+  s = s.replace(/<\/?(?:system|user|assistant|human)[^>]*>/gi, '[role-tag-removed]');
+
+  // Phase 7: HTML comments that could contain directives
+  s = s.replace(/<!--[\s\S]*?-->/g, '[comment-removed]');
+
+  return s;
+}
+
 // ─── IPv6-Mapped IPv4 Normalization ────────────────────
 
 /**

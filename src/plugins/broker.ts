@@ -9,7 +9,7 @@
 import { readFile, writeFile, readdir, mkdir } from 'node:fs/promises';
 import { resolve, relative, isAbsolute, dirname, basename } from 'node:path';
 import { realpath } from 'node:fs/promises';
-import { isBlockedUrl } from '../utils/network.js';
+import { isBlockedUrl, ssrfSafeFetch } from '../utils/network.js';
 import { logger } from '../utils/logger.js';
 
 // ─── Capability Names ─────────────────────────────────
@@ -162,13 +162,8 @@ export class CapabilityBroker {
     headers?: Record<string, string>;
     body?: string;
   }): Promise<{ status: number; headers: Record<string, string>; body: string }> {
-    // SSRF protection — shared with WebFetchTool
-    const blocked = isBlockedUrl(args.url);
-    if (blocked) {
-      throw new Error(`SSRF blocked: ${blocked}`);
-    }
-
-    const response = await fetch(args.url, {
+    // SSRF protection — ssrfSafeFetch validates every URL in the redirect chain
+    const response = await ssrfSafeFetch(args.url, {
       method: args.method ?? 'GET',
       headers: args.headers,
       body: args.body,

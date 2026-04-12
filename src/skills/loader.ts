@@ -19,6 +19,7 @@ import { join, basename, extname } from 'node:path';
 import { EventEmitter } from 'node:events';
 import type { Message } from '../protocol/messages.js';
 import type { ToolContext, Tool } from '../protocol/tools.js';
+import { sanitizeUntrustedContent } from '../utils/security.js';
 
 // ─── Skill Definition ──────────────────────────────────
 
@@ -261,7 +262,11 @@ export function generateSkillsPrompt(registry: SkillRegistry): string {
         .map((t) => `/${(t as { command: string }).command}`);
 
       const cmdStr = cmdTriggers.length > 0 ? ` (${cmdTriggers.join(', ')})` : '';
-      lines.push(`- **${skill.name}**${cmdStr}: ${skill.description}`);
+      // SECURITY: Skill descriptions may come from plugins/external sources.
+      // Sanitize to prevent prompt injection via crafted skill metadata.
+      const safeName = sanitizeUntrustedContent(skill.name);
+      const safeDesc = sanitizeUntrustedContent(skill.description);
+      lines.push(`- **${safeName}**${cmdStr}: ${safeDesc}`);
     }
   }
 

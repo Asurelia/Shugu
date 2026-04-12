@@ -16,6 +16,7 @@
 import type { Message, UserMessage, AssistantMessage, ContentBlock } from '../protocol/messages.js';
 import type { MiniMaxClient } from '../transport/client.js';
 import { isToolUseBlock, isToolResultBlock } from '../protocol/messages.js';
+import { sanitizeUntrustedContent } from '../utils/security.js';
 
 // ─── Configuration ──────────────────────────────────────
 
@@ -69,12 +70,10 @@ export async function compactConversation(
     return { messages, wasCompacted: false, removedTurns: 0 };
   }
 
-  // Sanitize summary: strip role-switching patterns that could enable prompt injection
-  const sanitizedSummary = summary
-    .replace(/\n(?:Human|User|Assistant|System):/gi, '\n[role-marker-removed]:')
-    .replace(/<\/?system[^>]*>/gi, '[system-tag-removed]')
-    .replace(/<\/?user[^>]*>/gi, '[user-tag-removed]')
-    .replace(/<\/?assistant[^>]*>/gi, '[assistant-tag-removed]');
+  // Sanitize summary: strip role-switching patterns that could enable prompt injection.
+  // Uses shared sanitizer (also strips HTML comments, numeric entities, and
+  // Unicode homoglyphs — more comprehensive than the original inline regexes).
+  const sanitizedSummary = sanitizeUntrustedContent(summary);
 
   // Build compacted message array — clearly delimited as auto-generated summary
   const summaryMessage: UserMessage = {

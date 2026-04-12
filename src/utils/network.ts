@@ -6,6 +6,57 @@
 
 import { normalizeIPv6MappedIPv4, normalizeIPNotation } from './security.js';
 
+// ─── SSRF-Safe Redirect Following ──────────────────────
+
+/** Maximum number of redirects to follow manually */
+const MAX_REDIRECTS = 5;
+
+/**
+ * Follow HTTP redirects manually, re-validating each redirect target
+ * against SSRF protection before following.
+ *
+ * This prevents the redirect bypass attack where an attacker's server
+ * returns a 302 to localhost/metadata endpoints, which native fetch()
+ * would follow silently without re-checking.
+ */
+export async function ssrfSafeFetch(
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  let currentUrl = url;
+
+  for (let hops = 0; hops <= MAX_REDIRECTS; hops++) {
+    // Validate every URL in the redirect chain (including the original)
+    const blocked = isBlockedUrl(currentUrl);
+    if (blocked) {
+      throw new Error(`SSRF blocked: ${blocked}`);
+    }
+
+    const response = await fetch(currentUrl, {
+      ...init,
+      redirect: 'manual', // Do NOT auto-follow redirects
+    });
+
+    // Non-redirect response — return as-is
+    if (response.status < 300 || response.status >= 400) {
+      return response;
+    }
+
+    // 3xx redirect — must have a Location header
+    const location = response.headers.get('location');
+    if (!location) {
+      throw new Error(`Malformed redirect: HTTP ${response.status} with no Location header`);
+    }
+    try {
+      currentUrl = new URL(location, currentUrl).href;
+    } catch {
+      throw new Error(`Invalid redirect URL: ${location}`);
+    }
+  }
+
+  throw new Error(`Too many redirects (>${MAX_REDIRECTS})`);
+}
+
 // ─── SSRF Protection ────────────────────────────────────
 
 /**

@@ -36,6 +36,7 @@ import { ActionTriggerBy } from '../protocol/actions.js';
 import { logger } from '../utils/logger.js';
 import { shouldReflect, buildReflectionPrompt } from './reflection.js';
 import { tracer } from '../utils/tracer.js';
+import { sanitizeUntrustedContent } from '../utils/security.js';
 
 // ─── Loop Configuration ─────────────────────────────────
 
@@ -411,9 +412,14 @@ export async function* runLoop(
           } catch (error) {
             if (isAbortError(error)) throw error;
 
+            // SECURITY: Error messages from third-party libraries could contain
+            // role-switching markers (e.g., "Error: System: reinitialize").
+            const errorMsg = sanitizeUntrustedContent(
+              error instanceof Error ? error.message : String(error),
+            );
             const result: ToolResult = {
               tool_use_id: call.id,
-              content: `Tool execution error: ${error instanceof Error ? error.message : String(error)}`,
+              content: `Tool execution error: ${errorMsg}`,
               is_error: true,
             };
             toolResults.push(result);
@@ -432,10 +438,13 @@ export async function* runLoop(
         yield { type: 'tool_result_message', message: toolResultMessage };
 
         // ── Buddy observation injection ──
+        // SECURITY: Sanitize observations as they may originate from
+        // hook responses or file-based patterns that could be adversarial.
         if (config.buddyObserver) {
           const obs = config.buddyObserver.drain();
           if (obs) {
-            messages.push({ role: 'user', content: `[Buddy observation] ${obs}` });
+            const safeObs = sanitizeUntrustedContent(obs);
+            messages.push({ role: 'user', content: `[Buddy observation] ${safeObs}` });
           }
         }
       }
@@ -451,11 +460,16 @@ export async function* runLoop(
         if (refreshQuery.length > 10) {
           const refreshedParts = await config.refreshContext(refreshQuery, turnIndex);
           if (refreshedParts && Array.isArray(systemPrompt)) {
-            // Keep first block (cached base prompt), replace volatile blocks
+            // Keep first block (cached base prompt), replace volatile blocks.
+            // SECURITY: refreshContext returns vault/memory content that may
+            // contain adversarial payloads — sanitize before system prompt injection.
             const base = (systemPrompt as SystemPromptBlock[])[0]!;
             systemPrompt = [
               base,
-              ...refreshedParts.map(text => ({ type: 'text' as const, text } as SystemPromptBlock)),
+              ...refreshedParts.map(text => ({
+                type: 'text' as const,
+                text: sanitizeUntrustedContent(text),
+              } as SystemPromptBlock)),
             ];
           }
         }

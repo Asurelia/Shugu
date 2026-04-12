@@ -251,12 +251,19 @@ export async function runREPL(
     });
   };
 
-  process.on('SIGINT', async () => {
+  // Graceful shutdown on interrupt/terminate/hangup.
+  // SIGINT = Ctrl+C, SIGTERM = kill/docker stop, SIGHUP = terminal closed.
+  // All three must save session + flush memory to prevent data loss.
+  const gracefulShutdown = async (signal: string) => {
+    logger.debug(`received ${signal}, shutting down`);
     app.unmount();
     await saveSession();
     await services.dispose();
     process.exit(0);
-  });
+  };
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGHUP', () => gracefulShutdown('SIGHUP'));
 
   // Command context for registry-based commands
   const cmdCtx: CommandContext = {

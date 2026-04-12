@@ -8,6 +8,7 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { join, basename } from 'node:path';
 import { fileExists } from '../../utils/fs.js';
+import { sanitizeUntrustedContent } from '../../utils/security.js';
 
 export interface ProjectContext {
   name: string;
@@ -76,24 +77,27 @@ export async function getProjectContext(cwd: string): Promise<ProjectContext> {
   }
 
   // Load and merge ALL instruction files (not first-match-wins)
+  // SECURITY: These files come from the project directory (potentially untrusted repos).
+  // Content is sanitized to prevent prompt injection via role-switching markers.
   const instructionFiles = ['SHUGU.md', 'AGENTS.md', 'CLAUDE.md', 'PCC.md', '.claude/CLAUDE.md', '.pcc/instructions.md'];
   const instructionParts: string[] = [];
   for (const file of instructionFiles) {
     try {
-      const content = await readFile(join(cwd, file), 'utf-8');
-      instructionParts.push(`# ${file}\n${content.slice(0, 3000)}`);
+      const raw = await readFile(join(cwd, file), 'utf-8');
+      const sanitized = sanitizeUntrustedContent(raw.slice(0, 3000));
+      instructionParts.push(`# ${file}\n${sanitized}`);
     } catch {
       // Not found, skip
     }
   }
-  // Cap total to ~10K chars
+  // Cap total to ~10K chars, wrap in untrusted boundary tags
   let customInstructions: string | undefined;
   if (instructionParts.length > 0) {
     let merged = instructionParts.join('\n\n---\n\n');
     if (merged.length > 10_000) {
       merged = merged.slice(0, 10_000) + '\n\n[... truncated]';
     }
-    customInstructions = merged;
+    customInstructions = `<project-instructions source="untrusted">\n${merged}\n</project-instructions>`;
   }
 
   return { name, type: projectType, configFiles, customInstructions };
@@ -112,8 +116,9 @@ export async function loadReviewRules(cwd: string): Promise<string> {
   const parts: string[] = [];
   for (const file of ruleFiles) {
     try {
-      const content = await readFile(join(cwd, file), 'utf-8');
-      parts.push(`# Rules from ${file}\n${content.slice(0, 2000)}`);
+      const raw = await readFile(join(cwd, file), 'utf-8');
+      const sanitized = sanitizeUntrustedContent(raw.slice(0, 2000));
+      parts.push(`# Rules from ${file}\n${sanitized}`);
     } catch { /* not found, skip */ }
   }
   if (parts.length === 0) return '';

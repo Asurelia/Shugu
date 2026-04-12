@@ -94,7 +94,7 @@ export async function generatePromptSuggestion(
     if (suggestion.includes('\n')) return null;                                               // multiple_lines
     if (/[*_#`|]/.test(suggestion)) return null;                                             // has_formatting
     if (/^(looks good|great|nice|thanks|thank you|perfect)/i.test(suggestion)) return null;  // evaluative
-    if (/^(let me|i'll|i will|here's|here is)/i.test(suggestion)) return null;               // claude_voice
+    if (/^(let me|i'll|i will|here's|here is)/i.test(suggestion)) return null;               // agent_voice
     if (suggestion.endsWith('?')) return null;                                                // question
 
     return suggestion;

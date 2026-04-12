@@ -13,6 +13,7 @@ import { generateHints } from '../integrations/adapter.js';
 import { generateSkillsPrompt, type SkillRegistry } from '../skills/index.js';
 import { getCompanion, generatePersonalityPrompt, loadBuddyConfig } from '../ui/companion/index.js';
 import { logger } from '../utils/logger.js';
+import { sanitizeUntrustedContent } from '../utils/security.js';
 
 // ─── Base System Prompt (static, cacheable) ─────────────
 
@@ -183,9 +184,13 @@ export async function buildSystemPrompt(
   }
 
   // Harness prompt fragments (injected after all dynamic sections)
+  // SECURITY: Sanitize fragments as they may originate from config files
+  // in the project directory (potentially attacker-controlled).
   if (harnessConfig?.promptFragments) {
     for (const [name, content] of Object.entries(harnessConfig.promptFragments)) {
-      parts.push(`\n# ${name}\n${content}`);
+      const safeName = sanitizeUntrustedContent(name);
+      const safeContent = sanitizeUntrustedContent(content);
+      parts.push(`\n# ${safeName}\n${safeContent}`);
     }
   }
 
