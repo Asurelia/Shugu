@@ -3,6 +3,25 @@
  *
  * Spawns a child Node.js process, communicates via JSON-RPC over stdio,
  * and creates proxy Tool/HookHandler objects that forward calls through IPC.
+ *
+ * ─── Choix de mode d'isolation (ordre de préférence) ───────────────
+ *
+ * À chaque spawn de plugin `brokered`, l'host choisit son mode :
+ *
+ *   1. Docker (si `docker` installé et accessible) — isolation maximale :
+ *      pas de réseau, FS read-only sauf /plugin/.data, capabilities dropped.
+ *      Opt-out possible via la variable d'env `PCC_DISABLE_DOCKER=1` (utile
+ *      si Docker Desktop est installé mais que tu ne veux pas le charger en RAM).
+ *
+ *   2. Node --permission flags (Node ≥ 22, fichier .mjs, pas en dev tsx) —
+ *      isolation OS plus faible mais sans dépendance externe. Mode par défaut
+ *      recommandé pour un usage perso : rien à installer, pas de RAM réservée.
+ *
+ *   3. Bare child process (fallback ultime si Node < 22 ou fichier .ts) —
+ *      pas d'isolation OS, juste le capability broker applicatif.
+ *
+ * Aucune configuration n'est requise en usage perso : les modes 2 et 3
+ * fonctionnent nativement. Docker est **purement optionnel**.
  */
 
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
@@ -63,9 +82,22 @@ let _dockerAvailable: boolean | null = null;
 
 /**
  * Check if Docker is available for sandbox mode.
- * Cached after first call.
+ *
+ * Opt-out: if `PCC_DISABLE_DOCKER=1` is set in the environment, this returns
+ * `false` regardless of whether Docker is actually installed. Useful when
+ * Docker Desktop is installed on the machine but you don't want Shugu to
+ * use it (e.g., to avoid the 2-3 GB RAM reservation on Windows).
+ *
+ * Cached after first call. If the cache is already populated when the env
+ * opt-out is toggled mid-process, the cache is overridden to keep the
+ * opt-out authoritative.
  */
 export function isDockerAvailable(): boolean {
+  // Explicit opt-out via env var — always wins, even if Docker is installed.
+  if (process.env['PCC_DISABLE_DOCKER'] === '1') {
+    _dockerAvailable = false;
+    return false;
+  }
   if (_dockerAvailable !== null) return _dockerAvailable;
   try {
     const result = execFileSync('docker', ['version', '--format', '{{.Server.Version}}'], { stdio: 'pipe', timeout: 5000 });
@@ -74,6 +106,13 @@ export function isDockerAvailable(): boolean {
     _dockerAvailable = false;
   }
   return _dockerAvailable;
+}
+
+/**
+ * Reset the cached Docker availability check. Exported for tests only.
+ */
+export function _resetDockerCache(): void {
+  _dockerAvailable = null;
 }
 
 /**

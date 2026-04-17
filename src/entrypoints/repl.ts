@@ -195,8 +195,10 @@ export async function runREPL(
     });
   }
 
-  // Wire tracer → tracker panel (real-time)
-  tracer.onEvent((event) => {
+  // Wire tracer → tracker panel (real-time). Capture unsubscribe so the REPL
+  // can detach cleanly at shutdown (prevents MaxListeners accumulation across
+  // long-lived sessions or repeated `pcc` invocations inside the same process).
+  const unsubscribeTracer = tracer.onEvent((event) => {
     // Update pipeline stage
     if (event.stage) {
       app.setTrackerStage(event.stage);
@@ -302,6 +304,7 @@ export async function runREPL(
   // All three must save session + flush memory to prevent data loss.
   const gracefulShutdown = async (signal: string) => {
     logger.debug(`received ${signal}, shutting down`);
+    unsubscribeTracer();
     app.unmount();
     await saveSession();
     await services.dispose();
