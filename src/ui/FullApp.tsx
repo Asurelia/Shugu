@@ -29,13 +29,21 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { render, Box, Text, Static, useInput, useStdout } from 'ink';
 import TextInput from 'ink-text-input';
-import type { UIMessage } from './components/Messages.js';
+import type { UIMessage } from './types.js';
 import { CompanionSprite } from './companion/CompanionSprite.js';
 import type { Companion } from './companion/types.js';
 import { createPasteHandler } from './paste.js';
 import { colorizeCode, detectLanguage } from './highlight.js';
 import { renderMarkdown, renderInline } from './markdown.js';
 import { parseReadOutput, parseGrepOutput, parseWebFetchOutput, parseGlobOutput } from './parsers.js';
+
+// ─── Helpers ──────────────────────────────────────────
+
+function formatDuration(ms: number | undefined): string {
+  if (ms == null) return '';
+  if (ms < 1000) return ` ${ms}ms`;
+  return ` ${(ms / 1000).toFixed(1)}s`;
+}
 
 // ─── Message Rendering (for Static items) ──────────────
 
@@ -169,7 +177,7 @@ function StaticMessage({ message, expandThinking = false }: { message: UIMessage
         const displayLines = parsed.lines.slice(0, 30);
         return (
           <Box flexDirection="column">
-            <Box><Text color="yellow">{'╰'}</Text><Text color={iconColor}>{icon}</Text><Text color="yellow">{'─ '}</Text><Text dimColor>Read{sizeInfo}</Text></Box>
+            <Box><Text color="yellow">{'╰'}</Text><Text color={iconColor}>{icon}</Text><Text color="yellow">{'─ '}</Text><Text dimColor>Read{sizeInfo}{formatDuration(message.durationMs)}</Text></Box>
             <Box flexDirection="column" paddingLeft={2}>
               {displayLines.map((l, i) => (
                 <Text key={i}>
@@ -191,7 +199,7 @@ function StaticMessage({ message, expandThinking = false }: { message: UIMessage
         const displayLines = grepLines.slice(0, 30);
         return (
           <Box flexDirection="column">
-            <Box><Text color="yellow">{'╰'}</Text><Text color={iconColor}>{icon}</Text><Text color="yellow">{'─ '}</Text><Text dimColor>Grep{sizeInfo}</Text></Box>
+            <Box><Text color="yellow">{'╰'}</Text><Text color={iconColor}>{icon}</Text><Text color="yellow">{'─ '}</Text><Text dimColor>Grep{sizeInfo}{formatDuration(message.durationMs)}</Text></Box>
             <Box flexDirection="column" paddingLeft={2}>
               {displayLines.map((gl, i) => {
                 if (gl.type === 'separator') return <Text key={i} dimColor>{'--'}</Text>;
@@ -222,7 +230,7 @@ function StaticMessage({ message, expandThinking = false }: { message: UIMessage
         };
         return (
           <Box flexDirection="column">
-            <Box><Text color="yellow">{'╰'}</Text><Text color={iconColor}>{icon}</Text><Text color="yellow">{'─ '}</Text><Text dimColor>Glob{sizeInfo}</Text></Box>
+            <Box><Text color="yellow">{'╰'}</Text><Text color={iconColor}>{icon}</Text><Text color="yellow">{'─ '}</Text><Text dimColor>Glob{sizeInfo}{formatDuration(message.durationMs)}</Text></Box>
             <Box flexDirection="column" paddingLeft={2}>
               {displayEntries.map((e, i) => (
                 <Text key={i} color={e.ext === '' ? 'blue' : (EC[e.ext] ?? 'white')}>{e.path}</Text>
@@ -240,7 +248,7 @@ function StaticMessage({ message, expandThinking = false }: { message: UIMessage
         const bashLang = (firstNonEmpty.startsWith('{') || firstNonEmpty.startsWith('[')) ? 'json' : 'shell';
         return (
           <Box flexDirection="column">
-            <Box><Text color="yellow">{'╰'}</Text><Text color={iconColor}>{icon}</Text><Text color="yellow">{'─ '}</Text><Text dimColor>Bash{sizeInfo}</Text></Box>
+            <Box><Text color="yellow">{'╰'}</Text><Text color={iconColor}>{icon}</Text><Text color="yellow">{'─ '}</Text><Text dimColor>Bash{sizeInfo}{formatDuration(message.durationMs)}</Text></Box>
             <Box flexDirection="column" paddingLeft={2}>
               {bLines.map((line, i) => {
                 if (/^(PASS|PASSED|OK|✓|✔|success)/i.test(line)) return <Text key={i} color="green">{line}</Text>;
@@ -262,7 +270,7 @@ function StaticMessage({ message, expandThinking = false }: { message: UIMessage
         const bodyLines = parsed.body.split('\n').slice(0, 20);
         return (
           <Box flexDirection="column">
-            <Box><Text color="yellow">{'╰'}</Text><Text color={iconColor}>{icon}</Text><Text color="yellow">{'─ '}</Text><Text dimColor>WebFetch{sizeInfo}</Text></Box>
+            <Box><Text color="yellow">{'╰'}</Text><Text color={iconColor}>{icon}</Text><Text color="yellow">{'─ '}</Text><Text dimColor>WebFetch{sizeInfo}{formatDuration(message.durationMs)}</Text></Box>
             <Box flexDirection="column" paddingLeft={2}>
               <Text dimColor>{parsed.status}</Text>
               {bodyLines.map((line, i) => (
@@ -283,6 +291,7 @@ function StaticMessage({ message, expandThinking = false }: { message: UIMessage
             <Text color="yellow">{'╰'}</Text><Text color={iconColor}>{icon}</Text><Text color="yellow">{'─ '}</Text>
             <Text dimColor>{toolName}{' '}</Text>
             {filePath ? <Text color="cyan">{filePath}</Text> : <Text dimColor>{message.content}</Text>}
+            <Text dimColor>{formatDuration(message.durationMs)}</Text>
           </Box>
         );
       }
@@ -293,7 +302,7 @@ function StaticMessage({ message, expandThinking = false }: { message: UIMessage
       return (
         <Box>
           <Text color="yellow">{'╰'}</Text><Text color={iconColor}>{icon}</Text><Text color="yellow">{'─ '}</Text>
-          <Text dimColor>{toolName ? `${toolName} ` : ''}{summary}{sizeInfo}</Text>
+          <Text dimColor>{toolName ? `${toolName} ` : ''}{summary}{sizeInfo}{formatDuration(message.durationMs)}</Text>
         </Box>
       );
     }
@@ -319,6 +328,25 @@ function StaticMessage({ message, expandThinking = false }: { message: UIMessage
           {message.tokens ? ` · ↓ ${message.tokens} tokens` : ''}
         </Text>
       );
+
+    case 'session_end': {
+      const tokensStr = message.totalTokens >= 1000
+        ? `${(message.totalTokens / 1000).toFixed(1)}k`
+        : String(message.totalTokens);
+      const costStr = message.totalCost < 0.01
+        ? `$${message.totalCost.toFixed(4)}`
+        : `$${message.totalCost.toFixed(3)}`;
+      return (
+        <Box marginTop={1}>
+          <Text dimColor>{'═ Session ended '}</Text>
+          <Text dimColor>{'('}{message.reason}{')'}</Text>
+          <Text dimColor>{' — '}</Text>
+          <Text color="cyan">{tokensStr}{' tokens'}</Text>
+          <Text dimColor>{' · '}</Text>
+          <Text color="cyan">{costStr}</Text>
+        </Box>
+      );
+    }
   }
 }
 
@@ -454,12 +482,23 @@ function FullApp({ initialMode, initialStatus, stateRef, onSubmit, onModeChange 
   // Expand thinking state from ExternalState (toggled via /thinking command)
   const expandThinking = stateRef.current.expandThinking ?? false;
 
-  useInput((_input, key) => {
-    // Shift+Tab: cycle modes
+  useInput((input, key) => {
+    // Shift+Tab: cycle permission modes
     if (key.tab && key.shift && liveState.showInput) {
       const idx = MODES.indexOf(liveState.mode as typeof MODES[number]);
       const next = MODES[(idx + 1) % MODES.length]!;
       onModeChange(next);
+    }
+
+    // Ctrl+R: toggle expanded thinking display
+    if (key.ctrl && input === 'r') {
+      const current = stateRef.current.expandThinking ?? false;
+      stateRef.current = { ...stateRef.current, expandThinking: !current };
+    }
+
+    // Escape: clear current input while typing
+    if (key.escape && liveState.showInput) {
+      setInputValue('');
     }
   });
 
@@ -557,12 +596,12 @@ function FullApp({ initialMode, initialStatus, stateRef, onSubmit, onModeChange 
           {/* Status */}
           <Text>{liveState.statusText}</Text>
 
-          {/* Mode */}
+          {/* Mode indicator */}
           <Text>
             {'  '}
-            <Text dimColor>⏵⏵ </Text>
-            <Text color={modeColor}>{liveState.mode}</Text>
-            <Text dimColor> permissions on (shift+tab to cycle)</Text>
+            <Text color={modeColor}>● </Text>
+            <Text color={modeColor} bold>{liveState.mode}</Text>
+            <Text dimColor> (shift+tab)</Text>
           </Text>
         </Box>
 
@@ -714,6 +753,7 @@ export function launchFullApp(
           case 'tool_result': lines.push(`  ╰${msg.isError ? '✗' : '✓'}─ ${msg.content}`, ''); break;
           case 'error': lines.push(`  ERROR: ${msg.text}`); break;
           case 'info': lines.push(msg.text); break;
+          case 'session_end': lines.push(`═ Session ended (${msg.reason}) — ${msg.totalTokens} tokens · $${msg.totalCost.toFixed(3)}`); break;
         }
       }
       lines.push('', '═══ End Transcript ═══', '');

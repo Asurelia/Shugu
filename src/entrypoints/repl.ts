@@ -247,7 +247,7 @@ export async function runREPL(
       session.workContext = extractWorkContext(conversationMessages, lastHumanInputIdx, lastRawUserInput);
     }
     await sessionMgr.save(session).catch((err) => {
-      logger.debug('session save failed', err instanceof Error ? err.message : String(err));
+      logger.warn('session save failed — conversation state may not persist:', err instanceof Error ? err.message : String(err));
     });
   };
 

@@ -6,6 +6,7 @@
  */
 
 import type { PermissionMode, ToolContext } from '../protocol/tools.js';
+import { ReadTracker } from '../context/read-tracker.js';
 import type { Message } from '../protocol/messages.js';
 import { isTextBlock } from '../protocol/messages.js';
 import { MiniMaxClient } from '../transport/client.js';
@@ -327,6 +328,7 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
     abortSignal: new AbortController().signal,
     permissionMode: cliArgs.mode,
     askPermission,
+    readTracker: new ReadTracker(),
   };
 
   // Load custom markdown agents (.pcc/agents/*.md)
