@@ -104,9 +104,12 @@ export class AbortError extends Error {
 }
 
 export function isAbortError(error: unknown): error is AbortError {
-  return (
-    error instanceof AbortError ||
-    (error instanceof Error && error.name === 'AbortError') ||
-    (error instanceof DOMException && error.name === 'AbortError')
-  );
+  if (error instanceof AbortError) return true;
+  // Duck-type on `name === 'AbortError'`. Covers Node's internal AbortError,
+  // the synthetic DOMException thrown by AbortController, and any other
+  // Error-like with the conventional name — without depending on the
+  // DOMException global being available (older Node) or on the specific
+  // Error constructor identity.
+  return typeof error === 'object' && error !== null &&
+    (error as { name?: unknown }).name === 'AbortError';
 }

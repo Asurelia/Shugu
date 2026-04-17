@@ -6,7 +6,14 @@
  *
  * A hint is ~100-200 tokens — vs ~1300 tokens for a MCP tool schema.
  * The agent uses BashTool to execute CLI commands — no new protocol needed.
+ *
+ * Security: `pcc-tools.yaml` can ship in a cloned repo. Its strings
+ * (description, commands, auth) are spliced into the system prompt, so
+ * we sanitise them to strip role markers, XML tags, HTML comments, and
+ * other prompt-injection vectors via `sanitizeUntrustedContent`.
  */
+
+import { sanitizeUntrustedContent } from '../utils/security.js';
 
 // ─── Adapter Types ──────────────────────────────────────
 
@@ -70,51 +77,79 @@ export function generateHints(adapters: CliAdapter[]): string {
  * Merge project-level tool configs with builtin adapters.
  * Project configs add commands/auth to existing adapters or create new ones.
  */
+/**
+ * Sanitise a project-sourced string before it is spliced into the system
+ * prompt. No-op for non-strings (undefined, empty) so callers can forward
+ * optional fields directly.
+ */
+function clean(str: string | undefined): string | undefined {
+  if (!str) return str;
+  return sanitizeUntrustedContent(str);
+}
+
+function cleanArr(arr: string[] | undefined): string[] | undefined {
+  if (!arr) return arr;
+  return arr.map((c) => sanitizeUntrustedContent(c));
+}
+
 export function mergeProjectTools(
   builtinAdapters: CliAdapter[],
   projectTools: ProjectToolConfig[],
 ): CliAdapter[] {
   const merged = new Map<string, CliAdapter>();
 
-  // Start with builtins
+  // Start with builtins (trusted — shipped with Shugu)
   for (const adapter of builtinAdapters) {
     merged.set(adapter.name, { ...adapter });
   }
 
-  // Overlay project tools
+  // Overlay project tools — every string field passes through
+  // sanitizeUntrustedContent to defuse role markers / XML / entities.
   for (const tool of projectTools) {
+    const safeName = sanitizeUntrustedContent(tool.name);
+    const safeDescription = clean(tool.description) ?? safeName;
+    const safeCommands = cleanArr(tool.commands);
+    const safeAuth = clean(tool.auth);
+
     if (tool.type === 'rest' || tool.type === 'graphql') {
       // API tools get their own adapter
-      merged.set(tool.name, {
-        name: tool.name,
-        description: tool.description ?? tool.name,
+      merged.set(safeName, {
+        name: safeName,
+        description: safeDescription,
         detect: 'true', // Always "installed"
-        hint: generateApiHint(tool),
+        hint: generateApiHint({
+          ...tool,
+          name: safeName,
+          description: safeDescription,
+          commands: safeCommands,
+          base_url: clean(tool.base_url),
+          endpoints: cleanArr(tool.endpoints),
+        }),
         installed: true,
-        commands: tool.commands,
+        commands: safeCommands,
       });
       continue;
     }
 
-    const existing = merged.get(tool.name);
+    const existing = merged.get(safeName);
     if (existing) {
       // Merge commands into existing adapter
-      if (tool.commands) {
-        existing.commands = [...(existing.commands ?? []), ...tool.commands];
+      if (safeCommands) {
+        existing.commands = [...(existing.commands ?? []), ...safeCommands];
       }
-      if (tool.auth) existing.auth = tool.auth;
-      if (tool.description) existing.description = tool.description;
+      if (safeAuth) existing.auth = safeAuth;
+      if (tool.description) existing.description = safeDescription;
     } else {
       // New CLI adapter from project config
-      merged.set(tool.name, {
-        name: tool.name,
-        description: tool.description ?? tool.name,
-        detect: `${tool.name} --version`,
-        hint: tool.commands
-          ? `Use Bash to run ${tool.name} commands:\n${tool.commands.map((c) => `  - ${c}`).join('\n')}`
-          : `Use Bash to run ${tool.name} commands.`,
-        commands: tool.commands,
-        auth: tool.auth,
+      merged.set(safeName, {
+        name: safeName,
+        description: safeDescription,
+        detect: `${safeName} --version`,
+        hint: safeCommands
+          ? `Use Bash to run ${safeName} commands:\n${safeCommands.map((c) => `  - ${c}`).join('\n')}`
+          : `Use Bash to run ${safeName} commands.`,
+        commands: safeCommands,
+        auth: safeAuth,
       });
     }
   }

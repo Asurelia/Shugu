@@ -306,6 +306,10 @@ export class PluginHost extends EventEmitter {
       }
       this.pending.clear();
       this.emit('crashed', error);
+      // Now that the child is gone, release all stdio/IPC listeners held by
+      // the parent. Prevents per-plugin listener accumulation on long-lived
+      // CLI sessions that spawn/dispose plugins repeatedly.
+      this.detachChildListeners();
     });
 
     this.child.on('error', (err) => {
@@ -348,6 +352,7 @@ export class PluginHost extends EventEmitter {
       // If shutdown request fails, force kill
       this.kill();
     }
+    // Listeners are detached by the 'exit' handler when the child exits.
   }
 
   /**
@@ -357,6 +362,29 @@ export class PluginHost extends EventEmitter {
     if (this.child && !this.dead) {
       this.child.kill('SIGTERM');
       this.dead = true;
+    }
+    // Listeners are detached by the 'exit' handler when the child exits.
+  }
+
+  /**
+   * Remove listeners attached to the child process and its stdio streams.
+   *
+   * Without this, long-lived CLI sessions that spawn/kill plugins repeatedly
+   * accumulate listeners on `child.stderr`, `child.stdout` (via readline),
+   * and `child.on('exit')` — leaking memory and eventually tripping Node's
+   * MaxListenersExceeded warning.
+   */
+  private detachChildListeners(): void {
+    if (this.readline) {
+      this.readline.removeAllListeners('line');
+      this.readline.close();
+      this.readline = null;
+    }
+    if (this.child) {
+      this.child.stdout?.removeAllListeners();
+      this.child.stderr?.removeAllListeners();
+      this.child.removeAllListeners('exit');
+      this.child.removeAllListeners('error');
     }
   }
 

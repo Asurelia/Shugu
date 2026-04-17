@@ -20,6 +20,7 @@ import { EventEmitter } from 'node:events';
 import type { Message } from '../protocol/messages.js';
 import type { ToolContext, Tool } from '../protocol/tools.js';
 import { sanitizeUntrustedContent } from '../utils/security.js';
+import { logger } from '../utils/logger.js';
 
 // ─── Skill Definition ──────────────────────────────────
 
@@ -229,8 +230,8 @@ export async function loadExternalSkills(
         loaded++;
       }
     } catch (error) {
-      // Skip files that fail to load
-      console.error(`Failed to load skill from ${fullPath}:`, error);
+      // Skip files that fail to load but surface the reason for diagnostics
+      logger.warn('skill load failed', `${fullPath}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

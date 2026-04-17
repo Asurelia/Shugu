@@ -225,10 +225,25 @@ export class DaemonController extends EventEmitter {
       this.child!.kill('SIGTERM');
     });
 
+    this.detachChildListeners();
     this.child = null;
     this.state.pid = null;
     this.state.status = 'stopped';
     this.saveState();
+  }
+
+  /**
+   * Remove listeners on child stdio/IPC. Without this, daemon start/stop
+   * cycles accumulate handlers on stdout/stderr/message/exit streams
+   * inside the parent process — a real leak on long-lived CLI sessions.
+   */
+  private detachChildListeners(): void {
+    if (!this.child) return;
+    this.child.stdout?.removeAllListeners();
+    this.child.stderr?.removeAllListeners();
+    this.child.removeAllListeners('message');
+    this.child.removeAllListeners('exit');
+    this.child.removeAllListeners('error');
   }
 
   /**
@@ -343,6 +358,7 @@ export class DaemonController extends EventEmitter {
  */
 export class DaemonWorker extends EventEmitter {
   private running = false;
+  private messageHandler: ((msg: DaemonMessage) => void) | null = null;
 
   constructor() {
     super();
@@ -371,7 +387,7 @@ export class DaemonWorker extends EventEmitter {
       }
     }
 
-    process.on('message', (msg: DaemonMessage) => {
+    this.messageHandler = (msg: DaemonMessage) => {
       // Validate IPC nonce — reject messages without valid authentication
       if (expectedNonce && !timingSafeCompare(msg.nonce ?? '', expectedNonce)) {
         // Drop unauthenticated message silently (don't reveal nonce exists)
@@ -396,7 +412,8 @@ export class DaemonWorker extends EventEmitter {
           });
           break;
       }
-    });
+    };
+    process.on('message', this.messageHandler);
 
     // Notify parent we're ready
     this.sendMessage({
@@ -433,6 +450,10 @@ export class DaemonWorker extends EventEmitter {
    */
   stop(): void {
     this.running = false;
+    if (this.messageHandler) {
+      process.off('message', this.messageHandler);
+      this.messageHandler = null;
+    }
     this.emit('stop');
     // Give time for cleanup, then exit
     setTimeout(() => process.exit(0), 1000);

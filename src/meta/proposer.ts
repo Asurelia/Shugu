@@ -6,7 +6,8 @@
  * configs, scores, and execution traces.
  *
  * The proposer receives the absolute path to the archive filesystem
- * and uses standard tools (Read, Glob, Grep, Bash) to inspect it.
+ * and uses read-only tools (Read, Glob, Grep) plus Write to inspect it
+ * and emit config.yaml. Bash is intentionally withheld.
  *
  * Key design: the proposer is a Shugu agent, not a separate system.
  * It runs in a worktree and writes new config.yaml files.
@@ -60,7 +61,10 @@ export class MetaProposer {
       maxTurns: 25,
       maxBudgetUsd: 0.50,
       isolation: 'worktree',
-      allowedTools: ['Read', 'Write', 'Glob', 'Grep', 'Bash'],
+      // Intentionally no Bash: the proposer only needs to read the archive
+      // and write config.yaml. Denying Bash removes a worktree-escape
+      // surface if a hostile archive trace tries to steer it.
+      allowedTools: ['Read', 'Write', 'Glob', 'Grep'],
     });
 
     tracer.log('agent_done', {
@@ -129,7 +133,7 @@ their evaluation scores, and execution traces, then propose ${count} improved co
 
 ## Archive Location
 All prior candidates, results, and traces are at: ${archivePath}
-Use Read/Glob/Grep/Bash to inspect them.
+Use Read/Glob/Grep to inspect them.
 
 ## Directory Structure
 \`\`\`

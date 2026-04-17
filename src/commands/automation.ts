@@ -87,12 +87,23 @@ export function createBgCommand(
       }
 
       // Default: start a new background session with the entire args as prompt
-      const prompt = args.trim();
+      // Detect `--fullauto` flag (strip it from the prompt) to opt out of
+      // the unattended permission-mode degradation.
+      const rawArgs = args.trim();
+      const allowFullAuto = /(^|\s)--fullauto(\s|$)/.test(rawArgs);
+      const prompt = rawArgs.replace(/(^|\s)--fullauto(\s|$)/g, ' ').trim();
+      if (!prompt) {
+        return { type: 'error', message: 'Usage: /bg <prompt> [--fullauto]' };
+      }
       const name = prompt.slice(0, 40);
       const config = loopConfigFactory(prompt);
 
       ctx.info(`Starting background session: ${name}`);
-      const session = await bgManager.start(name, prompt, config);
+      const currentMode = config.toolContext?.permissionMode;
+      if (!allowFullAuto && (currentMode === 'fullAuto' || currentMode === 'bypass')) {
+        ctx.info(`  Permission mode degraded: ${currentMode} → acceptEdits (use /bg <prompt> --fullauto to keep it)`);
+      }
+      const session = await bgManager.start(name, prompt, config, { allowFullAuto });
       ctx.info(`  ID: ${session.id} — use /bg list to check status`);
 
       return { type: 'handled' };

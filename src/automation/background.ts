@@ -19,6 +19,7 @@ import type { Message } from '../protocol/messages.js';
 import type { Tool, ToolContext } from '../protocol/tools.js';
 import { isTextBlock } from '../protocol/messages.js';
 import { logger } from '../utils/logger.js';
+import { degradeForUnattended } from '../policy/modes.js';
 
 // ─── Background Session ────────────────────────────────
 
@@ -58,14 +59,36 @@ export class BackgroundManager extends EventEmitter {
 
   /**
    * Start a background session.
+   *
+   * By default, `fullAuto` and `bypass` permission modes are degraded to
+   * `acceptEdits` because the background session runs without a human in
+   * the loop. Callers can pass `allowFullAuto: true` to opt out of this
+   * degradation (for example, when the user passes `/bg --fullauto`).
    */
   async start(
     name: string,
     prompt: string,
     config: LoopConfig,
+    options: { allowFullAuto?: boolean } = {},
   ): Promise<BackgroundSession> {
     const id = `bg-${++this.sessionCounter}`;
     const interrupt = new InterruptController();
+
+    let effectiveConfig: LoopConfig = config;
+    let degradedFrom: string | null = null;
+    let degradedTo: string | null = null;
+    const originalCtx = config.toolContext;
+    if (!options.allowFullAuto && originalCtx) {
+      const downgraded = degradeForUnattended(originalCtx.permissionMode);
+      if (downgraded !== originalCtx.permissionMode) {
+        effectiveConfig = {
+          ...config,
+          toolContext: { ...originalCtx, permissionMode: downgraded },
+        };
+        degradedFrom = originalCtx.permissionMode;
+        degradedTo = downgraded;
+      }
+    }
 
     const session: BackgroundSession = {
       id,
@@ -82,8 +105,16 @@ export class BackgroundManager extends EventEmitter {
     this.interrupts.set(id, interrupt);
     this.attachedListeners.set(id, new Set());
 
+    if (degradedFrom && degradedTo) {
+      this.emit('session:permissions-degraded', {
+        id,
+        from: degradedFrom,
+        to: degradedTo,
+      });
+    }
+
     // Run the loop asynchronously (fire-and-forget)
-    this.runSession(id, prompt, config, interrupt).catch((err) => {
+    this.runSession(id, prompt, effectiveConfig, interrupt).catch((err) => {
       logger.warn(`background session ${id} failed`, err instanceof Error ? err.message : String(err));
     });
 
