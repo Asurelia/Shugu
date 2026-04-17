@@ -109,7 +109,7 @@ async function classifyByLLM(
   try {
     const result = await client.complete(
       [{ role: 'user', content: CLASSIFY_PROMPT + `"${input.slice(0, 300)}"` }],
-      { maxTokens: 50, model: MINIMAX_MODELS.fast, temperature: 0.1 },
+      { maxTokens: 256, model: MINIMAX_MODELS.fast, temperature: 0.1 },
     );
 
     const text = result.message.content
@@ -117,6 +117,12 @@ async function classifyByLLM(
       .map(b => b.text)
       .join('')
       .trim();
+
+    // If model produced only thinking (no visible text), fall back to heuristic
+    if (!text) {
+      tracer.log('strategy', { action: 'llm_empty_response', stopReason: result.stopReason });
+      return { complexity: classifyByHeuristics(input) ?? 'simple', toolHints: '' };
+    }
 
     const lines = text.split('\n');
     const firstWord = (lines[0] ?? '').trim().toLowerCase();

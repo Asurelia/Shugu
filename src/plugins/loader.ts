@@ -32,7 +32,7 @@ import type { HookHandler, HookType } from './hooks.js';
 import { PluginHost } from './host.js';
 import { CapabilityBroker, type CapabilityName } from './broker.js';
 import { logger } from '../utils/logger.js';
-import { loadPolicy, resolvePluginConfig, type ResolvedPluginConfig } from './policy.js';
+import { loadPolicy, resolvePluginConfig, type ResolvedPluginConfig, type IsolationInput } from './policy.js';
 
 // ─── Plugin Manifest ───────────────────────────────────
 
@@ -49,8 +49,12 @@ export interface PluginManifest {
   hooks?: HookType[];
   /** Permission scopes for API registration (tools, hooks, commands, skills) */
   permissions?: string[];
-  /** Isolation mode: 'trusted' (in-process) or 'brokered' (child process) */
-  isolation?: 'trusted' | 'brokered';
+  /**
+   * Isolation mode:
+   *  - 'unrestricted' — in-process, no sandbox (was 'trusted' — legacy name still accepted)
+   *  - 'brokered'     — child process with capability IPC
+   */
+  isolation?: IsolationInput;
   /** Runtime capabilities for brokered mode (fs.read, fs.write, http.fetch, etc.) */
   capabilities?: string[];
   /** Author info */
@@ -219,11 +223,12 @@ export async function loadPlugin(
     return loadBrokeredPlugin(plugin, resolved.capabilities, resolved.timeoutMs);
   }
 
-  // ─── Trusted path: in-process loading ───
-  // Deprecation notice: trusted mode runs plugin code in the main process
-  // with full access to the runtime. Consider setting isolation: 'brokered'.
+  // ─── Unrestricted path: in-process loading ───
+  // This mode runs plugin code in the main process with full access to the
+  // runtime — no sandbox, no capability broker. Consider 'brokered' for
+  // anything you did not author yourself.
   if (manifest.name !== 'unknown') {
-    logger.debug(`[plugin:${manifest.name}] Running in trusted mode (in-process). Set "isolation": "brokered" in plugin.json for process isolation.`);
+    logger.debug(`[plugin:${manifest.name}] Running in unrestricted mode (in-process). Set "isolation": "brokered" in plugin.json for process isolation.`);
   }
 
   try {

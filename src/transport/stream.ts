@@ -23,6 +23,7 @@ import type {
   Usage,
 } from '../protocol/messages.js';
 import { logger } from '../utils/logger.js';
+import { StreamAbortError } from './errors.js';
 
 // ─── SSE Line Parser ────────────────────────────────────
 
@@ -37,7 +38,7 @@ export async function* parseSSEStream(
   try {
     while (true) {
       if (abortSignal?.aborted) {
-        break;
+        throw new StreamAbortError();
       }
 
       const { done, value } = await reader.read();
@@ -281,88 +282,98 @@ export async function* streamWithDeltas(
   let stopReason: string | null = null;
   const usage: Usage = { input_tokens: 0, output_tokens: 0 };
 
-  for await (const event of events) {
-    switch (event.type) {
-      case 'message_start': {
-        messageId = event.message.id;
-        model = event.message.model;
-        usage.input_tokens = event.message.usage.input_tokens;
-        usage.output_tokens = event.message.usage.output_tokens;
-        if (event.message.usage.cache_creation_input_tokens) {
-          usage.cache_creation_input_tokens = event.message.usage.cache_creation_input_tokens;
-        }
-        if (event.message.usage.cache_read_input_tokens) {
-          usage.cache_read_input_tokens = event.message.usage.cache_read_input_tokens;
-        }
-        if (event.message.reasoning_details) {
-          for (const detail of event.message.reasoning_details) {
-            const block = createAccumulatingBlock({ type: 'thinking' });
-            block.thinking = detail.text;
-            reasoningBlocks.push(block);
+  try {
+    for await (const event of events) {
+      switch (event.type) {
+        case 'message_start': {
+          messageId = event.message.id;
+          model = event.message.model;
+          usage.input_tokens = event.message.usage.input_tokens;
+          usage.output_tokens = event.message.usage.output_tokens;
+          if (event.message.usage.cache_creation_input_tokens) {
+            usage.cache_creation_input_tokens = event.message.usage.cache_creation_input_tokens;
           }
+          if (event.message.usage.cache_read_input_tokens) {
+            usage.cache_read_input_tokens = event.message.usage.cache_read_input_tokens;
+          }
+          if (event.message.reasoning_details) {
+            for (const detail of event.message.reasoning_details) {
+              const block = createAccumulatingBlock({ type: 'thinking' });
+              block.thinking = detail.text;
+              reasoningBlocks.push(block);
+            }
+          }
+          break;
         }
-        break;
-      }
 
-      case 'content_block_start': {
-        const block = createAccumulatingBlock(event.content_block);
-        indexedBlocks[event.index] = block;
-        yield {
-          type: 'block_start',
-          index: event.index,
-          blockType: event.content_block.type,
-          toolName: (event.content_block as { name?: string }).name,
-          toolId: (event.content_block as { id?: string }).id,
-        };
-        break;
-      }
-
-      case 'content_block_delta': {
-        const block = indexedBlocks[event.index];
-        if (!block) break;
-        applyDelta(block, event.delta);
-        yield { type: 'delta', index: event.index, delta: event.delta };
-        break;
-      }
-
-      case 'content_block_stop': {
-        // Block complete — no need to yield, the complete event has the full message
-        break;
-      }
-
-      case 'message_delta': {
-        stopReason = event.delta.stop_reason;
-        if (event.usage) {
-          usage.output_tokens = event.usage.output_tokens;
+        case 'content_block_start': {
+          const block = createAccumulatingBlock(event.content_block);
+          indexedBlocks[event.index] = block;
+          yield {
+            type: 'block_start',
+            index: event.index,
+            blockType: event.content_block.type,
+            toolName: (event.content_block as { name?: string }).name,
+            toolId: (event.content_block as { id?: string }).id,
+          };
+          break;
         }
-        break;
-      }
 
-      case 'message_stop': {
-        break;
-      }
-
-      case 'reasoning.text': {
-        const re = event as import('../protocol/events.js').ReasoningDelta;
-        let streamBlock = reasoningBlocks.find((b) => b.toolId === '_reasoning_stream');
-        if (!streamBlock) {
-          streamBlock = createAccumulatingBlock({ type: 'thinking' });
-          streamBlock.toolId = '_reasoning_stream';
-          reasoningBlocks.push(streamBlock);
+        case 'content_block_delta': {
+          const block = indexedBlocks[event.index];
+          if (!block) break;
+          applyDelta(block, event.delta);
+          yield { type: 'delta', index: event.index, delta: event.delta };
+          break;
         }
-        streamBlock.thinking += re.text;
-        yield { type: 'thinking', text: re.text };
-        break;
+
+        case 'content_block_stop': {
+          // Block complete — no need to yield, the complete event has the full message
+          break;
+        }
+
+        case 'message_delta': {
+          stopReason = event.delta.stop_reason;
+          if (event.usage) {
+            usage.output_tokens = event.usage.output_tokens;
+          }
+          break;
+        }
+
+        case 'message_stop': {
+          break;
+        }
+
+        case 'reasoning.text': {
+          const re = event as import('../protocol/events.js').ReasoningDelta;
+          let streamBlock = reasoningBlocks.find((b) => b.toolId === '_reasoning_stream');
+          if (!streamBlock) {
+            streamBlock = createAccumulatingBlock({ type: 'thinking' });
+            streamBlock.toolId = '_reasoning_stream';
+            reasoningBlocks.push(streamBlock);
+          }
+          streamBlock.thinking += re.text;
+          yield { type: 'thinking', text: re.text };
+          break;
+        }
       }
     }
+
+    // Build final response (same as accumulateStream)
+    const allBlocks = [...reasoningBlocks, ...indexedBlocks.filter(Boolean)];
+    const contentBlocks = allBlocks.map(finalizeBlock);
+    const message: AssistantMessage = { role: 'assistant', content: contentBlocks };
+
+    yield { type: 'complete', response: { messageId, model, message, stopReason, usage } };
+  } catch (err) {
+    // Swallow abort — upstream iteration stops cleanly. Matches both our
+    // own StreamAbortError (name='AbortError') and the DOMException Node
+    // may synthesize internally when AbortController.abort() is called.
+    if (err instanceof Error && err.name === 'AbortError') {
+      return; // Don't yield complete on abort
+    }
+    throw err;
   }
-
-  // Build final response (same as accumulateStream)
-  const allBlocks = [...reasoningBlocks, ...indexedBlocks.filter(Boolean)];
-  const contentBlocks = allBlocks.map(finalizeBlock);
-  const message: AssistantMessage = { role: 'assistant', content: contentBlocks };
-
-  yield { type: 'complete', response: { messageId, model, message, stopReason, usage } };
 }
 
 // ─── Types ──────────────────────────────────────────────

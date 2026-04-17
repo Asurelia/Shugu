@@ -121,10 +121,12 @@ export function handleEventForApp(
       break;
     }
     case 'stream_thinking':
-      // TODO(ux): Show "Thinking (N tokens)..." indicator with partial content
+      // Thinking tokens arrive during extended thinking.
+      // Real-time visualization handled by TrackerPanel via tracer events.
       break;
     case 'stream_tool_start':
-      // TODO(ux): Show spinner with tool name before full execution details arrive
+      // Tool call detected in stream before full parsing.
+      // Real-time visualization handled by TrackerPanel via tracer events.
       break;
 
     // ── Complete message (arrives after streaming is done) ──

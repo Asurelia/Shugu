@@ -9,10 +9,11 @@
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { Command, CommandContext, CommandResult } from './registry.js';
 import { logger } from '../utils/logger.js';
+import { resolveTrust, type DiscoveredFile } from '../credentials/trust-store.js';
 
 // ─── Types ─────────────────────────────────────────────
 
@@ -104,8 +105,11 @@ export function loadMarkdownCommands(
       entries = dirEntries
         .filter((e) => e.isFile() && e.name.endsWith('.md'))
         .map((e) => e.name);
-    } catch {
-      // Directory doesn't exist or isn't readable — skip
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT' || (err as NodeJS.ErrnoException).code === 'ENOTDIR') {
+        continue; // Directory doesn't exist — optional, skip silently
+      }
+      logger.warn(`Failed to load commands from directory: ${err instanceof Error ? err.message : String(err)}`);
       continue;
     }
 
@@ -183,3 +187,124 @@ export function loadMarkdownCommands(
 
   return Array.from(commandMap.values());
 }
+
+// ─── Trust-gated Loader ─────────────────────────────────
+
+/**
+ * Same as loadMarkdownCommands but gates project-local files through the
+ * TOFU trust store. Global (homedir) files load without prompting (they
+ * are user-authored), project-local files prompt on first use or on
+ * content change.
+ *
+ * @param globalDirs Dirs under homedir — trusted implicitly.
+ * @param projectDirs Dirs under the repo — subject to TOFU.
+ * @param projectRoot Absolute path to the repo root — used as trust key.
+ * @param builtinNames Builtin names to protect.
+ * @param onConfirm Called when pending files need approval. If omitted,
+ *   pending files are silently skipped (for headless contexts).
+ */
+export async function loadMarkdownCommandsWithTrust(
+  globalDirs: string[],
+  projectDirs: string[],
+  projectRoot: string,
+  builtinNames: Set<string>,
+  onConfirm?: (pending: DiscoveredFile[]) => Promise<boolean>,
+): Promise<Command[]> {
+  // Global dirs are loaded as before — they're under the user's homedir.
+  const globalCommands = loadMarkdownCommands(globalDirs, builtinNames);
+
+  // Collect project-local files for trust check.
+  const discovered: DiscoveredFile[] = [];
+  for (const dir of projectDirs) {
+    for (const file of collectMarkdownFiles(dir)) {
+      try {
+        const content = readFileSync(file, 'utf8');
+        discovered.push({
+          absPath: file,
+          relPath: relative(projectRoot, resolve(file)).replace(/\\/g, '/'),
+          content,
+        });
+      } catch {
+        // unreadable — skip silently (same behavior as loadMarkdownCommands)
+      }
+    }
+  }
+
+  const approved = await resolveTrust(projectRoot, discovered, onConfirm);
+
+  if (approved.length === 0) {
+    return globalCommands;
+  }
+
+  // Build commands from approved files only. We reuse loadMarkdownCommands
+  // by feeding it a synthetic dir strategy would be awkward; instead parse
+  // each approved file directly with the existing parser.
+  const localCommandMap = new Map<string, Command>();
+  for (const file of approved) {
+    const parsed = parseMarkdownCommand(file.content);
+    if (!parsed) {
+      logger.warn(`Failed to parse command file: ${file.absPath}`);
+      continue;
+    }
+    const { frontmatter } = parsed;
+    const allNames = [frontmatter.name, ...(frontmatter.aliases ?? [])];
+    const collidingNames = allNames.filter((n) => builtinNames.has(n));
+    if (collidingNames.length > 0 && frontmatter.override !== true) {
+      logger.warn(
+        `Custom command '${frontmatter.name}' collides with builtin — skipped (use override: true to force)`,
+      );
+      continue;
+    }
+    const tag =
+      collidingNames.length > 0 && frontmatter.override === true ? '[override]' : '[custom]';
+    const filePath = file.absPath;
+    const command: Command = {
+      name: frontmatter.name,
+      aliases: frontmatter.aliases,
+      description: `${frontmatter.description} ${tag}`,
+      execute: async () => {
+        try {
+          const fresh = await readFile(filePath, 'utf8');
+          const freshParsed = parseMarkdownCommand(fresh);
+          if (!freshParsed) {
+            return { type: 'error', message: `Failed to parse command file: ${filePath}` } as CommandResult;
+          }
+          return { type: 'prompt', prompt: freshParsed.body } as CommandResult;
+        } catch {
+          return { type: 'error', message: `Failed to read command file: ${filePath}` } as CommandResult;
+        }
+      },
+    };
+    localCommandMap.set(frontmatter.name, command);
+  }
+
+  // Last-write-wins: project local overrides global same-name.
+  const merged = new Map<string, Command>();
+  for (const cmd of globalCommands) merged.set(cmd.name, cmd);
+  for (const cmd of localCommandMap.values()) merged.set(cmd.name, cmd);
+  return Array.from(merged.values());
+}
+
+function collectMarkdownFiles(dir: string): string[] {
+  try {
+    const entries = readdirSync(dir, { withFileTypes: true });
+    return entries
+      .filter((e) => e.isFile() && e.name.endsWith('.md'))
+      .map((e) => join(dir, e.name));
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT' && code !== 'ENOTDIR') {
+      logger.warn(`Failed to list ${dir}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    return [];
+  }
+}
+
+// Note on pending callback design: we deliberately ask the user once for
+// the full set of new/changed files — a per-file prompt would train the
+// user to mash "y" and defeat the purpose. The callback receives the
+// full list so the UI can render it as a preview before the single
+// confirm.
+
+/** Re-export for callers that want to handle pending interactively. */
+export type { DiscoveredFile } from '../credentials/trust-store.js';

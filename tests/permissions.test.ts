@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { PermissionResolver } from '../src/policy/permissions.js';
 import { classifyBashRisk } from '../src/policy/classifier.js';
+import { compileRules, type PermissionRule } from '../src/policy/rules.js';
 
 describe('PermissionResolver', () => {
   it('bypass mode allows safe commands', () => {
@@ -139,5 +140,68 @@ describe('classifyBashRisk', () => {
     const risk = classifyBashRisk('sudo rm -rf /');
     expect(risk.reason).toBeTruthy();
     expect(typeof risk.reason).toBe('string');
+  });
+});
+
+describe('compileRules — fail-closed on invalid patterns', () => {
+  const validDenyRule: PermissionRule = {
+    id: 'deny-danger',
+    toolPattern: 'Bash',
+    decision: 'deny',
+    inputMatch: { commandPattern: 'rm\\s+-rf' },
+    source: 'user',
+    reason: 'test',
+  };
+
+  it('keeps rules with valid regex commandPattern', () => {
+    const compiled = compileRules([validDenyRule]);
+    expect(compiled).toHaveLength(1);
+    expect(compiled[0]!.id).toBe('deny-danger');
+  });
+
+  it('drops rules with syntactically invalid regex (fail-closed)', () => {
+    const bad: PermissionRule = {
+      ...validDenyRule,
+      id: 'bad-regex',
+      // Unclosed group — throws on new RegExp()
+      inputMatch: { commandPattern: '(unclosed' },
+    };
+    const compiled = compileRules([validDenyRule, bad]);
+    expect(compiled).toHaveLength(1);
+    expect(compiled[0]!.id).toBe('deny-danger');
+    expect(compiled.find((r) => r.id === 'bad-regex')).toBeUndefined();
+  });
+
+  it('drops rules with ReDoS-dangerous patterns (fail-closed)', () => {
+    const redos: PermissionRule = {
+      ...validDenyRule,
+      id: 'redos-nested',
+      // Nested quantifier — caught by validateRegexSafety
+      inputMatch: { commandPattern: '(a+)+' },
+    };
+    const compiled = compileRules([redos]);
+    expect(compiled).toHaveLength(0);
+  });
+
+  it('a resolver built with an invalid user rule still enforces builtin denies', () => {
+    const badRules: PermissionRule[] = [
+      {
+        id: 'broken',
+        toolPattern: 'Bash',
+        decision: 'allow', // would allow rm -rf if pattern matched
+        inputMatch: { commandPattern: '(?P<named>invalid)' }, // Python-style, invalid in JS
+        source: 'user',
+        reason: 'broken rule',
+      },
+    ];
+    const resolver = new PermissionResolver('bypass', badRules);
+    // Builtin deny-rm-rf must still fire; the broken user rule is dropped.
+    const result = resolver.resolve({
+      id: 'x',
+      name: 'Bash',
+      input: { command: 'rm -rf /' },
+    });
+    expect(result.decision).toBe('deny');
+    expect(result.source).toBe('builtin');
   });
 });

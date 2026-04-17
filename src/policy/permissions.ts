@@ -14,7 +14,7 @@
 import type { ToolCall } from '../protocol/tools.js';
 import type { PermissionMode } from '../protocol/tools.js';
 import { getToolCategory, getDefaultDecision, type PermissionDecision } from './modes.js';
-import { evaluateRules, BUILTIN_RULES, type PermissionRule } from './rules.js';
+import { evaluateRules, BUILTIN_RULES, compileRules, type PermissionRule, type CompiledRule } from './rules.js';
 import { classifyBashRisk, type RiskLevel } from './classifier.js';
 
 // Simple string hash for compound command deduplication
@@ -39,12 +39,17 @@ export interface PermissionResult {
 
 export class PermissionResolver {
   private mode: PermissionMode;
-  private userRules: PermissionRule[];
+  private userRules: CompiledRule[];
   private sessionAllows: Set<string> = new Set();
 
+  /**
+   * @param mode Initial permission mode
+   * @param userRules Raw user rules — will be validated & compiled. Rules
+   *   with invalid patterns are rejected fail-closed (logged, dropped).
+   */
   constructor(mode: PermissionMode, userRules: PermissionRule[] = []) {
     this.mode = mode;
-    this.userRules = userRules;
+    this.userRules = compileRules(userRules);
   }
 
   /**

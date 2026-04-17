@@ -43,7 +43,7 @@ export async function handleInlineCommand(
   input: string,
   state: ReplState,
 ): Promise<{ handled: boolean; thinkingExpanded?: boolean; retry?: boolean }> {
-  const { app, budget, tokenTracker, renderer, permResolver, session, conversationMessages, client } = state;
+  const { app, budget, tokenTracker, permResolver, session, conversationMessages, client } = state;
 
   // ── Companion commands ──
   if (input === '/buddy' || input === '/pet') {
@@ -252,7 +252,7 @@ export async function handleInlineCommand(
 
   // ── Info commands ──
   if (input === '/cost') {
-    renderer.usage(budget.getSummary());
+    app.pushMessage({ type: 'info', text: budget.getSummary() });
     return { handled: true };
   }
 
@@ -275,10 +275,10 @@ export async function handleInlineCommand(
 
   if (input === '/context') {
     const status = tokenTracker.getStatus();
-    renderer.info(`Context: ${status.usedTokens.toLocaleString()} / ${status.totalTokens.toLocaleString()} tokens (${status.percentUsed}%)`);
-    renderer.info(`Available: ${status.availableTokens.toLocaleString()} tokens`);
-    renderer.info(`Compaction needed: ${status.shouldCompact ? 'YES' : 'no'}`);
-    renderer.info(`Session: ${session.id} | Turns: ${budget.getTurnCount()}`);
+    app.pushMessage({ type: 'info', text: `  Context: ${status.usedTokens.toLocaleString()} / ${status.totalTokens.toLocaleString()} tokens (${status.percentUsed}%)` });
+    app.pushMessage({ type: 'info', text: `  Available: ${status.availableTokens.toLocaleString()} tokens` });
+    app.pushMessage({ type: 'info', text: `  Compaction needed: ${status.shouldCompact ? 'YES' : 'no'}` });
+    app.pushMessage({ type: 'info', text: `  Session: ${session.id} | Turns: ${budget.getTurnCount()}` });
     return { handled: true };
   }
 
@@ -358,23 +358,23 @@ export async function handleInlineCommand(
     };
     if (modeMap[newMode]) {
       permResolver.setMode(modeMap[newMode]!);
-      renderer.info(`Mode changed to: ${modeMap[newMode]} — ${MODE_DESCRIPTIONS[modeMap[newMode]!]}`);
+      app.pushMessage({ type: 'info', text: `  Mode changed to: ${modeMap[newMode]} — ${MODE_DESCRIPTIONS[modeMap[newMode]!]}` });
     } else {
-      renderer.error(`Unknown mode: ${newMode}. Valid: plan, default, accept-edits, auto, bypass`);
+      app.pushMessage({ type: 'error', text: `Unknown mode: ${newMode}. Valid: plan, default, accept-edits, auto, bypass` });
     }
     return { handled: true };
   }
 
   // ── Compaction ──
   if (input === '/compact') {
-    renderer.info('Compacting conversation...');
+    app.pushMessage({ type: 'info', text: '  Compacting conversation...' });
     const result = await compactConversation(conversationMessages, client);
     if (result.wasCompacted) {
       conversationMessages.length = 0;
       conversationMessages.push(...result.messages);
-      renderer.info(`Compacted: ${result.removedTurns} turns summarized.`);
+      app.pushMessage({ type: 'info', text: `  Compacted: ${result.removedTurns} turns summarized.` });
     } else {
-      renderer.info('Nothing to compact (too few turns).');
+      app.pushMessage({ type: 'info', text: '  Nothing to compact (too few turns).' });
     }
     return { handled: true };
   }

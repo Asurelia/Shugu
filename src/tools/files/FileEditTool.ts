@@ -7,8 +7,11 @@
 
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve, isAbsolute } from 'node:path';
-import type { Tool, ToolCall, ToolResult, ToolContext, ToolDefinition } from '../../protocol/tools.js';
+import type { Tool, ToolCall, ToolResult, ToolContext, ToolDefinition, PermissionMode } from '../../protocol/tools.js';
 import { validateWorkspacePath } from '../../policy/workspace.js';
+
+/** Modes that bypass read-before-edit (see FileWriteTool for rationale). */
+const GUARD_BYPASS_MODES: readonly PermissionMode[] = ['fullAuto', 'bypass'];
 
 export const FileEditToolDefinition: ToolDefinition = {
   name: 'Edit',
@@ -75,8 +78,13 @@ export class FileEditTool implements Tool {
 
     const absPath = isAbsolute(filePath) ? filePath : resolve(context.cwd, filePath);
 
-    // Enforce read-before-edit: the model must Read a file before Edit
-    if (context.readTracker && !context.readTracker.hasRead(absPath) && context.permissionMode !== 'bypass') {
+    // Enforce read-before-edit: the model must Read a file before Edit.
+    // Skipped in fullAuto/bypass — those modes explicitly opt out of friction.
+    if (
+      context.readTracker &&
+      !context.readTracker.hasRead(absPath) &&
+      !GUARD_BYPASS_MODES.includes(context.permissionMode)
+    ) {
       return {
         tool_use_id: call.id,
         content: 'You must use the Read tool to read this file before editing it. This ensures you understand the file content before making changes.',
@@ -127,6 +135,10 @@ export class FileEditTool implements Tool {
       }
 
       await writeFile(absPath, newContent, 'utf-8');
+
+      // Invalidate: after edit, the read marker no longer reflects file
+      // state. A subsequent Edit in interactive modes must re-Read.
+      context.readTracker?.invalidate(absPath);
 
       const replacements = replaceAll
         ? content.split(oldString).length - 1

@@ -17,10 +17,11 @@
  */
 
 import { readFile, readdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { AgentDefinition } from './orchestrator.js';
 import { logger } from '../utils/logger.js';
+import { resolveTrust, type DiscoveredFile } from '../credentials/trust-store.js';
 
 // ─── Frontmatter Schema ───────────────────────────────
 
@@ -121,6 +122,82 @@ export function parseMarkdownAgent(content: string): {
 export async function loadMarkdownAgents(
   dirs: string[],
 ): Promise<Record<string, AgentDefinition>> {
+  return loadAgentsFromDirs(dirs);
+}
+
+/**
+ * Same as loadMarkdownAgents but gates project-local files through the
+ * TOFU trust store. Global dirs load without prompting, project-local
+ * dirs prompt on first use or content change.
+ */
+export async function loadMarkdownAgentsWithTrust(
+  globalDirs: string[],
+  projectDirs: string[],
+  projectRoot: string,
+  onConfirm?: (pending: DiscoveredFile[]) => Promise<boolean>,
+): Promise<Record<string, AgentDefinition>> {
+  const global = await loadAgentsFromDirs(globalDirs);
+
+  const discovered: DiscoveredFile[] = [];
+  for (const dir of projectDirs) {
+    let entries: string[];
+    try {
+      const dirContents = await readdir(dir);
+      entries = dirContents.filter((f) => f.endsWith('.md'));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT' || (err as NodeJS.ErrnoException).code === 'ENOTDIR') {
+        continue;
+      }
+      logger.warn(`Failed to list ${dir}: ${err instanceof Error ? err.message : String(err)}`);
+      continue;
+    }
+    for (const filename of entries) {
+      const filePath = join(dir, filename);
+      try {
+        const content = await readFile(filePath, 'utf8');
+        discovered.push({
+          absPath: filePath,
+          relPath: relative(projectRoot, resolve(filePath)).replace(/\\/g, '/'),
+          content,
+        });
+      } catch {
+        // unreadable — skip silently
+      }
+    }
+  }
+
+  const approved = await resolveTrust(projectRoot, discovered, onConfirm);
+
+  // Parse approved files directly into AgentDefinitions
+  const local: Record<string, AgentDefinition> = {};
+  for (const file of approved) {
+    const parsed = parseMarkdownAgent(file.content);
+    if (!parsed) {
+      logger.warn(`Invalid markdown agent file (missing name or malformed frontmatter): ${file.absPath}`);
+      continue;
+    }
+    const { frontmatter, rolePrompt } = parsed;
+    const name = frontmatter.name;
+    if (BUILTIN_AGENT_NAMES.has(name) && frontmatter.override !== true) {
+      logger.warn(
+        `Custom agent '${name}' collides with builtin — skipped (use override: true to force)`,
+      );
+      continue;
+    }
+    local[name] = {
+      name,
+      rolePrompt,
+      allowedTools: frontmatter.allowedTools,
+      maxTurns: frontmatter.maxTurns ?? 15,
+      maxBudgetUsd: frontmatter.maxBudgetUsd,
+    };
+  }
+
+  // Last-write-wins: project local overrides global same-name.
+  return { ...global, ...local };
+}
+
+async function loadAgentsFromDirs(dirs: string[]): Promise<Record<string, AgentDefinition>> {
   const agents: Record<string, AgentDefinition> = {};
 
   for (const dir of dirs) {
@@ -128,8 +205,11 @@ export async function loadMarkdownAgents(
     try {
       const dirContents = await readdir(dir);
       entries = dirContents.filter((f) => f.endsWith('.md'));
-    } catch {
-      // Directory doesn't exist or isn't readable — skip silently
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT' || (err as NodeJS.ErrnoException).code === 'ENOTDIR') {
+        continue; // Directory doesn't exist — optional, skip silently
+      }
+      logger.warn(`Failed to load commands from directory: ${err instanceof Error ? err.message : String(err)}`);
       continue;
     }
 

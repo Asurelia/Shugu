@@ -21,7 +21,7 @@ import { MINIMAX_MODELS } from '../transport/client.js';
 import { analyzeTask } from '../engine/strategy.js';
 import { runPostTurnIntelligence, type IntelligenceResult } from '../engine/intelligence.js';
 import { logger } from '../utils/logger.js';
-import { tracer } from '../utils/tracer.js';
+import { tracer, type TraceEvent } from '../utils/tracer.js';
 import { expandFileTags } from '../context/file-tags.js';
 import { extractWorkContext } from '../context/session/work-context.js';
 import { ToolRouter } from '../tools/router.js';
@@ -31,6 +31,25 @@ import type { RuntimeServices } from './services.js';
 import { handleEventForApp, formatTimeAgo, getCompanionInstance, isCompanionMuted } from './cli-handlers.js';
 import { handleInlineCommand, type ReplState } from './repl-commands.js';
 import { buildVolatilePromptParts } from './prompt-builder.js';
+
+/** Format a trace event into a short detail string for the tracker panel. */
+function formatTrackerDetail(event: TraceEvent): string {
+  const d = event.data;
+  switch (event.type) {
+    case 'model_call': return `turn ${d['turnIndex'] ?? '?'} → ${d['model'] ?? ''}`;
+    case 'model_response': return `${d['output_tokens'] ?? 0} tokens, stop: ${d['stop_reason'] ?? '?'}`;
+    case 'tool_call': return `${d['tool'] ?? '?'} ${String(d['input'] ?? '').slice(0, 40)}`;
+    case 'tool_result': return `${d['tool'] ?? '?'} ${d['is_error'] ? 'ERROR' : 'ok'} (${event.durationMs ?? 0}ms)`;
+    case 'thinking': return `${d['length'] ?? 0} chars`;
+    case 'agent_spawn': return `${d['agentType'] ?? '?'} → ${String(d['prompt'] ?? '').slice(0, 40)}`;
+    case 'agent_done': return `${d['agentType'] ?? '?'} (${d['turns'] ?? 0}t, $${(d['cost'] as number)?.toFixed(4) ?? '?'})`;
+    case 'strategy': return String(d['action'] ?? d['complexity'] ?? '');
+    case 'error': return String(d['message'] ?? d['error'] ?? '').slice(0, 60);
+    case 'user_input': return String(d['input'] ?? '').slice(0, 40);
+    case 'memory_save': return `${d['count'] ?? 0} notes (${d['source'] ?? ''})`;
+    default: return JSON.stringify(d).slice(0, 50);
+  }
+}
 
 export async function runREPL(
   services: RuntimeServices,
@@ -176,6 +195,24 @@ export async function runREPL(
     });
   }
 
+  // Wire tracer → tracker panel (real-time)
+  tracer.onEvent((event) => {
+    // Update pipeline stage
+    if (event.stage) {
+      app.setTrackerStage(event.stage);
+    }
+    // Push event to tracker panel
+    const time = event.timestamp.split('T')[1]?.slice(0, 8) ?? '';
+    const detail = formatTrackerDetail(event);
+    app.pushTrackerEvent({ time, type: event.type, detail });
+    // Update active agents
+    const agents = tracer.getActiveAgents().map(a => {
+      const elapsed = Math.round((Date.now() - new Date(a.startedAt).getTime()) / 1000);
+      return { ...a, elapsed: elapsed >= 60 ? `${Math.floor(elapsed / 60)}m${elapsed % 60}s` : `${elapsed}s` };
+    });
+    app.setTrackerAgents(agents);
+  });
+
   // Push banner into scrollable area
   const bannerSessions = await sessionMgr.listRecent(5);
   const bannerActivity = bannerSessions.map((s) => {
@@ -231,6 +268,15 @@ export async function runREPL(
   }
 
   const askQuestion = async (): Promise<string> => {
+    // Check prompt queue first — auto-submit if user typed during streaming
+    const queued = app.getQueuedInput();
+    if (queued) {
+      app.pushMessage({ type: 'info', text: '  ⏳ Soumission automatique...' });
+      app.setStatus(renderer.statusBar.render());
+      app.setMode(permResolver.getMode());
+      app.stopStreaming();
+      return queued;
+    }
     app.setStatus(renderer.statusBar.render());
     app.setMode(permResolver.getMode());
     app.stopStreaming();
@@ -261,7 +307,18 @@ export async function runREPL(
     await services.dispose();
     process.exit(0);
   };
-  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+  // SIGINT state machine: if a turn is active, abort only the turn.
+  // If no turn is active, perform graceful shutdown.
+  let activeTurnInterrupt: InterruptController | null = null;
+  process.on('SIGINT', () => {
+    if (activeTurnInterrupt) {
+      activeTurnInterrupt.abort('User interrupted');
+      activeTurnInterrupt = null;
+    } else {
+      gracefulShutdown('SIGINT');
+    }
+  });
   process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
   process.on('SIGHUP', () => gracefulShutdown('SIGHUP'));
 
@@ -269,8 +326,8 @@ export async function runREPL(
   const cmdCtx: CommandContext = {
     cwd: toolContext.cwd,
     messages: conversationMessages,
-    info: (msg) => renderer.info(msg),
-    error: (msg) => renderer.error(msg),
+    info: (msg) => app.pushMessage({ type: 'info', text: msg }),
+    error: (msg) => app.pushMessage({ type: 'error', text: msg }),
     client,
   };
 
@@ -353,7 +410,7 @@ export async function runREPL(
       // ── Skill matching ──
       let skillHandled = false;
       let skillPromptInjected = false;
-      if (skillRegistry && input.startsWith('/')) {
+      if (skillRegistry) {
         const skillMatch = skillRegistry.match(input);
         if (skillMatch) {
           const skillCtx: SkillContext = {
@@ -392,6 +449,9 @@ export async function runREPL(
             continue;
           case 'clear':
             conversationMessages.length = 0;
+            // Wipe per-session file-read markers so a fresh conversation
+            // does not inherit stale "I already read this" state.
+            services.toolContext.readTracker?.clear();
             continue;
           case 'exit':
             renderer.statusBar.stop();
@@ -499,7 +559,8 @@ export async function runREPL(
           tokenTracker.recordCompactSuccess();
           app.pushMessage({ type: 'info', text: `Compacted: ${result.removedTurns} turns → summary.` });
         }
-      } catch {
+      } catch (err) {
+        tracer.log('error', { action: 'auto_compaction_failed', error: err instanceof Error ? err.message : String(err) });
         tokenTracker.recordCompactFailure();
         if (tokenTracker.compactCircuitBroken) {
           app.pushMessage({ type: 'error', text: 'Auto-compaction failed 3 times — circuit breaker tripped. Use /compact manually.' });
@@ -509,8 +570,7 @@ export async function runREPL(
 
     // ── Execute agentic loop ──
     const interrupt = new InterruptController();
-    const sigintHandler = () => { interrupt.abort('User interrupted'); };
-    process.on('SIGINT', sigintHandler);
+    activeTurnInterrupt = interrupt;
 
     const turnAbort = new AbortController();
     interrupt.signal.addEventListener('abort', () => turnAbort.abort(), { once: true });
@@ -617,9 +677,10 @@ export async function runREPL(
       if (r) app.setCompanionReaction(r);
     }
 
-    process.removeListener('SIGINT', sigintHandler);
+    activeTurnInterrupt = null;
 
     // Post-turn intelligence (fire-and-forget)
+    tracer.log('strategy', { action: 'post_turn_intelligence_start' }, undefined, 'intelligence');
     runPostTurnIntelligence(
       {
         client,
@@ -630,6 +691,12 @@ export async function runREPL(
         intelligenceModel: MINIMAX_MODELS.fast,
       },
       (result: IntelligenceResult) => {
+        tracer.log('strategy', {
+          action: 'post_turn_intelligence_done',
+          hasSuggestion: !!result.suggestion,
+          hasSpeculation: !!result.speculation,
+          memoriesCount: result.memories.length,
+        }, undefined, 'intelligence');
         if (result.suggestion) {
           app.pushMessage({ type: 'info', text: `  💡 ${result.suggestion}` });
         }

@@ -41,6 +41,7 @@ export function createPasteHandler(): PasteHandler {
   let pasteBuffer = '';
   let callback: ((text: string) => void) | null = null;
   let stdinListener: ((data: Buffer) => void) | null = null;
+  let origEmit: ((event: string, ...args: unknown[]) => boolean) | null = null;
 
   return {
     enable() {
@@ -55,7 +56,7 @@ export function createPasteHandler(): PasteHandler {
       // Intercept stdin: we need to CONSUME paste data before Ink sees it.
       // We do this by wrapping stdin.emit — when paste markers are detected,
       // we swallow the data instead of letting it propagate to Ink.
-      const origEmit = process.stdin.emit.bind(process.stdin);
+      origEmit = process.stdin.emit.bind(process.stdin);
       process.stdin.emit = function (event: string, ...args: unknown[]): boolean {
         if (event === 'data' && args[0]) {
           const str = (args[0] as Buffer).toString();
@@ -92,7 +93,7 @@ export function createPasteHandler(): PasteHandler {
         }
 
         // Not a paste — pass through to Ink normally
-        return origEmit(event, ...args);
+        return origEmit!(event, ...args);
       } as typeof process.stdin.emit;
 
       stdinListener = () => {}; // Placeholder for disable()
@@ -100,6 +101,10 @@ export function createPasteHandler(): PasteHandler {
 
     disable() {
       process.stdout.write('\x1b[?2004l');
+      if (origEmit) {
+        process.stdin.emit = origEmit as typeof process.stdin.emit;
+        origEmit = null;
+      }
       if (stdinListener) {
         process.stdin.removeListener('data', stdinListener);
         stdinListener = null;

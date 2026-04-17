@@ -9,6 +9,7 @@
 
 import type { Tool, ToolCall, ToolResult, ToolContext, ToolDefinition } from '../../protocol/tools.js';
 import { sanitizeUntrustedContent } from '../../utils/security.js';
+import { tracer } from '../../utils/tracer.js';
 
 export const WebSearchToolDefinition: ToolDefinition = {
   name: 'WebSearch',
@@ -105,7 +106,10 @@ interface SearchResult {
 
 async function searchMiniMax(query: string, limit: number): Promise<SearchResult[]> {
   const apiKey = process.env['MINIMAX_API_KEY'] ?? '';
-  if (!apiKey) return searchDuckDuckGo(query, limit); // Fallback
+  if (!apiKey) {
+    tracer.log('decision', { tool: 'WebSearch', action: 'fallback_to_duckduckgo', reason: 'no_api_key' });
+    return searchDuckDuckGo(query, limit);
+  }
 
   try {
     const response = await fetch('https://api.minimax.io/v1/coding_plan/search', {
@@ -118,7 +122,8 @@ async function searchMiniMax(query: string, limit: number): Promise<SearchResult
     });
 
     if (!response.ok) {
-      return searchDuckDuckGo(query, limit); // Fallback on error
+      tracer.log('decision', { tool: 'WebSearch', action: 'fallback_to_duckduckgo', reason: 'http_error' });
+      return searchDuckDuckGo(query, limit);
     }
 
     const data = await response.json() as { results?: Array<{ title: string; url: string; snippet: string }> };
@@ -128,6 +133,7 @@ async function searchMiniMax(query: string, limit: number): Promise<SearchResult
       snippet: r.snippet ?? '',
     }));
   } catch {
+    tracer.log('decision', { tool: 'WebSearch', action: 'fallback_to_duckduckgo', reason: 'exception' });
     return searchDuckDuckGo(query, limit);
   }
 }
@@ -145,7 +151,8 @@ async function searchDuckDuckGo(query: string, limit: number): Promise<SearchRes
 
     const html = await response.text();
     return parseDDGResults(html, limit);
-  } catch {
+  } catch (err) {
+    tracer.log('error', { tool: 'WebSearch', provider: 'duckduckgo', error: err instanceof Error ? err.message : String(err) });
     return [];
   }
 }

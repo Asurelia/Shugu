@@ -24,9 +24,11 @@ async function ensureDir(): Promise<void> {
   try {
     await mkdir(LOG_DIR, { recursive: true });
     dirEnsured = true;
-  } catch {
-    // Directory might already exist
-    dirEnsured = true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+      dirEnsured = true;
+    }
+    // Other errors: don't set flag, will retry next write
   }
 }
 

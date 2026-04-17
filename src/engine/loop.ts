@@ -126,7 +126,7 @@ export async function* runLoop(
 
       yield { type: 'turn_start', turnIndex };
       const turnStartMs = Date.now();
-      tracer.log('model_call', { turnIndex, model: client.model });
+      tracer.log('model_call', { turnIndex, model: client.model, toolCount: toolDefinitions?.length ?? 0 }, undefined, 'model');
 
       // ── 1. Stream model response ──────────────────
 
@@ -186,13 +186,36 @@ export async function* runLoop(
 
       // Yield the complete assistant message (for history sync and tool extraction)
       yield { type: 'assistant_message', message: assistantMessage };
+      const modelSpanId = tracer.startSpan();
       tracer.logTimed('model_response', {
         turnIndex,
         input_tokens: turnUsage.input_tokens,
         output_tokens: turnUsage.output_tokens,
         stop_reason: stopReason,
         blocks: assistantMessage.content.length,
-      }, turnStartMs);
+      }, turnStartMs, undefined, 'model');
+
+      // Trace thinking blocks (if any)
+      for (const block of assistantMessage.content) {
+        if ('thinking' in block && typeof block.thinking === 'string') {
+          tracer.log('thinking', {
+            length: block.thinking.length,
+            preview: block.thinking.slice(0, 200),
+          });
+        }
+      }
+
+      // Dedicated per-call log file for deep inspection
+      tracer.logModelCall({
+        traceId: tracer.traceId ?? 'none',
+        spanId: modelSpanId,
+        prompt: JSON.stringify(messages.slice(-2)).slice(0, 2000),
+        response: JSON.stringify(assistantMessage.content).slice(0, 2000),
+        model: client.model,
+        inputTokens: turnUsage.input_tokens,
+        outputTokens: turnUsage.output_tokens,
+        durationMs: Date.now() - turnStartMs,
+      });
 
       // OnMessage hook (fire-and-forget — does not block)
       if (config.hookRegistry) {
@@ -303,6 +326,7 @@ export async function* runLoop(
               if (error) {
                 const result: ToolResult = { tool_use_id: call.id, content: `Validation error: ${error}`, is_error: true };
                 toolResults.push(result);
+                tracer.log('tool_result', { tool: call.name, is_error: true, reason: 'validation_failed', error }, undefined, 'tool_result');
                 yield { type: 'tool_result', result };
                 continue;
               }
@@ -314,6 +338,7 @@ export async function* runLoop(
               if (!hookResult.proceed) {
                 const result: ToolResult = { tool_use_id: call.id, content: `Blocked by hook: ${hookResult.blockReason ?? 'unknown'}`, is_error: true };
                 toolResults.push(result);
+                tracer.log('tool_result', { tool: call.name, is_error: true, reason: 'hook_blocked', blockReason: hookResult.blockReason }, undefined, 'tool_result');
                 yield { type: 'tool_result', result };
                 continue;
               }
@@ -327,6 +352,7 @@ export async function* runLoop(
               if (!granted) {
                 const result: ToolResult = { tool_use_id: call.id, content: `Permission denied for ${call.name}`, is_error: true };
                 toolResults.push(result);
+                tracer.log('tool_result', { tool: call.name, is_error: true, reason: 'permission_denied' }, undefined, 'tool_result');
                 yield { type: 'tool_result', result };
                 continue;
               }
@@ -339,6 +365,12 @@ export async function* runLoop(
 
             approved.push({ call: effectiveCall, tool });
             yield { type: 'tool_executing', call: effectiveCall, triggeredBy: ActionTriggerBy.Agent };
+            tracer.log('tool_call', {
+              tool: effectiveCall.name,
+              input: JSON.stringify(effectiveCall.input).slice(0, 200),
+              batch: 'concurrent',
+              batchSize: concurrentBatch.length,
+            }, undefined, 'tool_exec');
           }
 
           // Parallel execution: all approved tools at once
@@ -377,7 +409,12 @@ export async function* runLoop(
               }
 
               toolResults.push(result);
-              tracer.logTimed('tool_result', { tool: call.name, is_error: result.is_error ?? false, content_length: typeof result.content === 'string' ? result.content.length : 0 }, execStarts[i]!);
+              tracer.logTimed('tool_result', {
+                tool: call.name,
+                is_error: result.is_error ?? false,
+                content_length: typeof result.content === 'string' ? result.content.length : 0,
+                batch: 'concurrent',
+              }, execStarts[i]!, undefined, 'tool_result');
               yield { type: 'tool_result', result, durationMs: duration };
             }
           }
@@ -409,7 +446,7 @@ export async function* runLoop(
 
           yield { type: 'tool_executing', call, triggeredBy: ActionTriggerBy.Agent };
           const toolStartMs = Date.now();
-          tracer.log('tool_call', { tool: call.name, input: JSON.stringify(call.input).slice(0, 200) });
+          tracer.log('tool_call', { tool: call.name, input: JSON.stringify(call.input).slice(0, 200), batch: 'sequential' }, undefined, 'tool_exec');
 
           const tool = tools.get(call.name);
           if (!tool) {
@@ -536,7 +573,8 @@ export async function* runLoop(
               tool: call.name,
               is_error: result.is_error ?? false,
               content_length: typeof result.content === 'string' ? result.content.length : 0,
-            }, execStart);
+              batch: 'sequential',
+            }, execStart, undefined, 'tool_result');
             yield { type: 'tool_result', result, durationMs: toolDuration };
           } catch (error) {
             if (isAbortError(error)) throw error;

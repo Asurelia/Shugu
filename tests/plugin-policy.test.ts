@@ -105,18 +105,34 @@ describe('resolvePluginConfig', () => {
   });
 
   it('per-plugin override takes precedence over policy defaults', () => {
-    const m = manifest({ name: 'my-plugin', isolation: 'trusted' });
+    const m = manifest({ name: 'my-plugin', isolation: 'unrestricted' });
     const policy: PluginPolicy = {
       version: 1,
       defaults: { isolation: 'brokered', timeoutMs: 60_000 },
       plugins: {
-        'my-plugin': { isolation: 'trusted', timeoutMs: 15_000 },
+        'my-plugin': { isolation: 'unrestricted', timeoutMs: 15_000 },
       },
     };
     const result = resolvePluginConfig(m, policy);
 
-    expect(result.isolation).toBe('trusted');
+    expect(result.isolation).toBe('unrestricted');
     expect(result.timeoutMs).toBe(15_000);
+  });
+
+  it('legacy "trusted" is accepted and normalized to "unrestricted"', () => {
+    // Back-compat: existing manifests/policies using 'trusted' should
+    // keep working. Normalization happens in resolvePluginConfig.
+    const m = manifest({ name: 'legacy-plugin', isolation: 'trusted' as const });
+    const policy: PluginPolicy = {
+      version: 1,
+      defaults: { isolation: 'trusted' as const, timeoutMs: 60_000 },
+      plugins: {
+        'legacy-plugin': { isolation: 'trusted' as const },
+      },
+    };
+    const result = resolvePluginConfig(m, policy);
+
+    expect(result.isolation).toBe('unrestricted');
   });
 
   it('capabilitiesDeny removes capabilities from the final list', () => {
@@ -161,15 +177,10 @@ describe('resolvePluginConfig', () => {
     };
     const result = resolvePluginConfig(m, policy);
 
-    // deny runs first, then add — so fs.write gets added back
-    // Spec says deny always wins; verify implementation: deny removes, then add re-adds
-    // The spec says "capabilitiesDeny removes ... (always wins)" but the code applies
-    // deny then add. Check what the spec actually means:
-    // Based on the design: deny is applied first, then add is applied after.
-    // So if both deny and add list the same cap, add will re-add it.
-    // The "always wins" refers to deny winning over the base capabilities list,
-    // not over capabilitiesAdd. Test the actual behavior.
-    expect(result.capabilities).toContain('fs.write');
+    // capabilitiesDeny is applied AFTER capabilitiesAdd — deny always wins.
+    // fs.write is added by capabilitiesAdd, then removed by capabilitiesDeny.
+    expect(result.capabilities).not.toContain('fs.write');
+    expect(result.capabilities).toContain('fs.read');
   });
 
   it('enabled:false sets resolved.enabled to false', () => {

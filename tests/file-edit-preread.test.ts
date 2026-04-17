@@ -13,10 +13,13 @@ let editTool: FileEditTool;
 let tracker: ReadTracker;
 
 function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
+  // Default to 'default' mode (interactive) so the read-before-edit guard
+  // is active. fullAuto and bypass intentionally skip the guard — covered
+  // by dedicated tests below.
   return {
     cwd: tempDir,
     abortSignal: new AbortController().signal,
-    permissionMode: 'fullAuto',
+    permissionMode: 'default',
     askPermission: async () => true,
     readTracker: tracker,
     ...overrides,
@@ -146,6 +149,51 @@ describe('FileEdit pre-read enforcement', () => {
     expect(disk).toBe('overridden content');
   });
 
+  it('fullAuto mode skips the pre-read check (no-friction intent)', async () => {
+    const filePath = join(tempDir, 'fullauto.txt');
+    await writeFile(filePath, 'fullauto content');
+
+    const ctx = makeContext({ permissionMode: 'fullAuto' });
+
+    // fullAuto is the default CLI mode — it must not require prior Read,
+    // matching the user intent "act without interruption". The read guard
+    // is a safety net for the interactive modes only.
+    const result = await editTool.execute(
+      makeCall('Edit', {
+        file_path: filePath,
+        old_string: 'fullauto',
+        new_string: 'auto-ok',
+      }),
+      ctx,
+    );
+
+    expect(result.is_error).toBeUndefined();
+
+    const disk = await readFile(filePath, 'utf-8');
+    expect(disk).toBe('auto-ok content');
+  });
+
+  it('acceptEdits mode enforces pre-read (interactive mode)', async () => {
+    const filePath = join(tempDir, 'accept-edits.txt');
+    await writeFile(filePath, 'accept content');
+
+    const ctx = makeContext({ permissionMode: 'acceptEdits' });
+
+    // acceptEdits is interactive: user sees edits go through, the guard
+    // must still block accidental overwrites of un-read files.
+    const result = await editTool.execute(
+      makeCall('Edit', {
+        file_path: filePath,
+        old_string: 'accept',
+        new_string: 'blocked',
+      }),
+      ctx,
+    );
+
+    expect(result.is_error).toBe(true);
+    expect(result.content).toContain('Read tool');
+  });
+
   it('no readTracker present (sub-agent compat) allows Edit without Read', async () => {
     const filePath = join(tempDir, 'no-tracker.txt');
     await writeFile(filePath, 'sub-agent content');
@@ -188,5 +236,63 @@ describe('ReadTracker unit', () => {
     expect(files.size).toBe(2);
     expect(files.has('/a.ts')).toBe(true);
     expect(files.has('/b.ts')).toBe(true);
+  });
+
+  it('invalidate clears a single path', () => {
+    const t = new ReadTracker();
+    t.markRead('/a.ts');
+    t.markRead('/b.ts');
+
+    t.invalidate('/a.ts');
+    expect(t.hasRead('/a.ts')).toBe(false);
+    expect(t.hasRead('/b.ts')).toBe(true);
+    expect(t.size()).toBe(1);
+  });
+
+  it('clear wipes all tracked paths', () => {
+    const t = new ReadTracker();
+    t.markRead('/a.ts');
+    t.markRead('/b.ts');
+    expect(t.size()).toBe(2);
+
+    t.clear();
+    expect(t.size()).toBe(0);
+    expect(t.hasRead('/a.ts')).toBe(false);
+  });
+
+  it('Edit invalidates the read marker after success', async () => {
+    const filePath = join(tempDir, 'invalidate-on-edit.txt');
+    await writeFile(filePath, 'before');
+
+    const ctx = makeContext();
+
+    // Read, then Edit — should succeed
+    await readTool.execute(makeCall('Read', { file_path: filePath }), ctx);
+    expect(tracker.hasRead(filePath)).toBe(true);
+
+    const editResult = await editTool.execute(
+      makeCall('Edit', {
+        file_path: filePath,
+        old_string: 'before',
+        new_string: 'after',
+      }),
+      ctx,
+    );
+    expect(editResult.is_error).toBeUndefined();
+
+    // After Edit, the file on disk no longer matches what was Read.
+    // Tracker must forget so a subsequent Edit requires re-Read.
+    expect(tracker.hasRead(filePath)).toBe(false);
+
+    // Second Edit without re-Read must fail
+    const secondEdit = await editTool.execute(
+      makeCall('Edit', {
+        file_path: filePath,
+        old_string: 'after',
+        new_string: 'third',
+      }),
+      ctx,
+    );
+    expect(secondEdit.is_error).toBe(true);
   });
 });

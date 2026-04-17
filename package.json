@@ -17,7 +17,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "benchmark": "tsx scripts/benchmark-context.ts",
-    "audit": "tsx scripts/audit.ts"
+    "audit": "tsx scripts/audit.ts",
+    "analyze-traces": "tsx scripts/analyze-traces.ts"
   },
   "engines": {
     "node": ">=20.0.0"
