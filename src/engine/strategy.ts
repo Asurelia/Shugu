@@ -10,7 +10,26 @@
  * Design principle: Guide M2.7's Interleaved Thinking with better context,
  * don't replace it. The model still makes all tool/agent decisions.
  *
- * Cost: 0 tokens for trivial/heuristic, ~150 tokens (M2.5) for ambiguous tasks.
+ * ─── Choix de langue : FR/EN-first (assumé) ───────────────────────
+ *
+ * Le classifier heuristique est volontairement **bilingue français/anglais**.
+ * Les regex `ACTION_VERBS`, `EPIC_KEYWORDS`, `EXPLORE_KEYWORDS` et `MULTI_STEP`
+ * contiennent à la fois les mots-clés anglais (fix, add, build…) et français
+ * (corriger, ajouter, développer…) — c'est cohérent avec l'usage actuel
+ * (mono-utilisateur francophone, pas de distribution tierce).
+ *
+ * Un prompt dans une autre langue (portugais, allemand, etc.) ne matchera
+ * aucune des regex et tombera dans le fallback LLM (~256 tokens, MiniMax fast).
+ * Ce coût est **négligeable pour un usage perso** — pas un bug, un compromis assumé.
+ *
+ * Si l'usage évolue (distribution publique, multi-locuteurs non FR/EN), les
+ * listes de regex sont conçues pour être **étendues trivialement** : ajouter
+ * des synonymes dans la chaîne alternative est suffisant, aucun refactor requis.
+ *
+ * ─── Coût ──────────────────────────────────────────────────────────
+ *
+ * - Heuristique (FR/EN) : 0 token, ~0.1 ms.
+ * - Fallback LLM (autres langues ou ambigu) : ~256 tokens sur MiniMax fast.
  */
 
 import type { MiniMaxClient } from '../transport/client.js';

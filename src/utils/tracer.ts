@@ -56,7 +56,13 @@ export interface TraceEvent {
 
 const TRACES_DIR = join(homedir(), '.pcc', 'traces');
 const CALLS_DIR = join(TRACES_DIR, 'calls');
-// Real-time event emitter for UI subscribers (TrackerPanel)
+// Emetteur temps-réel des événements de trace pour les abonnés UI (TrackerPanel
+// de la REPL, tests, éventuels agents délégués). L'usage standard est d'un
+// seul abonné actif en même temps — la limite de 20 est un filet de sécurité
+// contre les fuites : si on dépasse, Node émet un MaxListenersExceededWarning
+// qui signale qu'un `unsubscribe()` a été oublié quelque part.
+// Les abonnés doivent TOUJOURS capturer la fonction `unsubscribe` retournée
+// par `tracer.onEvent(...)` et l'appeler au shutdown.
 const _emitter = new EventEmitter();
 _emitter.setMaxListeners(20);
 

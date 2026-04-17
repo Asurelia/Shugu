@@ -13,6 +13,7 @@ import { promisify } from 'node:util';
 import type { Command, CommandContext, CommandResult } from './registry.js';
 import { isBlockedUrl } from '../utils/network.js';
 import { logger } from '../utils/logger.js';
+import { isDockerAvailable } from '../plugins/host.js';
 
 function describeError(err: unknown): string {
   if (err instanceof Error) {
@@ -142,6 +143,21 @@ async function runChecks(cwd: string): Promise<CheckResult[]> {
   } else {
     checks.push({ name: 'Obsidian Vault', ok: true, detail: 'Not configured (optional)' });
   }
+
+  // 11. Plugin isolation mode — informational, always "ok"
+  const dockerDisabled = process.env['PCC_DISABLE_DOCKER'] === '1';
+  const nodeMajor = parseInt(process.version.slice(1).split('.')[0] ?? '0', 10);
+  let pluginMode: string;
+  if (dockerDisabled) {
+    pluginMode = 'Docker disabled via PCC_DISABLE_DOCKER — falls back to Node --permission';
+  } else if (isDockerAvailable()) {
+    pluginMode = 'Docker (auto-detected, strongest isolation)';
+  } else if (nodeMajor >= 22) {
+    pluginMode = 'Node --permission (Docker not installed, OK for personal use)';
+  } else {
+    pluginMode = `Bare child process (Node ${process.version} < 22, no OS-level isolation)`;
+  }
+  checks.push({ name: 'Plugin Isolation', ok: true, detail: pluginMode });
 
   return checks;
 }
