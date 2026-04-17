@@ -20,6 +20,7 @@ import { bootstrapMeta } from './runtime.js';
 import { runStructuredQuery } from './collect.js';
 import { buildSafeEnv } from '../utils/security.js';
 import { redactMessages, redactTraceEvents } from './redact.js';
+import { containsShellInjection } from './config.js';
 import type { MetaArchive } from './archive.js';
 import type {
   HarnessConfig,
@@ -34,6 +35,18 @@ import type {
 } from './types.js';
 
 const execAsync = promisify(exec);
+
+/**
+ * Runtime guard: reject any shell command containing injection metacharacters.
+ * Mirrors the validation in dataset.ts for defense-in-depth — if a dataset
+ * somehow bypasses load-time validation (runtime mutation, programmatic
+ * construction), this still blocks the exec.
+ */
+function assertSafeShellCommand(cmd: string, context: string): void {
+  if (containsShellInjection(cmd)) {
+    throw new Error(`${context}: command contains forbidden shell metacharacters: "${cmd.slice(0, 80)}"`);
+  }
+}
 
 export class MetaEvaluator {
   constructor(
@@ -117,6 +130,7 @@ export class MetaEvaluator {
       // Run setup command if provided
       if (task.setupCommand) {
         try {
+          assertSafeShellCommand(task.setupCommand, `Task "${task.id}" setupCommand`);
           await execAsync(task.setupCommand, { cwd: taskCwd, timeout: 30_000, env: buildSafeEnv() });
         } catch (err) {
           return this.errorResult(task, candidateId, runId, repeatIndex, startMs,
@@ -198,6 +212,7 @@ export class MetaEvaluator {
 
       case 'command': {
         try {
+          assertSafeShellCommand(task.scorer.command, `Task "${task.id}" scorer.command`);
           const { stdout } = await execAsync(task.scorer.command, { cwd, timeout: 30_000, env: buildSafeEnv() });
           if (task.scorer.parseScore === 'exit_code') {
             return { score: 1.0, criteriaResults: [], success: true };
@@ -283,7 +298,9 @@ export class MetaEvaluator {
 
       case 'command_succeeds': {
         try {
-          await execAsync(String(criterion.value), { cwd, timeout: 30_000, env: buildSafeEnv() });
+          const cmd = String(criterion.value);
+          assertSafeShellCommand(cmd, `command_succeeds criterion`);
+          await execAsync(cmd, { cwd, timeout: 30_000, env: buildSafeEnv() });
           return true;
         } catch {
           return false;

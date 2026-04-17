@@ -428,7 +428,7 @@ function createPluginAPI(plugin: Plugin): PluginAPI {
     },
 
     log(message: string): void {
-      console.log(`[plugin:${plugin.manifest.name}] ${message}`);
+      logger.debug(`[plugin:${plugin.manifest.name}] ${message}`);
     },
   };
 }

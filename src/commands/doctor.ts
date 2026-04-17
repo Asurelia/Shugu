@@ -12,6 +12,17 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { Command, CommandContext, CommandResult } from './registry.js';
 import { isBlockedUrl } from '../utils/network.js';
+import { logger } from '../utils/logger.js';
+
+function describeError(err: unknown): string {
+  if (err instanceof Error) {
+    // Distinguish ENOENT (genuine "not found") from other errors that
+    // would otherwise hide behind a generic "Not found" UX.
+    const code = (err as NodeJS.ErrnoException).code;
+    return code ? `${code}: ${err.message}` : err.message;
+  }
+  return String(err);
+}
 
 const execAsync = promisify(execFile);
 
@@ -66,15 +77,17 @@ async function runChecks(cwd: string): Promise<CheckResult[]> {
   try {
     const { stdout } = await execAsync('git', ['--version'], { timeout: 5000 });
     checks.push({ name: 'Git', ok: true, detail: stdout.trim() });
-  } catch {
-    checks.push({ name: 'Git', ok: false, detail: 'Not installed or not in PATH' });
+  } catch (err) {
+    logger.debug('doctor: git --version failed', describeError(err));
+    checks.push({ name: 'Git', ok: false, detail: `Not installed or not in PATH (${describeError(err)})` });
   }
 
   // 5. Git repo
   try {
     await execAsync('git', ['rev-parse', '--git-dir'], { cwd, timeout: 5000 });
     checks.push({ name: 'Git Repo', ok: true, detail: 'Current directory is a git repo' });
-  } catch {
+  } catch (err) {
+    logger.debug('doctor: git rev-parse failed', describeError(err));
     checks.push({ name: 'Git Repo', ok: false, detail: 'Not a git repository' });
   }
 
@@ -83,7 +96,8 @@ async function runChecks(cwd: string): Promise<CheckResult[]> {
   try {
     await access(pccDir);
     checks.push({ name: '.pcc/ Directory', ok: true, detail: 'Exists' });
-  } catch {
+  } catch (err) {
+    logger.debug('doctor: .pcc access failed', describeError(err));
     checks.push({ name: '.pcc/ Directory', ok: false, detail: 'Not found — run /init to create' });
   }
 
@@ -91,7 +105,8 @@ async function runChecks(cwd: string): Promise<CheckResult[]> {
   try {
     const s = await stat(join(cwd, 'SHUGU.md'));
     checks.push({ name: 'SHUGU.md', ok: true, detail: `${Math.round(s.size / 1024)}KB` });
-  } catch {
+  } catch (err) {
+    logger.debug('doctor: SHUGU.md stat failed', describeError(err));
     checks.push({ name: 'SHUGU.md', ok: false, detail: 'Not found — run /init to create' });
   }
 
@@ -100,7 +115,8 @@ async function runChecks(cwd: string): Promise<CheckResult[]> {
   try {
     await access(sessDir);
     checks.push({ name: 'Sessions Dir', ok: true, detail: sessDir });
-  } catch {
+  } catch (err) {
+    logger.debug('doctor: sessions dir access failed', describeError(err));
     checks.push({ name: 'Sessions Dir', ok: false, detail: 'Not created yet (auto-created on first save)' });
   }
 
@@ -108,7 +124,8 @@ async function runChecks(cwd: string): Promise<CheckResult[]> {
   try {
     await access(join(homedir(), '.pcc', 'companion.json'));
     checks.push({ name: 'Companion', ok: true, detail: 'Hatched' });
-  } catch {
+  } catch (err) {
+    logger.debug('doctor: companion.json access failed', describeError(err));
     checks.push({ name: 'Companion', ok: false, detail: 'Not hatched yet (launches on first REPL)' });
   }
 
@@ -118,7 +135,8 @@ async function runChecks(cwd: string): Promise<CheckResult[]> {
     try {
       await access(join(vaultPath, '.obsidian'));
       checks.push({ name: 'Obsidian Vault', ok: true, detail: vaultPath });
-    } catch {
+    } catch (err) {
+      logger.debug('doctor: vault access failed', describeError(err));
       checks.push({ name: 'Obsidian Vault', ok: false, detail: `Configured but not found: ${vaultPath}` });
     }
   } else {

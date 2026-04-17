@@ -9,6 +9,7 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { parse as parseYaml } from 'yaml';
 import type { EvalTask, DatasetSplit } from './types.js';
+import { containsShellInjection } from './config.js';
 
 // ─── Dataset Loading ──────────────────────────────────
 
@@ -60,6 +61,42 @@ function validateTasks(tasks: EvalTask[], source: string): void {
     const validScorerTypes = ['criteria', 'command', 'llm_judge'];
     if (!validScorerTypes.includes(task.scorer.type)) {
       throw new Error(`Task "${task.id}" in ${source} has invalid scorer type "${task.scorer.type}"`);
+    }
+
+    validateShellCommands(task, source);
+  }
+}
+
+/**
+ * Reject shell-injection patterns in dataset commands.
+ *
+ * Runs on every task loaded from an external YAML source. The same
+ * pattern is re-checked at execution time in `evaluator.ts` as a
+ * defense-in-depth measure.
+ */
+function validateShellCommands(task: EvalTask, source: string): void {
+  if (typeof task.setupCommand === 'string' && containsShellInjection(task.setupCommand)) {
+    throw new Error(
+      `Task "${task.id}" in ${source}: setupCommand contains forbidden shell metacharacters (; \` $( \${ ||) outside quotes. ` +
+      `Use && for chaining or restructure to a single command.`,
+    );
+  }
+
+  if (task.scorer.type === 'command' && typeof task.scorer.command === 'string' &&
+      containsShellInjection(task.scorer.command)) {
+    throw new Error(
+      `Task "${task.id}" in ${source}: scorer.command contains forbidden shell metacharacters outside quotes.`,
+    );
+  }
+
+  if (task.scorer.type === 'criteria' && Array.isArray(task.scorer.criteria)) {
+    for (const criterion of task.scorer.criteria) {
+      if (criterion.type === 'command_succeeds' && typeof criterion.value === 'string' &&
+          containsShellInjection(criterion.value)) {
+        throw new Error(
+          `Task "${task.id}" in ${source}: criteria command_succeeds contains forbidden shell metacharacters: "${criterion.value.slice(0, 80)}"`,
+        );
+      }
     }
   }
 }

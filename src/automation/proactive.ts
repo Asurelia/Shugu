@@ -19,6 +19,7 @@ import { InterruptController } from '../engine/interrupts.js';
 import type { Message, AssistantMessage } from '../protocol/messages.js';
 import { isTextBlock } from '../protocol/messages.js';
 import { EventEmitter } from 'node:events';
+import { degradeForUnattended } from '../policy/modes.js';
 
 // ─── Proactive Config ──────────────────────────────────
 
@@ -35,6 +36,13 @@ export interface ProactiveConfig {
   continuationPrompt?: (goal: string, iteration: number, lastResponse: string) => string;
   /** Callback to check if the goal is achieved (optional — model decides otherwise) */
   isGoalAchieved?: (response: string) => boolean;
+  /**
+   * Opt-in: allow fullAuto/bypass to be inherited without degradation.
+   * When false (default), `fullAuto` and `bypass` are downgraded to
+   * `acceptEdits` for the proactive loop since there is no human in
+   * the loop between iterations.
+   */
+  allowFullAuto?: boolean;
 }
 
 // ─── Default Continuation Prompt ───────────────────────
@@ -92,7 +100,23 @@ export class ProactiveLoop extends EventEmitter {
       iterationDelayMs = 2000,
       continuationPrompt = DEFAULT_CONTINUATION,
       isGoalAchieved,
+      allowFullAuto = false,
     } = config;
+
+    // Degrade permission mode unless the caller opts in. Preserves user agency:
+    // a 10-iteration unattended loop should not inherit fullAuto trust by default.
+    let effectiveLoopConfig: LoopConfig = loopConfig;
+    const originalCtx = loopConfig.toolContext;
+    if (!allowFullAuto && originalCtx) {
+      const downgraded = degradeForUnattended(originalCtx.permissionMode);
+      if (downgraded !== originalCtx.permissionMode) {
+        effectiveLoopConfig = {
+          ...loopConfig,
+          toolContext: { ...originalCtx, permissionMode: downgraded },
+        };
+        this.emit('permissions:degraded', { from: originalCtx.permissionMode, to: downgraded });
+      }
+    }
 
     this.running = true;
     this.interrupt.reset();
@@ -116,7 +140,7 @@ export class ProactiveLoop extends EventEmitter {
           : [...carryHistory, { role: 'user', content: continuationPrompt(goal, iteration, lastResponse) }];
 
         // Run one iteration of the agentic loop
-        for await (const event of runLoop(messages, loopConfig, this.interrupt)) {
+        for await (const event of runLoop(messages, effectiveLoopConfig, this.interrupt)) {
           allEvents.push(event);
           yield { ...event, iteration };
 

@@ -19,7 +19,7 @@
 
 ## What Is This?
 
-Shugu (`pcc`) is a complete ground-up reimplementation of Claude Code as a **MiniMax M2.7-native** CLI agent. It was not ported or adapted — it was rebuilt with the same goals and a cleaner architecture: 70 TypeScript source files, 9,707 lines, zero unnecessary dependencies.
+Shugu (`pcc`) is a complete ground-up reimplementation of Claude Code as a **MiniMax M2.7-native** CLI agent. It was not ported or adapted — it was rebuilt with the same goals and a cleaner architecture: 185 TypeScript source files, ~37,400 lines, zero unnecessary dependencies.
 
 Where Claude Code is Anthropic-first and ships MCP as its extension mechanism, Shugu is MiniMax-first and CLI-first. Every capability — tools, memory, credentials, multi-agent orchestration — is implemented directly in TypeScript, with no protocol layer in between.
 
@@ -123,7 +123,7 @@ Shugu uses the Anthropic-compatible endpoint, which accepts the standard Message
 
 ## Architecture
 
-Shugu is organized into 14 independent layers, each with a single responsibility. Dependencies only flow downward. The test suite currently has 599 passing tests across 51 test files.
+Shugu is organized into 14 independent layers, each with a single responsibility. Dependencies only flow downward. The test suite currently has 901 passing tests across 62 test files.
 
 ```
 Layer 1   transport/      MiniMax HTTP client, SSE streaming, retry logic

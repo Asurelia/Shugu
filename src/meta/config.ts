@@ -26,7 +26,42 @@ const IMMUTABLE_ZONES = [
   'credentials/',
 ];
 
-const SHELL_METACHAR_PATTERN = /[;&|`$(){}[\]<>!]/;
+/**
+ * Detect shell injection metacharacters OUTSIDE quoted strings.
+ *
+ * Blocks:
+ *   ; — command chaining (`foo; rm -rf /`)
+ *   ` — backtick command substitution (`` `whoami` ``)
+ *   $( — dollar-paren command substitution (`$(curl evil)`)
+ *   ${ — parameter expansion with braces (`${IFS}`)
+ *   || — logical OR chaining (`foo || rm -rf /`)
+ *
+ * Deliberately permits: && (short-circuit chain, used in legit setup),
+ *   > >> < (redirections), | (pipe to grep), ! (prefix negation),
+ *   characters inside " " or ' ' literal strings.
+ *
+ * Tracks `"` and `'` quotes (but does NOT handle escapes — sufficient
+ * for detecting accidental-shaped injections in typical YAML datasets,
+ * not a hardened shell lexer).
+ *
+ * Threat model: a hostile YAML dataset shipped via clone/pull that
+ * piggybacks RCE onto `setupCommand` or `scorer.command`.
+ */
+export function containsShellInjection(cmd: string): boolean {
+  let inDouble = false;
+  let inSingle = false;
+  for (let i = 0; i < cmd.length; i++) {
+    const c = cmd[i]!;
+    const next = cmd[i + 1];
+    if (!inDouble && c === "'") { inSingle = !inSingle; continue; }
+    if (!inSingle && c === '"') { inDouble = !inDouble; continue; }
+    if (inDouble || inSingle) continue;
+    if (c === ';' || c === '`') return true;
+    if (c === '$' && (next === '(' || next === '{')) return true;
+    if (c === '|' && next === '|') return true;
+  }
+  return false;
+}
 
 // ─── Loader ───────────────────────────────────────────
 

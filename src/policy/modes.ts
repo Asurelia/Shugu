@@ -108,3 +108,25 @@ export const MODE_DESCRIPTIONS: Record<PermissionMode, string> = {
   fullAuto: 'Most actions auto-allowed. Only risky commands prompt.',
   bypass: 'Everything auto-allowed. No prompts. Full trust.',
 };
+
+// ─── Background/Proactive Degradation ───────────────────
+
+/**
+ * Downgrade a permission mode for unattended contexts (`/bg`, `/proactive`).
+ *
+ * Rationale: a human-attended session that enabled `fullAuto` or `bypass`
+ * did so for their own interactive use. A background or multi-iteration
+ * proactive loop spawned from that session should NOT inherit the same
+ * trust — the human is no longer in the loop between iterations.
+ *
+ * This helper degrades `fullAuto` and `bypass` down to `acceptEdits`,
+ * which auto-allows file edits but still prompts on Bash. Other modes
+ * pass through unchanged.
+ *
+ * Callers can opt out by passing an explicit `--fullauto` flag, which
+ * bypasses this degradation; see `src/commands/automation.ts`.
+ */
+export function degradeForUnattended(mode: PermissionMode): PermissionMode {
+  if (mode === 'fullAuto' || mode === 'bypass') return 'acceptEdits';
+  return mode;
+}

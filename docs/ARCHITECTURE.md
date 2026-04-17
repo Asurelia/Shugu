@@ -16,10 +16,11 @@ flags, 344 user-type gates).
 
 | Metric | Value |
 |---|---|
-| Source files (`.ts` + `.tsx`) | 165 |
-| Lines of code (src/) | ~26,500 |
-| Lines of code (tests/) | ~7,000 |
-| Test files | 51 |
+| Source files (`.ts` + `.tsx`) | 185 |
+| Lines of code (src/) | ~37,400 |
+| Lines of code (tests/) | ~11,800 |
+| Test files | 62 |
+| Tests passing | 901 |
 | Architectural layers | 14 (0 through 14) |
 | Tools (model-callable) | 14 |
 | Slash commands | 19+ (built-in) + dynamic |
@@ -50,7 +51,7 @@ Project_cc/
 │   ├── benchmark-context.ts# Context-window benchmark harness
 │   └── quick-bench-c.ts    # Quick benchmark runner
 ├── src/                    # Source code — 159 files, 14 layers
-├── tests/                  # Vitest test suite — 51 test files, ~7,000 LOC
+├── tests/                  # Vitest test suite — 62 test files, ~11,800 LOC, 901 tests
 │   ├── helpers/            # Shared test utilities
 │   └── *.test.ts           # Per-module integration + unit tests
 ├── .pcc/                   # Local PCC configuration directory
@@ -63,7 +64,7 @@ Project_cc/
 ### Source Tree (`src/`)
 
 ```
-src/                                  165 files total
+src/                                  185 files total
 ├── brand.ts                          # Brand constants
 │
 ├── protocol/         (7 files)       # Layer 0  — Pure types, zero deps
@@ -2109,5 +2110,5 @@ Permission system: 5 modes × risk classifier × session approval caching (2-tok
 
 ---
 
-*Document updated for Shugu v0.2.0. 165 source files, ~26,500 LOC,
-60 test files, ~8,500 test LOC. Last verified: 2026-04-11.*
+*Document updated for Shugu v0.2.0. 185 source files, ~37,400 LOC,
+62 test files, ~11,800 test LOC, 901 tests passing. Last verified: 2026-04-17.*
