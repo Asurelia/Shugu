@@ -66,7 +66,7 @@ export class TerminalRenderer {
   banner(model: string, baseUrl: string): void {
     // Simple fallback banner (rich banner needs full info)
     console.log('');
-    console.log(`${B}${CYAN}  ╔═══ Shugu v1.0.0 ═══╗${R}`);
+    console.log(`${B}${CYAN}  ╔═══ Shugu v0.2.0 ═══╗${R}`);
     console.log(`${D}  Model: ${model}${R}`);
     console.log(`${D}  API:   ${baseUrl}${R}`);
     console.log('');
@@ -261,7 +261,7 @@ export class TerminalRenderer {
     });
   }
 
-  async permissionPrompt(tool: string, action: string, reason: string): Promise<boolean> {
+  async permissionPrompt(tool: string, action: string, reason: string): Promise<'allow_once' | 'allow_session' | 'deny'> {
     const truncAction = action.length > 120 ? action.slice(0, 120) + '...' : action;
     console.log(`\n${YELLOW}${B}permission${R} ${D}→${R} ${B}${tool}${R}: ${truncAction}`);
     console.log(`${D}  ${reason}${R}`);
@@ -272,7 +272,13 @@ export class TerminalRenderer {
       rl.question(`${YELLOW}  Allow? [Y/n/a(lways)] ${R}`, (answer) => {
         rl.close();
         const trimmed = answer.trim().toLowerCase();
-        resolve(trimmed === '' || trimmed === 'y' || trimmed === 'yes' || trimmed === 'a' || trimmed === 'always');
+        if (trimmed === 'a' || trimmed === 'always') {
+          resolve('allow_session');
+        } else if (trimmed === '' || trimmed === 'y' || trimmed === 'yes') {
+          resolve('allow_once');
+        } else {
+          resolve('deny');
+        }
       });
     });
   }

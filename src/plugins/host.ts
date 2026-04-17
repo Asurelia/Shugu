@@ -54,6 +54,7 @@ export interface PluginHostOptions {
   maxAgentTurns?: number;   // Max runAgent() calls per invocation (default: 10)
   childEntryPath?: string;  // Override for testing
   disableOsSandbox?: boolean;  // For testing or when permission model isn't available
+  resolvedPermissions?: string[];
 }
 
 // ─── Docker Sandbox Detection ─────────────────────────
@@ -705,9 +706,9 @@ export class PluginHost extends EventEmitter {
         if (!validation.safe) {
           // Unsafe pattern — fall back to literal string match
           const escaped = t.pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          return { type: 'pattern', regex: new RegExp(escaped, t.flags) };
+          return { type: 'pattern', regex: new RegExp(escaped, t.flags) }; // nosemgrep: javascript.lang.security.audit.unsafe-dynamic-regex
         }
-        return { type: 'pattern', regex: new RegExp(t.pattern, t.flags) };
+        return { type: 'pattern', regex: new RegExp(t.pattern, t.flags) }; // nosemgrep: javascript.lang.security.audit.unsafe-dynamic-regex
       }
       return t as SkillTrigger;
     });

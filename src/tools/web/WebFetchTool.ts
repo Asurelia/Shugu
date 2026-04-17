@@ -99,42 +99,55 @@ export class WebFetchTool implements Tool {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
+      if (context.abortSignal) {
+        context.abortSignal.addEventListener('abort', () => controller.abort(), { once: true });
+      }
+
       // SECURITY: Use ssrfSafeFetch to re-validate redirect targets.
       // Native fetch() auto-follows redirects without checking the target URL,
       // allowing SSRF bypass via redirect to localhost/metadata endpoints.
-      const response = await ssrfSafeFetch(url, {
-        method,
-        headers,
-        body: method === 'POST' ? body : undefined,
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeout);
-
-      const contentType = response.headers.get('content-type') ?? '';
+      let fetchedStatus = 0;
+      let fetchedStatusText = '';
+      let fetchedOk = false;
+      let contentType = '';
       let content: string;
+      try {
+        const response = await ssrfSafeFetch(url, {
+          method,
+          headers,
+          body: method === 'POST' ? body : undefined,
+          signal: controller.signal,
+        });
 
-      if (contentType.includes('application/json')) {
-        const json = await response.json();
-        content = JSON.stringify(json, null, 2);
-      } else {
-        const text = await response.text();
-        if (contentType.includes('text/html')) {
-          content = htmlToMarkdown(text);
+        fetchedStatus = response.status;
+        fetchedStatusText = response.statusText;
+        fetchedOk = response.ok;
+        contentType = response.headers.get('content-type') ?? '';
+
+        if (contentType.includes('application/json')) {
+          const json = await response.json();
+          content = JSON.stringify(json, null, 2);
         } else {
-          content = text;
+          const text = await response.text();
+          if (contentType.includes('text/html')) {
+            content = htmlToMarkdown(text);
+          } else {
+            content = text;
+          }
         }
+      } finally {
+        clearTimeout(timeout);
       }
 
       // Truncate if too long
-      if (content.length > MAX_RESPONSE_LENGTH) {
-        content = content.slice(0, MAX_RESPONSE_LENGTH) + `\n\n[Truncated — ${content.length} chars total]`;
+      if (content!.length > MAX_RESPONSE_LENGTH) {
+        content = content!.slice(0, MAX_RESPONSE_LENGTH) + `\n\n[Truncated — ${content!.length} chars total]`;
       }
 
-      const statusInfo = `HTTP ${response.status} ${response.statusText}`;
+      const statusInfo = `HTTP ${fetchedStatus} ${fetchedStatusText}`;
       // Wrap external content so the model can distinguish trusted vs untrusted data
-      const wrapped = `<external-content source="${url}">\n${content}\n</external-content>`;
-      if (!response.ok) {
+      const wrapped = `<external-content source="${url}">\n${content!}\n</external-content>`;
+      if (!fetchedOk) {
         return {
           tool_use_id: call.id,
           content: `${statusInfo}\n\n${wrapped}`,

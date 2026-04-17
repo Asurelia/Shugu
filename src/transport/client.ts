@@ -14,12 +14,15 @@
  */
 
 import type { Message, SystemPrompt, Usage } from '../protocol/messages.js';
+import { tracer } from '../utils/tracer.js';
+import { logger } from '../utils/logger.js';
 import type { ToolDefinition } from '../protocol/tools.js';
 import type { ThinkingConfig } from '../protocol/thinking.js';
 import type { StreamEvent } from '../protocol/events.js';
 import { resolveAuth, type AuthConfig } from './auth.js';
 import { parseSSEStream, accumulateStream, type AccumulatedResponse, type StreamCallbacks } from './stream.js';
 import { classifyHttpError, withRetry, ModelNotFoundError, ModelFallbackError, type RetryConfig, DEFAULT_RETRY_CONFIG } from './errors.js';
+import { getBreaker, CircuitOpenError } from './breaker.js';
 
 // ─── Models ─────────────────────────────────────────────
 
@@ -128,7 +131,25 @@ export class MiniMaxClient {
       throw new Error('Response body is null — streaming not supported?');
     }
 
-    yield* parseSSEStream(response.body, options.abortSignal);
+    // Idle timeout for SSE streaming phase (separate from connection timeout)
+    const streamController = new AbortController();
+    const STREAM_IDLE_TIMEOUT = 120_000; // 2 minutes idle = stale stream
+    let idleTimer = setTimeout(() => streamController.abort(), STREAM_IDLE_TIMEOUT);
+
+    // Combine user abort signal with stream idle controller
+    if (options.abortSignal) {
+      options.abortSignal.addEventListener('abort', () => streamController.abort(), { once: true });
+    }
+
+    try {
+      for await (const event of parseSSEStream(response.body, streamController.signal)) {
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => streamController.abort(), STREAM_IDLE_TIMEOUT);
+        yield event;
+      }
+    } finally {
+      clearTimeout(idleTimer);
+    }
   }
 
   /**
@@ -150,6 +171,8 @@ export class MiniMaxClient {
       throw originalError;
     }
 
+    tracer.log('decision', { action: 'model_fallback', from: currentModel, to: nextModel, reason: originalError.message });
+    logger.warn(`Model fallback: ${currentModel} → ${nextModel} (${originalError.message})`);
     this.setModel(nextModel);
     body.model = nextModel;
     return withRetry(
@@ -208,36 +231,44 @@ export class MiniMaxClient {
     abortSignal?: AbortSignal,
   ): Promise<Response> {
     const url = `${this.auth.baseUrl}/messages`;
+    const breaker = getBreaker(url);
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.config.timeoutMs);
+    // Route through the breaker. CircuitOpenError short-circuits retries
+    // because it is non-TransportError and withRetry only retries
+    // TransportErrors with retryable=true. classifyHttpError rethrows it
+    // unchanged. Result: breaker-open calls fail fast without burning
+    // retry budget.
+    return breaker.execute(async () => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), this.config.timeoutMs);
 
-    // Combine user abort signal with timeout
-    if (abortSignal) {
-      abortSignal.addEventListener('abort', () => controller.abort(), { once: true });
-    }
-
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': this.auth.apiKey,
-          'anthropic-version': ANTHROPIC_VERSION,
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        const errorBody = await response.text();
-        throw classifyHttpError(response.status, errorBody);
+      // Combine user abort signal with timeout
+      if (abortSignal) {
+        abortSignal.addEventListener('abort', () => controller.abort(), { once: true });
       }
 
-      return response;
-    } finally {
-      clearTimeout(timeoutId);
-    }
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': this.auth.apiKey,
+            'anthropic-version': ANTHROPIC_VERSION,
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          const errorBody = await response.text();
+          throw classifyHttpError(response.status, errorBody, response.headers.get('retry-after'));
+        }
+
+        return response;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    });
   }
 
   // ─── Model Switching ────────────────────────────────

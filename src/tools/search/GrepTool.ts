@@ -204,7 +204,14 @@ async function tryRipgrep(
 
     args.push(pattern, path);
 
-    const child = spawn('rg', args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    let child;
+    try {
+      child = spawn('rg', args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    } catch {
+      // spawn can throw synchronously (EPERM, ENOENT on some platforms)
+      resolve(null);
+      return;
+    }
     let stdout = '';
     let stderr = '';
 

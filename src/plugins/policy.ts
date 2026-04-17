@@ -3,6 +3,16 @@
  *
  * Loads and resolves `.pcc/plugin-policy.json` for per-plugin capability
  * overrides, isolation mode, and enable/disable controls.
+ *
+ * Isolation modes:
+ *   - 'unrestricted' — plugin runs in the host process with full runtime
+ *     access. No sandbox, no broker. Use only for plugins you author or
+ *     fully trust. (Legacy name: 'trusted', accepted with a deprecation
+ *     warning. 'trusted' was renamed because it implied "safe" when the
+ *     real semantics are "not sandboxed".)
+ *   - 'brokered' — plugin runs in a child process with capability-based
+ *     IPC. Filesystem, network, and agent access are mediated by the
+ *     broker. Default for anything you did not author.
  */
 
 import { readFile } from 'node:fs/promises';
@@ -10,12 +20,42 @@ import { join } from 'node:path';
 import type { PluginManifest } from './loader.js';
 import { logger } from '../utils/logger.js';
 
+// ─── Isolation Mode ────────────────────────────────────
+
+/**
+ * Canonical isolation mode. `trusted` is accepted as an input alias for
+ * backward compatibility but normalized to `unrestricted` at load time.
+ */
+export type IsolationMode = 'unrestricted' | 'brokered';
+
+/** Input type accepted from user config (still allows legacy 'trusted'). */
+export type IsolationInput = IsolationMode | 'trusted';
+
+/**
+ * Normalize an isolation input, warning on legacy names.
+ * Returns `undefined` when input is `undefined` (caller applies its own default).
+ */
+export function normalizeIsolation(
+  value: IsolationInput | undefined,
+  contextLabel: string,
+): IsolationMode | undefined {
+  if (value === undefined) return undefined;
+  if (value === 'trusted') {
+    logger.warn(
+      `plugin-policy: "${contextLabel}" uses isolation: "trusted" — rename to "unrestricted". ` +
+        `"trusted" was misleading (it does NOT imply sandboxing); supported until next major.`,
+    );
+    return 'unrestricted';
+  }
+  return value;
+}
+
 // ─── Policy Schema ─────────────────────────────────────
 
 export interface PluginPolicy {
   version: 1;
   defaults?: {
-    isolation?: 'trusted' | 'brokered';
+    isolation?: IsolationInput;
     capabilities?: string[];
     permissions?: string[];
     maxAgentTurns?: number;
@@ -23,7 +63,7 @@ export interface PluginPolicy {
   };
   plugins?: Record<string, {
     enabled?: boolean;
-    isolation?: 'trusted' | 'brokered';
+    isolation?: IsolationInput;
     capabilities?: string[];
     capabilitiesAdd?: string[];
     capabilitiesDeny?: string[];
@@ -38,7 +78,7 @@ export interface PluginPolicy {
 
 export interface ResolvedPluginConfig {
   enabled: boolean;
-  isolation: 'trusted' | 'brokered';
+  isolation: IsolationMode;
   capabilities: string[];
   permissions: string[];
   timeoutMs: number;
@@ -49,7 +89,7 @@ export interface ResolvedPluginConfig {
 
 const DEFAULTS: ResolvedPluginConfig = {
   enabled: true,
-  isolation: 'trusted',
+  isolation: 'unrestricted',
   capabilities: ['fs.read'],
   permissions: [],
   timeoutMs: 30_000,
@@ -100,7 +140,8 @@ export function resolvePluginConfig(
   policy: PluginPolicy | null,
 ): ResolvedPluginConfig {
   // Step 1: start from defaults, then apply manifest
-  let isolation: 'trusted' | 'brokered' = manifest.isolation ?? DEFAULTS.isolation;
+  let isolation: IsolationMode =
+    normalizeIsolation(manifest.isolation, `manifest ${manifest.name}`) ?? DEFAULTS.isolation;
   let capabilities: string[] = manifest.capabilities ? [...manifest.capabilities] : [...DEFAULTS.capabilities];
   let permissions: string[] = manifest.permissions ? [...manifest.permissions] : [...DEFAULTS.permissions];
   let timeoutMs: number = DEFAULTS.timeoutMs;
@@ -111,7 +152,8 @@ export function resolvePluginConfig(
     // Step 2: apply policy defaults
     const d = policy.defaults;
     if (d) {
-      if (d.isolation !== undefined) isolation = d.isolation;
+      const norm = normalizeIsolation(d.isolation, 'policy defaults');
+      if (norm !== undefined) isolation = norm;
       if (d.capabilities !== undefined) capabilities = [...d.capabilities];
       if (d.permissions !== undefined) permissions = [...d.permissions];
       if (d.timeoutMs !== undefined) timeoutMs = d.timeoutMs;
@@ -122,17 +164,12 @@ export function resolvePluginConfig(
     const override = policy.plugins?.[manifest.name];
     if (override) {
       if (override.enabled === false) enabled = false;
-      if (override.isolation !== undefined) isolation = override.isolation;
+      const norm = normalizeIsolation(override.isolation, `policy override ${manifest.name}`);
+      if (norm !== undefined) isolation = norm;
       if (override.capabilities !== undefined) capabilities = [...override.capabilities];
       if (override.permissions !== undefined) permissions = [...override.permissions];
       if (override.timeoutMs !== undefined) timeoutMs = override.timeoutMs;
       if (override.maxAgentTurns !== undefined) maxAgentTurns = override.maxAgentTurns;
-
-      // capabilitiesDeny removes from final list (always wins)
-      if (override.capabilitiesDeny && override.capabilitiesDeny.length > 0) {
-        const denySet = new Set(override.capabilitiesDeny);
-        capabilities = capabilities.filter((c) => !denySet.has(c));
-      }
 
       // capabilitiesAdd adds to the final list
       if (override.capabilitiesAdd && override.capabilitiesAdd.length > 0) {
@@ -141,6 +178,12 @@ export function resolvePluginConfig(
             capabilities.push(cap);
           }
         }
+      }
+
+      // capabilitiesDeny removes from final list (AFTER add — always wins)
+      if (override.capabilitiesDeny && override.capabilitiesDeny.length > 0) {
+        const denySet = new Set(override.capabilitiesDeny);
+        capabilities = capabilities.filter((c) => !denySet.has(c));
       }
     }
   }

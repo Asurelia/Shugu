@@ -36,6 +36,8 @@ import { createPasteHandler } from './paste.js';
 import { colorizeCode, detectLanguage } from './highlight.js';
 import { renderMarkdown, renderInline } from './markdown.js';
 import { parseReadOutput, parseGrepOutput, parseWebFetchOutput, parseGlobOutput } from './parsers.js';
+import { TrackerPanel, type TrackerEvent, type TrackerAgent } from './TrackerPanel.js';
+import type { TrackerStage } from '../utils/tracer.js';
 
 // ─── Message Rendering (for Static items) ──────────────
 
@@ -125,7 +127,7 @@ function StaticMessage({ message, expandThinking = false }: { message: UIMessage
       const preview = message.text.replace(/\n/g, ' ').slice(0, 120);
       return (
         <Box paddingLeft={2}>
-          <Text dimColor italic>{'∴ '}{preview}{message.text.length > 120 ? '… (ctrl+r to expand)' : ''}</Text>
+          <Text dimColor italic>{'∴ '}{preview}{message.text.length > 120 ? '… (ctrl+o to expand)' : ''}</Text>
         </Box>
       );
     }
@@ -362,6 +364,18 @@ export interface ExternalState {
   companionPetted?: boolean;
   /** When true, thinking blocks render fully expanded */
   expandThinking?: boolean;
+  /** Queued user input typed while model is streaming */
+  queuedInput?: string;
+  /** Whether there is queued input pending submission */
+  hasQueuedInput?: boolean;
+  /** Show the real-time tracker panel (Ctrl+T) */
+  showTracker?: boolean;
+  /** Current pipeline stage for tracker */
+  trackerStage?: TrackerStage;
+  /** Active agents for tracker */
+  trackerAgents?: TrackerAgent[];
+  /** Recent trace events for tracker */
+  trackerEvents?: TrackerEvent[];
 }
 
 const MODES = ['default', 'plan', 'acceptEdits', 'fullAuto', 'bypass'] as const;
@@ -455,17 +469,37 @@ function FullApp({ initialMode, initialStatus, stateRef, onSubmit, onModeChange 
   const expandThinking = stateRef.current.expandThinking ?? false;
 
   useInput((_input, key) => {
-    // Shift+Tab: cycle modes
-    if (key.tab && key.shift && liveState.showInput) {
+    // Shift+Tab: cycle modes (works during streaming too)
+    if (key.tab && key.shift) {
       const idx = MODES.indexOf(liveState.mode as typeof MODES[number]);
       const next = MODES[(idx + 1) % MODES.length]!;
       onModeChange(next);
+    }
+
+    // Ctrl+O: toggle expanded thinking display
+    if (key.ctrl && _input === 'o') {
+      const current = stateRef.current.expandThinking ?? false;
+      stateRef.current = { ...stateRef.current, expandThinking: !current };
+    }
+
+    // Ctrl+T: toggle real-time tracker panel
+    if (key.ctrl && _input === 't') {
+      const current = stateRef.current.showTracker ?? false;
+      stateRef.current = { ...stateRef.current, showTracker: !current };
+    }
+
+    // Escape: clear current input + queued input
+    if (key.escape) {
+      setInputValue('');
+      if (stateRef.current.hasQueuedInput) {
+        stateRef.current = { ...stateRef.current, queuedInput: undefined, hasQueuedInput: false };
+      }
     }
   });
 
   // Handle pasted text from bracketed paste mode (set via ExternalState)
   const lastPasteRef = useRef('');
-  const pastedContentRef = useRef<string | null>(null); // Store full paste for submit
+  const pastedContentMap = useRef<Map<number, string>>(new Map());
   const pasteCounter = useRef(0);
   useEffect(() => {
     const ext = stateRef.current as ExternalState & { _pastedText?: string };
@@ -478,7 +512,7 @@ function FullApp({ initialMode, initialStatus, stateRef, onSubmit, onModeChange 
       if (lineCount > 3) {
         // Large paste: show placeholder, store full content
         pasteCounter.current++;
-        pastedContentRef.current = raw;
+        pastedContentMap.current.set(pasteCounter.current, raw);
         setInputValue(prev => prev + `[Pasted text #${pasteCounter.current} — ${lineCount} lines]`);
       } else {
         // Small paste: inline directly
@@ -492,15 +526,36 @@ function FullApp({ initialMode, initialStatus, stateRef, onSubmit, onModeChange 
     if (!text.trim()) return;
     // Expand paste placeholder with full content
     let finalText = text;
-    if (pastedContentRef.current && text.includes('[Pasted text #')) {
-      finalText = text.replace(/\[Pasted text #\d+ — \d+ lines\]/, pastedContentRef.current);
-      pastedContentRef.current = null;
+    if (pastedContentMap.current.size > 0 && finalText.includes('[Pasted text #')) {
+      finalText = finalText.replace(/\[Pasted text #(\d+) — \d+ lines\]/g, (_match, num) => {
+        return pastedContentMap.current.get(Number(num)) ?? _match;
+      });
+      pastedContentMap.current.clear();
     }
     // Sanitize residual paste markers ([200~, [201~, etc.)
     finalText = finalText.replace(/\[200~/g, '').replace(/\[201~/g, '').replace(/200~/g, '').replace(/201~/g, '');
     setInputValue('');
     onSubmit(finalText.trim());
   }, [onSubmit]);
+
+  // Queue submit: store input for auto-submit after streaming finishes
+  const handleQueueSubmit = useCallback((text: string) => {
+    if (!text.trim()) return;
+    let finalText = text;
+    if (pastedContentMap.current.size > 0 && finalText.includes('[Pasted text #')) {
+      finalText = finalText.replace(/\[Pasted text #(\d+) — \d+ lines\]/g, (_match, num) => {
+        return pastedContentMap.current.get(Number(num)) ?? _match;
+      });
+      pastedContentMap.current.clear();
+    }
+    finalText = finalText.replace(/\[200~/g, '').replace(/\[201~/g, '').replace(/200~/g, '').replace(/201~/g, '');
+    stateRef.current = {
+      ...stateRef.current,
+      queuedInput: finalText.trim(),
+      hasQueuedInput: true,
+    };
+    setInputValue('');
+  }, [stateRef]);
 
   return (
     <>
@@ -517,6 +572,16 @@ function FullApp({ initialMode, initialStatus, stateRef, onSubmit, onModeChange 
       <Box>
         {/* Left column: everything except companion */}
         <Box flexDirection="column" flexGrow={1}>
+          {/* Real-time tracker panel (Ctrl+T, only on tall terminals) */}
+          {stateRef.current.showTracker && (stdout?.rows ?? 40) >= 30 && (
+            <TrackerPanel
+              stage={stateRef.current.trackerStage ?? 'idle'}
+              agents={stateRef.current.trackerAgents ?? []}
+              events={stateRef.current.trackerEvents ?? []}
+              isStreaming={liveState.isStreaming}
+            />
+          )}
+
           {/* Spinner during streaming */}
           {liveState.isStreaming && liveState.streamStartTime && (
             <SpinnerInline startTime={liveState.streamStartTime} tokenCount={liveState.streamTokens} />
@@ -534,19 +599,22 @@ function FullApp({ initialMode, initialStatus, stateRef, onSubmit, onModeChange 
             return <Text dimColor>{'─'.repeat(barWidth)}</Text>;
           })()}
 
-          {/* Input */}
-          {liveState.showInput ? (
-            <Box>
+          {/* Input — always visible, visually different when streaming */}
+          <Box>
+            {liveState.isStreaming ? (
+              <Text dimColor color="yellow">{'⏳ '}</Text>
+            ) : (
               <Text bold color="green">{'> '}</Text>
-              <TextInput
-                value={inputValue}
-                onChange={setInputValue}
-                onSubmit={handleSubmit}
-              />
-            </Box>
-          ) : (
-            <Text dimColor>{'  …'}</Text>
-          )}
+            )}
+            <TextInput
+              value={inputValue}
+              onChange={setInputValue}
+              onSubmit={liveState.isStreaming ? handleQueueSubmit : handleSubmit}
+            />
+            {liveState.isStreaming && stateRef.current.hasQueuedInput && (
+              <Text dimColor color="yellow">{' [en file d\'attente]'}</Text>
+            )}
+          </Box>
 
           {/* Bottom separator */}
           {(() => {
@@ -595,6 +663,14 @@ export interface AppHandle {
   setCompanionReaction: (text: string) => void;
   setCompanionPetted: (petted: boolean) => void;
   setExpandThinking: (expand: boolean) => void;
+  /** Get and clear any queued input typed during streaming */
+  getQueuedInput: () => string | null;
+  /** Push a trace event to the tracker panel */
+  pushTrackerEvent: (event: TrackerEvent) => void;
+  /** Update the tracker pipeline stage */
+  setTrackerStage: (stage: TrackerStage) => void;
+  /** Update active agents in tracker */
+  setTrackerAgents: (agents: TrackerAgent[]) => void;
   dumpTranscript: () => void;
   startStreaming: () => void;
   stopStreaming: () => void;
@@ -701,6 +777,27 @@ export function launchFullApp(
     setExpandThinking(expand: boolean) {
       updateState({ expandThinking: expand });
     },
+    getQueuedInput(): string | null {
+      const queued = stateRef.current.queuedInput;
+      if (queued) {
+        updateState({ queuedInput: undefined, hasQueuedInput: false });
+        return queued;
+      }
+      return null;
+    },
+    pushTrackerEvent(event: TrackerEvent) {
+      const current = stateRef.current.trackerEvents ?? [];
+      // Keep last 20 events, throttle: skip if last event was < 100ms ago
+      const last = current[current.length - 1];
+      if (last && event.time === last.time && event.type === last.type) return;
+      updateState({ trackerEvents: [...current.slice(-20), event] });
+    },
+    setTrackerStage(stage: TrackerStage) {
+      updateState({ trackerStage: stage });
+    },
+    setTrackerAgents(agents: TrackerAgent[]) {
+      updateState({ trackerAgents: agents });
+    },
     dumpTranscript() {
       const allMsgs = stateRef.current.messages;
       const lines: string[] = ['', '═══ Full Transcript (expanded) ═══', ''];
@@ -726,7 +823,7 @@ export function launchFullApp(
     startStreaming() {
       updateState({
         isStreaming: true,
-        showInput: false,
+        showInput: true, // Keep input visible for prompt queue
         streamStartTime: Date.now(),
         streamTokens: 0,
       });

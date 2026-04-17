@@ -4,10 +4,18 @@
  * Creates or overwrites files. Creates parent directories if needed.
  */
 
-import { writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir, access } from 'node:fs/promises';
 import { resolve, isAbsolute, dirname } from 'node:path';
-import type { Tool, ToolCall, ToolResult, ToolContext, ToolDefinition } from '../../protocol/tools.js';
+import type { Tool, ToolCall, ToolResult, ToolContext, ToolDefinition, PermissionMode } from '../../protocol/tools.js';
 import { validateWorkspacePath } from '../../policy/workspace.js';
+
+/**
+ * Permission modes that bypass the read-before-write guard.
+ * Both express user intent to proceed without friction: 'fullAuto' trusts the
+ * model's judgment, 'bypass' disables all friction. The guard exists to catch
+ * accidental overwrites in interactive modes (default, plan, acceptEdits).
+ */
+const GUARD_BYPASS_MODES: readonly PermissionMode[] = ['fullAuto', 'bypass'];
 
 export const FileWriteToolDefinition: ToolDefinition = {
   name: 'Write',
@@ -67,11 +75,35 @@ export class FileWriteTool implements Tool {
       };
     }
 
+    // Read-before-write guard: prevent accidental overwrites of existing files.
+    // Skipped in fullAuto/bypass — those modes explicitly opt out of friction.
+    try {
+      await access(absPath);
+      if (
+        context.readTracker &&
+        !context.readTracker.hasRead(absPath) &&
+        !GUARD_BYPASS_MODES.includes(context.permissionMode)
+      ) {
+        return {
+          tool_use_id: call.id,
+          content: `Error: File "${filePath}" exists but was not read first. Use Read to examine it before overwriting.`,
+          is_error: true,
+        };
+      }
+    } catch {
+      // File doesn't exist — OK to create
+    }
+
     try {
       // Create parent directories
       await mkdir(dirname(absPath), { recursive: true });
 
       await writeFile(absPath, content, 'utf-8');
+
+      // Invalidate: after write, the in-memory "read" marker no longer
+      // reflects file state. A subsequent Write in interactive modes must
+      // re-Read to confirm the model saw its own change.
+      context.readTracker?.invalidate(absPath);
 
       const lineCount = content.split('\n').length;
       return {

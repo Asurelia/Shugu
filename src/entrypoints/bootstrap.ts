@@ -29,12 +29,14 @@ import { createTeamCommand } from '../commands/team.js';
 import { createVaultCommand } from '../commands/vault.js';
 import { createDreamCommand } from '../commands/dream.js';
 import { createDefaultCommands } from '../commands/index.js';
-import { loadMarkdownCommands } from '../commands/markdown-loader.js';
-import { loadMarkdownAgents } from '../agents/markdown-loader.js';
+import { loadMarkdownCommandsWithTrust } from '../commands/markdown-loader.js';
+import { loadMarkdownAgentsWithTrust } from '../agents/markdown-loader.js';
+import type { DiscoveredFile } from '../credentials/trust-store.js';
 import { FileRevertStack, TurnChangeAccumulator } from '../context/session/file-revert.js';
 import { registerFileTrackingHook } from '../plugins/builtin/file-tracking-hook.js';
 import { createFileRevertCommand } from '../commands/session.js';
 import { ToolRouter } from '../tools/router.js';
+import { ReadTracker } from '../context/read-tracker.js';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createReviewCommand } from '../commands/review.js';
@@ -178,7 +180,12 @@ export function createPermissionPrompter(
     }
 
     // Ask the user
-    return renderer.permissionPrompt(tool, action, result.reason);
+    const response = await renderer.permissionPrompt(tool, action, result.reason);
+    if (response === 'deny') return false;
+    if (response === 'allow_session') {
+      permResolver.allowForSession({ id: 'pending', name: tool, input: parseActionForResolver(tool, action) });
+    }
+    return true;
   };
 }
 
@@ -238,11 +245,26 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
   const skillRegistry = createDefaultSkillRegistry();
   const commands = createDefaultCommands();
 
-  // Load custom markdown commands (.pcc/commands/*.md)
+  // Load custom markdown commands/agents. Project-local files go through
+  // TOFU (trust on first use): user is asked to approve new or changed
+  // files. bypass mode auto-approves for CI/headless runs.
   const builtinCommandNames = new Set(commands.getAll().flatMap(c => [c.name, ...(c.aliases ?? [])]));
-  const mdCommands = loadMarkdownCommands(
-    [join(homedir(), '.pcc', 'commands'), join(cwd, '.pcc', 'commands')],
+  const markdownTrustConfirm: (pending: DiscoveredFile[]) => Promise<boolean> =
+    cliArgs.mode === 'bypass'
+      ? async () => true
+      : async (pending) => {
+          const lines = pending.map((p) => `    - ${p.relPath}`).join('\n');
+          return renderer.confirm(
+            `Project-local executable markdown detected (${pending.length} file${pending.length > 1 ? 's' : ''}):\n${lines}\nAllow loading? [y/N]`,
+          );
+        };
+
+  const mdCommands = await loadMarkdownCommandsWithTrust(
+    [join(homedir(), '.pcc', 'commands')],
+    [join(cwd, '.pcc', 'commands')],
+    cwd,
     builtinCommandNames,
+    markdownTrustConfirm,
   );
   for (const cmd of mdCommands) commands.register(cmd);
   if (mdCommands.length > 0) {
@@ -321,19 +343,23 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
   const sessionMgr = new SessionManager();
 
   const askPermission = createPermissionPrompter(renderer, permResolver);
+  const readTracker = new ReadTracker();
 
   const toolContext: ToolContext = {
     cwd,
     abortSignal: new AbortController().signal,
     permissionMode: cliArgs.mode,
     askPermission,
+    readTracker,
   };
 
-  // Load custom markdown agents (.pcc/agents/*.md)
-  const customAgents = await loadMarkdownAgents([
-    join(homedir(), '.pcc', 'agents'),
-    join(cwd, '.pcc', 'agents'),
-  ]);
+  // Load custom markdown agents — same TOFU gating as commands.
+  const customAgents = await loadMarkdownAgentsWithTrust(
+    [join(homedir(), '.pcc', 'agents')],
+    [join(cwd, '.pcc', 'agents')],
+    cwd,
+    markdownTrustConfirm,
+  );
   const customAgentCount = Object.keys(customAgents).length;
   if (customAgentCount > 0) {
     renderer.info(`  Custom agents: ${customAgentCount} loaded`);

@@ -54,15 +54,31 @@ export class ModelNotFoundError extends TransportError {
   }
 }
 
+/**
+ * Signals that an SSE stream was aborted via AbortSignal.
+ *
+ * Uses name='AbortError' so existing isAbortError() helpers that match by
+ * name (src/engine/interrupts.ts) treat it the same as a native abort.
+ * Replaces previous `new DOMException('...', 'AbortError')` which worked
+ * only because Node >=17 polyfills DOMException — using a plain Error
+ * makes the Node-native path explicit and removes the DOM API dependency.
+ */
+export class StreamAbortError extends Error {
+  constructor(message = 'Stream aborted') {
+    super(message);
+    this.name = 'AbortError';
+  }
+}
+
 // ─── Error Classification ───────────────────────────────
 
-export function classifyHttpError(status: number, body: string): TransportError {
+export function classifyHttpError(status: number, body: string, retryAfterHeader?: string | null): TransportError {
   if (status === 401 || status === 403) {
     return new AuthenticationError();
   }
 
   if (status === 429) {
-    const retryAfter = parseRetryAfter(body);
+    const retryAfter = parseRetryAfter(body, retryAfterHeader);
     return new RateLimitError(retryAfter);
   }
 
@@ -85,7 +101,13 @@ export function classifyHttpError(status: number, body: string): TransportError 
   return new TransportError(`API error ${status}: ${body}`, status, false);
 }
 
-function parseRetryAfter(body: string): number {
+function parseRetryAfter(body: string, headerValue?: string | null): number {
+  // 1. Try HTTP header first (standard)
+  if (headerValue) {
+    const seconds = parseInt(headerValue, 10);
+    if (!isNaN(seconds) && seconds > 0) return seconds * 1000;
+  }
+  // 2. Fallback to JSON body
   try {
     const parsed = JSON.parse(body) as Record<string, unknown>;
     const headers = parsed['headers'] as Record<string, string> | undefined;
@@ -130,6 +152,12 @@ export async function withRetry<T>(
       return result;
     } catch (error) {
       lastError = error as Error;
+
+      // Circuit-open errors short-circuit: retrying would just re-hit the
+      // open circuit immediately. The breaker itself handles the cooldown.
+      if (error instanceof Error && error.name === 'CircuitOpenError') {
+        throw error;
+      }
 
       if (error instanceof TransportError && !error.retryable) {
         throw error;
