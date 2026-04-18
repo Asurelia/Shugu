@@ -214,11 +214,19 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
   const renderer = new TerminalRenderer();
   const client = new MiniMaxClient(cliArgs.model ? { model: cliArgs.model } : {});
 
-  // Configure tracer
-  if (cliArgs.verbose) tracer.setVerbose(true);
-  tracer.log('session_start', { mode: cliArgs.mode, verbose: cliArgs.verbose, cwd: process.cwd() });
-
   const cwd = process.cwd();
+
+  // Configure tracer. startSession() creates `~/.pcc/sessions/{id}/` so live
+  // sessions no longer share the daily jsonl with unit tests. All subsequent
+  // trace events, model calls, tool I/O and agent transcripts are routed
+  // under that directory.
+  if (cliArgs.verbose) tracer.setVerbose(true);
+  await tracer.startSession({
+    cwd,
+    model: cliArgs.model ?? undefined,
+    mode: cliArgs.mode ?? undefined,
+  });
+  tracer.log('session_start', { mode: cliArgs.mode, verbose: cliArgs.verbose, cwd });
 
   // ─── Mandatory Vault ─────────────────────────────────
   const vault = new CredentialVault();

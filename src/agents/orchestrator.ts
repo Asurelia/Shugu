@@ -19,6 +19,7 @@ import type { Tool, ToolContext } from '../protocol/tools.js';
 import { isTextBlock } from '../protocol/messages.js';
 import { createWorktree, removeWorktree, worktreeHasChanges, type Worktree, type WorktreeCleanupResult } from './worktree.js';
 import { resolveGitRoot, relativeToCwd } from '../utils/git.js';
+import { tracer } from '../utils/tracer.js';
 import { join } from 'node:path';
 
 // ─── Agent Limits ──────────────────────────────────────
@@ -469,6 +470,21 @@ export class AgentOrchestrator {
         }
         worktree = null; // Handled — don't re-run in finally
       }
+
+      // Full agent transcript for observability — prompt, events, result
+      // are persisted under `agents/{agentId}/` in the current session dir.
+      tracer.logAgentRun({
+        agentId,
+        agentType: definition.name,
+        prompt: task,
+        response,
+        endReason,
+        turns,
+        costUsd,
+        events,
+        context: options.context,
+        depth,
+      });
 
       return {
         response,

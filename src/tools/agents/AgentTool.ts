@@ -66,6 +66,11 @@ The sub-agent's result is returned as text. It cannot see your conversation — 
   },
   concurrencySafe: true, // Multiple agents can run in parallel
   categories: ['agent'],
+  // Sub-agents bound themselves via maxTurns + maxBudgetUsd. The engine's
+  // default 300s wrapper is a symptom fix for runaway leaf tools — it cut
+  // complex review/verify runs mid-flight. Give Agent 30min, and trust the
+  // turn/budget caps to contain real loops.
+  timeoutMs: 30 * 60_000,
 };
 
 export interface AgentEvent {

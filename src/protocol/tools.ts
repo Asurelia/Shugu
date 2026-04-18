@@ -25,6 +25,14 @@ export interface ToolDefinition {
 
   /** Capability categories for dynamic tool routing */
   categories?: string[];
+
+  /**
+   * Per-tool execution timeout in ms. Overrides the engine's default wrapper
+   * (300_000ms / 5min). Use a larger value for tools that legitimately run
+   * long (e.g. Agent sub-loops, which bound themselves via maxTurns/maxBudget).
+   * Hard upper bound is enforced by the loop; treat this as a soft hint.
+   */
+  timeoutMs?: number;
 }
 
 export interface ToolInputSchema {
