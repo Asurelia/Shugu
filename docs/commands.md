@@ -39,6 +39,8 @@
 | `/status` | `/st` | Show git status and project info |
 | `/commit [msg]` | | Generate commit message or commit staged changes |
 | `/review` | | Review code changes with 3 parallel specialist agents (security, logic, architecture) |
+| `/socratic [--scope diff\|feature\|full] [--topic <n>]` | | Rodin-style adversarial review (read-only). Writes to `.pcc/rodin/YYYY-MM-DD-HHMMSS-<scope>-<slug>.md` and appends metrics to `.pcc/rodin/metrics.jsonl`. |
+| `/finish-feature` | | Verify branch is clean, run `/socratic --scope diff`, then merge `--no-ff` into main on user confirmation. Never pushes. Blocks on any `✗ Faux`. |
 | `/diff` | | Show git diff with colors (truncated at 100 lines) |
 
 ### Configuration
@@ -195,6 +197,7 @@
 | `explore` | Read, Glob, Grep, Bash | 10 | Code exploration only. Search, read, understand. No file modifications. Structured summary output. |
 | `code` | All | 20 | Coding agent. Read before modify, Edit for changes, Write for new files. Tests changes. |
 | `review` | Read, Glob, Grep, Bash | 10 | Code review only. No file modifications. Specific actionable feedback with file paths and line references. |
+| `socratic` | Read, Glob, Grep, Bash (denylist on mutations) | 25 | Rodin-style adversarial reviewer. Five-label taxonomy (✓/~/⚡/◐/✗), mandatory file:line citations, banned hedge phrases. Invoked by `/socratic`. |
 | `test` | All | 15 | Testing agent. Write and run tests, report pass/fail status. |
 
 ### Agent Teams (Templates)
