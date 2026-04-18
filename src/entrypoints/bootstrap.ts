@@ -41,6 +41,8 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createReviewCommand } from '../commands/review.js';
 import { createBatchCommand } from '../commands/batch.js';
+import { createSocraticCommand } from '../commands/socratic.js';
+import { createFinishFeatureCommand } from '../commands/finish-feature.js';
 import { createMetaCommand } from '../meta/cli.js';
 import { registerBehaviorHooks } from '../plugins/builtin/behavior-hooks.js';
 import { registerVerificationHook } from '../plugins/builtin/verification-hook.js';
@@ -374,6 +376,14 @@ export async function bootstrap(cliArgs: CliArgs): Promise<BootstrapResult> {
   commands.register(createReviewCommand(orchestrator, cwd));
   commands.register(createBatchCommand(orchestrator, client, cwd));
   commands.register(createMetaCommand(orchestrator, client, cwd));
+  const socraticCommand = createSocraticCommand(orchestrator, cwd);
+  commands.register(socraticCommand);
+  commands.register(createFinishFeatureCommand(
+    orchestrator,
+    socraticCommand,
+    cwd,
+    (question) => renderer.confirm(question),
+  ));
 
   let builtSystemPrompt = '';
 

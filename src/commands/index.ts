@@ -18,6 +18,8 @@ export { createTeamCommand } from './team.js';
 export { createReviewCommand } from './review.js';
 export { createBatchCommand } from './batch.js';
 export { createDreamCommand } from './dream.js';
+export { createSocraticCommand } from './socratic.js';
+export { createFinishFeatureCommand } from './finish-feature.js';
 
 import { CommandRegistry } from './registry.js';
 import {

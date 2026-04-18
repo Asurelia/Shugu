@@ -11,3 +11,6 @@ test-smoke.mjs
 *.bak
 *.bak2
 *.bak*
+
+# Socratic audit reports and metrics
+.pcc/rodin/
