@@ -118,6 +118,17 @@ export class BashTool implements Tool {
       600_000,
     );
 
+    if (context.bashDenylist && context.bashDenylist.length > 0) {
+      const matched = context.bashDenylist.find((re) => re.test(command));
+      if (matched) {
+        return {
+          tool_use_id: call.id,
+          content: `Command blocked by denylist (pattern ${matched.source}): ${command}`,
+          is_error: true,
+        };
+      }
+    }
+
     try {
       const result = await runBash(command, context.cwd, timeoutMs, context.abortSignal);
       return {

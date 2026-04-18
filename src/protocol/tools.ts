@@ -25,6 +25,14 @@ export interface ToolDefinition {
 
   /** Capability categories for dynamic tool routing */
   categories?: string[];
+
+  /**
+   * Per-tool execution timeout in ms. Overrides the engine's default wrapper
+   * (300_000ms / 5min). Use a larger value for tools that legitimately run
+   * long (e.g. Agent sub-loops, which bound themselves via maxTurns/maxBudget).
+   * Hard upper bound is enforced by the loop; treat this as a soft hint.
+   */
+  timeoutMs?: number;
 }
 
 export interface ToolInputSchema {
@@ -96,6 +104,14 @@ export interface ToolContext {
 
   /** Tracks files read during this session — used by FileEditTool to enforce read-before-edit */
   readTracker?: import('../context/read-tracker.js').ReadTracker;
+
+  /**
+   * Optional regex patterns that block Bash commands before execution.
+   * Used by restricted agents (e.g. `socratic`) to enforce read-only
+   * shell access. Matched against the raw command string with `.test()`.
+   * Empty or undefined = no restriction.
+   */
+  bashDenylist?: RegExp[];
 }
 
 export type PermissionMode = 'default' | 'plan' | 'acceptEdits' | 'fullAuto' | 'bypass';

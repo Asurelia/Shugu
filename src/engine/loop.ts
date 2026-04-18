@@ -205,13 +205,17 @@ export async function* runLoop(
         }
       }
 
-      // Dedicated per-call log file for deep inspection
+      // Dedicated per-call log file for deep inspection.
+      // Capture FULL system prompt, messages, tool defs and response —
+      // redaction is applied by the tracer before writing to disk.
       tracer.logModelCall({
         traceId: tracer.traceId ?? 'none',
         spanId: modelSpanId,
-        prompt: JSON.stringify(messages.slice(-2)).slice(0, 2000),
-        response: JSON.stringify(assistantMessage.content).slice(0, 2000),
+        systemPrompt,
+        messages,
+        response: assistantMessage.content,
         model: client.model,
+        toolDefs: effectiveToolDefs,
         inputTokens: turnUsage.input_tokens,
         outputTokens: turnUsage.output_tokens,
         durationMs: Date.now() - turnStartMs,
@@ -375,13 +379,14 @@ export async function* runLoop(
 
           // Parallel execution: all approved tools at once
           if (approved.length > 0) {
-            const TIMEOUT = config.harnessRuntime?.toolTimeoutMs ?? 300_000;
+            const DEFAULT_TIMEOUT = config.harnessRuntime?.toolTimeoutMs ?? 300_000;
             const execStarts = approved.map(() => Date.now());
 
             const promises = approved.map(({ call, tool }, i) => {
+              const perToolTimeout = tool.definition.timeoutMs ?? DEFAULT_TIMEOUT;
               const execPromise = tool.execute(call, config.toolContext!);
               const timeoutPromise = new Promise<never>((_, rej) => {
-                const timer = setTimeout(() => rej(new Error(`Tool "${call.name}" timed out after ${TIMEOUT / 1000}s`)), TIMEOUT);
+                const timer = setTimeout(() => rej(new Error(`Tool "${call.name}" timed out after ${perToolTimeout / 1000}s`)), perToolTimeout);
                 if (typeof timer === 'object' && 'unref' in timer) timer.unref();
               });
               const abortPromise = new Promise<never>((_, rej) => {
@@ -409,12 +414,23 @@ export async function* runLoop(
               }
 
               toolResults.push(result);
+              const toolSpanId = tracer.startSpan();
               tracer.logTimed('tool_result', {
                 tool: call.name,
                 is_error: result.is_error ?? false,
                 content_length: typeof result.content === 'string' ? result.content.length : 0,
                 batch: 'concurrent',
               }, execStarts[i]!, undefined, 'tool_result');
+              // Full I/O to tool-calls/{spanId}.json — no truncation, redacted
+              tracer.logToolCall({
+                traceId: tracer.traceId ?? 'none',
+                spanId: toolSpanId,
+                tool: call.name,
+                input: call.input,
+                output: result.content,
+                isError: result.is_error ?? false,
+                durationMs: duration,
+              });
               yield { type: 'tool_result', result, durationMs: duration };
             }
           }
@@ -524,7 +540,8 @@ export async function* runLoop(
             }
 
             // Execute with timeout and abort signal
-            const TOOL_TIMEOUT_MS = config.harnessRuntime?.toolTimeoutMs ?? 300_000;
+            const DEFAULT_TOOL_TIMEOUT_MS = config.harnessRuntime?.toolTimeoutMs ?? 300_000;
+            const TOOL_TIMEOUT_MS = tool.definition.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS;
             const execStart = Date.now();
             let result: import('../protocol/tools.js').ToolResult;
             try {
@@ -569,12 +586,23 @@ export async function* runLoop(
 
             toolResults.push(result);
             const toolDuration = Date.now() - execStart;
+            const seqToolSpanId = tracer.startSpan();
             tracer.logTimed('tool_result', {
               tool: call.name,
               is_error: result.is_error ?? false,
               content_length: typeof result.content === 'string' ? result.content.length : 0,
               batch: 'sequential',
             }, execStart, undefined, 'tool_result');
+            // Full I/O to tool-calls/{spanId}.json — no truncation, redacted
+            tracer.logToolCall({
+              traceId: tracer.traceId ?? 'none',
+              spanId: seqToolSpanId,
+              tool: call.name,
+              input: call.input,
+              output: result.content,
+              isError: result.is_error ?? false,
+              durationMs: toolDuration,
+            });
             yield { type: 'tool_result', result, durationMs: toolDuration };
           } catch (error) {
             if (isAbortError(error)) throw error;

@@ -307,6 +307,7 @@ export async function runREPL(
     unsubscribeTracer();
     app.unmount();
     await saveSession();
+    await tracer.endSession(signal);
     await services.dispose();
     process.exit(0);
   };
