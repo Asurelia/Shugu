@@ -42,6 +42,12 @@ export interface AgentDefinition {
   maxTurns: number;
   /** Max budget in USD for this agent */
   maxBudgetUsd?: number;
+  /**
+   * Optional regex patterns that block Bash commands for this agent type.
+   * Enforced by BashTool via ToolContext.bashDenylist. Use for restricted
+   * read-only agents (e.g., `socratic`).
+   */
+  bashDenylist?: RegExp[];
 }
 
 // ─── Built-in Agent Types ───────────────────────────────
@@ -313,6 +319,7 @@ export class AgentOrchestrator {
         abortSignal: interrupt.signal,
         permissionMode: cappedMode,
         askPermission: this.parentToolContext.askPermission,
+        bashDenylist: definition.bashDenylist,
       };
 
       // Initial message is the task
