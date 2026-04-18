@@ -46,7 +46,7 @@ describe('Verification agent type', () => {
     expect(BUILTIN_AGENTS['verify'].rolePrompt).toContain('ANTI-RATIONALIZATION');
   });
 
-  it('should now have 6 builtin agent types', () => {
-    expect(Object.keys(BUILTIN_AGENTS).length).toBe(6);
+  it('should now have 7 builtin agent types', () => {
+    expect(Object.keys(BUILTIN_AGENTS).length).toBe(7);
   });
 });
